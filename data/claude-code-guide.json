@@ -1,0 +1,137 @@
+{
+  "sections": [
+    {
+      "id": "quick-start",
+      "title": "🚀 快速入门",
+      "content": "Claude Code 是 Anthropic 推出的 AI 编程助手，支持 CLI、桌面应用和 IDE 集成。它可以帮助你编写代码、调试问题、重构项目，甚至执行复杂的多步骤任务。"
+    },
+    {
+      "id": "commands",
+      "title": "📝 核心指令",
+      "items": [
+        {
+          "command": "/help",
+          "description": "获取帮助信息",
+          "usage": "直接输入 /help",
+          "example": "当你不知道如何使用某个功能时"
+        },
+        {
+          "command": "/clear",
+          "description": "清空对话历史",
+          "usage": "输入 /clear",
+          "example": "开始新的任务前清空上下文"
+        },
+        {
+          "command": "/memory",
+          "description": "查看和管理记忆系统",
+          "usage": "/memory [子命令]",
+          "example": "保存项目偏好、用户习惯等信息"
+        },
+        {
+          "command": "/plan",
+          "description": "进入规划模式",
+          "usage": "对于复杂任务，先规划再执行",
+          "example": "重构大型模块前先制定计划"
+        },
+        {
+          "command": "/review",
+          "description": "代码审查",
+          "usage": "/review",
+          "example": "审查当前分支的改动"
+        },
+        {
+          "command": "/loop",
+          "description": "循环执行任务",
+          "usage": "/loop [间隔] [任务]",
+          "example": "定期检查构建状态"
+        },
+        {
+          "command": "/workflows",
+          "description": "查看和执行工作流",
+          "usage": "/workflows",
+          "example": "执行多代理协作的复杂任务"
+        },
+        {
+          "command": "/config",
+          "description": "配置设置",
+          "usage": "/config",
+          "example": "调整权限、主题等设置"
+        }
+      ]
+    },
+    {
+      "id": "tips",
+      "title": "💡 实用技巧",
+      "items": [
+        {
+          "title": "有效提问",
+          "content": "提供清晰的上下文，说明你想要达到的目标，而不仅仅是具体步骤。"
+        },
+        {
+          "title": "利用记忆系统",
+          "content": "让 Claude 记住你的编码习惯、项目约定、常用命令等，未来对话会自动应用。"
+        },
+        {
+          "title": "任务拆解",
+          "content": "对于复杂任务，使用 /plan 先规划，确认方案后再执行。"
+        },
+        {
+          "title": "多文件编辑",
+          "content": "Claude 可以同时编辑多个文件，你只需描述整体需求。"
+        },
+        {
+          "title": "代码审查",
+          "content": "使用 /review 在提交前进行代码审查，发现潜在问题。"
+        },
+        {
+          "title": "权限管理",
+          "content": "通过 /config 配置自动允许的命令，减少重复确认。"
+        }
+      ]
+    },
+    {
+      "id": "advanced",
+      "title": "🔥 高级用法",
+      "items": [
+        {
+          "title": "自定义 Hooks",
+          "content": "在 settings.json 中配置 hooks，在特定事件触发时自动执行命令。"
+        },
+        {
+          "title": "MCP 服务器",
+          "content": "集成 Model Context Protocol 服务器，扩展 Claude 的能力（如访问数据库、API等）。"
+        },
+        {
+          "title": "工作流编写",
+          "content": "编写自定义工作流脚本，实现多代理协作处理复杂任务。"
+        },
+        {
+          "title": "环境变量",
+          "content": "在 settings.json 中配置环境变量，供 Claude 使用。"
+        }
+      ]
+    },
+    {
+      "id": "faq",
+      "title": "❓ 常见问题",
+      "items": [
+        {
+          "question": "权限提示太多怎么办？",
+          "answer": "使用 /config 或编辑 .claude/settings.json，添加常用命令到 allowlist。"
+        },
+        {
+          "question": "如何保存会话记忆？",
+          "answer": "使用 /memory 命令，Claude 会将重要信息保存到 ~/.claude/projects/项目路径/memory/ 目录。"
+        },
+        {
+          "question": "如何处理大型项目？",
+          "answer": "使用 Agent 工具委派子任务，避免一次性加载过多文件到上下文。"
+        },
+        {
+          "question": "如何回滚 Claude 的改动？",
+          "answer": "所有改动都是 git 操作，可以使用 git reset/revert 回滚。建议每次任务前先 commit。"
+        }
+      ]
+    }
+  ]
+}

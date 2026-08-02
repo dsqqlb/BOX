@@ -1,0 +1,12 @@
+[
+  {
+    "slug": "claude-code-guide",
+    "title": "Claude Code 学习中心",
+    "description": "全面的 Claude Code 使用指南，包含指令、技巧和最佳实践",
+    "category": "learning",
+    "tags": ["claude", "tutorial", "ai", "guide"],
+    "icon": "📚",
+    "featured": true,
+    "createdAt": "2026-08-02"
+  }
+]
