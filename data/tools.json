@@ -18,5 +18,15 @@
     "icon": "🎲",
     "featured": true,
     "createdAt": "2026-08-03"
+  },
+  {
+    "slug": "dnd-translator",
+    "title": "DND 语言翻译器",
+    "description": "龙与地下城矮人语翻译器，支持中英文互译并显示 Davek 符文",
+    "category": "game",
+    "tags": ["dnd", "translator", "dwarvish", "fantasy"],
+    "icon": "🏰",
+    "featured": true,
+    "createdAt": "2026-08-03"
   }
 ]

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import Link from 'next/link';
+import ToolHeader from '@/components/common/ToolHeader';
 
 // ====== 类型和定义 ======
 type DieType = 'D4' | 'D6' | 'D8' | 'D10' | 'D12' | 'D20' | 'D100';
@@ -169,14 +169,7 @@ export default function DiceRollerPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-zinc-950">
       {/* Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-lg bg-white/80 dark:bg-zinc-950/80 border-b border-zinc-200 dark:border-zinc-800">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
-          <Link href="/" className="inline-flex items-center text-sm text-zinc-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group">
-            <span className="mr-1.5 group-hover:-translate-x-1 transition-transform">←</span>
-            返回首页
-          </Link>
-        </div>
-      </header>
+      <ToolHeader />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">🎲 骰子模拟器</h1>

@@ -1,22 +1,13 @@
-import Link from 'next/link';
+import ToolHeader from '@/components/common/ToolHeader';
 import guideData from '@/data/claude-code-guide.json';
 import CopyButton from '@/components/CopyButton';
+import Link from 'next/link';
 
 export default function ClaudeCodeGuidePage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-zinc-50 dark:from-zinc-950 dark:to-zinc-900">
       {/* Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-lg bg-white/80 dark:bg-zinc-950/80 border-b border-zinc-200 dark:border-zinc-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <Link
-            href="/"
-            className="inline-flex items-center text-sm sm:text-base text-zinc-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group"
-          >
-            <span className="mr-2 group-hover:-translate-x-1 transition-transform">←</span>
-            返回首页
-          </Link>
-        </div>
-      </header>
+      <ToolHeader />
 
       {/* Hero */}
       <div className="relative overflow-hidden">

@@ -30,6 +30,31 @@ body {
   }
 }
 
+/* DND 语言字体 */
+@font-face {
+  font-family: 'Davek';
+  src: url('/fonts/Davek.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Magi';
+  src: url('/fonts/Magi.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Elvish';
+  src: url('/fonts/Elvish.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* 骰子摇动动画 */
 @keyframes shake {
   0%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
