@@ -1,22 +1,32 @@
 import ToolCard from './ToolCard';
+import ToolList from './ToolList';
 import { Tool } from '@/lib/types';
 
-export default function ToolGrid({ tools }: { tools: Tool[] }) {
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-        {tools.map((tool) => (
-          <ToolCard key={tool.slug} tool={tool} />
-        ))}
-      </div>
+interface ToolGridProps {
+  tools: Tool[];
+  viewMode: 'grid' | 'list';
+}
 
-      {tools.length === 0 && (
-        <div className="text-center py-20">
-          <div className="text-6xl mb-4">📦</div>
-          <p className="text-zinc-500 dark:text-zinc-400 text-lg">暂无工具</p>
-          <p className="text-zinc-400 dark:text-zinc-500 text-sm mt-2">敬请期待更多精彩内容</p>
-        </div>
-      )}
+export default function ToolGrid({ tools, viewMode }: ToolGridProps) {
+  if (tools.length === 0) {
+    return (
+      <div className="text-center py-20">
+        <div className="text-5xl mb-4">📦</div>
+        <p className="text-zinc-500 dark:text-zinc-400 text-base">没有找到匹配的工具</p>
+        <p className="text-zinc-400 dark:text-zinc-500 text-sm mt-1">试试调整搜索词或切换分类</p>
+      </div>
+    );
+  }
+
+  if (viewMode === 'list') {
+    return <ToolList tools={tools} />;
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+      {tools.map((tool) => (
+        <ToolCard key={tool.slug} tool={tool} />
+      ))}
     </div>
   );
 }

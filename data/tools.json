@@ -8,5 +8,15 @@
     "icon": "📚",
     "featured": true,
     "createdAt": "2026-08-02"
+  },
+  {
+    "slug": "dice-roller",
+    "title": "3D 骰子模拟器",
+    "description": "真实 3D 物理掷骰子，支持 D4/D6/D8/D10/D12/D20/D100 任意数量组合投掷",
+    "category": "game",
+    "tags": ["dice", "3d", "game", "threejs"],
+    "icon": "🎲",
+    "featured": true,
+    "createdAt": "2026-08-03"
   }
 ]
