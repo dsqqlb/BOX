@@ -21,6 +21,26 @@
     "createdAt": "2026-08-03"
   },
   {
+    "slug": "initiative-tracker",
+    "title": "DND 先攻追踪器（遥控器）",
+    "description": "遥控器模式：连接房间，创建角色，控制战斗回合",
+    "category": "game",
+    "tags": ["dnd", "combat", "initiative", "controller"],
+    "icon": "🎮",
+    "featured": true,
+    "createdAt": "2026-08-04"
+  },
+  {
+    "slug": "initiative-tracker/display",
+    "title": "DND 先攻追踪器（主屏）",
+    "description": "主屏模式：投影到大屏幕，博德之门3风格显示，生成房间号",
+    "category": "game",
+    "tags": ["dnd", "combat", "display", "screen"],
+    "icon": "📺",
+    "featured": true,
+    "createdAt": "2026-08-04"
+  },
+  {
     "slug": "json-visualizer",
     "title": "JSON 星系",
     "description": "将 JSON 数据可视化为华丽的 3D 星系，支持格式化、压缩、交互式探索",

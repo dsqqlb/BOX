@@ -2,6 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  /* 慢速旋转动画 */
+  .animate-spin-slow {
+    animation: spin 3s linear infinite;
+  }
+  
+  /* 角色进场动画 */
+  @keyframes slideInUp {
+    from {
+      opacity: 0;
+      transform: translateY(100px) scale(0.8);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  
+  .animate-slideInUp {
+    animation: slideInUp 0.8s ease-out forwards;
+  }
+  
+  /* 角色退场动画 */
+  @keyframes slideOutDown {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-100px) scale(0.8);
+    }
+  }
+  
+  .animate-slideOutDown {
+    animation: slideOutDown 0.8s ease-in forwards;
+  }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
