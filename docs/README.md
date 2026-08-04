@@ -40,7 +40,6 @@ BOX/
 │   ├── globals.css           # 全局样式（含字体声明）
 │   └── tools/                # 工具页面
 │       ├── claude-code-guide/  # Claude Code 学习中心
-│       ├── dice-roller/        # CSS 骰子模拟器
 │       └── dnd-translator/     # DND 语言翻译器
 ├── components/               # React 组件
 │   └── home/                 # 首页组件
@@ -55,7 +54,6 @@ BOX/
 └── docs/                     # 项目文档
     ├── README.md             # 项目总览（本文件）
     ├── claude-code-guide.md  # Claude Code 学习中心文档
-    ├── dice-roller.md        # 骰子模拟器文档
     └── dnd-translator.md     # DND 翻译器文档
 ```
 
@@ -66,13 +64,7 @@ BOX/
 - 功能：Claude Code 使用指南、指令说明、技巧分享
 - 文档：[claude-code-guide.md](./claude-code-guide.md)
 
-### 2. CSS 骰子模拟器
-- 路径：`/tools/dice-roller`
-- 功能：D4/D6/D8/D10/D12/D20/D100 骰子模拟
-- 技术：纯 CSS clip-path 实现，无 3D 库
-- 文档：[dice-roller.md](./dice-roller.md)
-
-### 3. DND 语言翻译器
+### 2. DND 语言翻译器
 - 路径：`/tools/dnd-translator`
 - 功能：中英文互译 + DND 语言符文显示
 - 支持：多语言同时显示（矮人语、卷轴·Magi 等）

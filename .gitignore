@@ -1,38 +1,81 @@
-# dependencies
+# Dependencies
 /node_modules
 /.pnp
 .pnp.js
+.pnpm-store
 
-# testing
+# Testing
 /coverage
 
-# next.js
+# Next.js
 /.next/
 /out/
 
-# production
+# Production
 /build
 
-# misc
+# Misc
 .DS_Store
 *.pem
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# debug
+# Debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# local env files
+# Local env files
+.env
 .env*.local
 .env.local
+.env.development.local
+.env.test.local
+.env.production.local
 .env.production
 
-# vercel
+# Vercel
 .vercel
 
-# typescript
+# TypeScript
 *.tsbuildinfo
 next-env.d.ts
 
-# pnpm
-.pnpm-store
+# OS
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# Mac
+.AppleDouble
+.LSOverride
+Icon
+
+# Windows
+[Dd]esktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+*.cache
+
+# Editor directories and files
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/extensions.json
+*.sublime-project
+*.sublime-workspace
+
+# Lock files (optional, 取消注释以忽略)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml

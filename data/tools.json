@@ -19,5 +19,15 @@
     "icon": "🏰",
     "featured": true,
     "createdAt": "2026-08-03"
+  },
+  {
+    "slug": "json-visualizer",
+    "title": "JSON 星系",
+    "description": "将 JSON 数据可视化为华丽的 3D 星系，支持格式化、压缩、交互式探索",
+    "category": "visualization",
+    "tags": ["json", "3d", "visualization", "formatter"],
+    "icon": "🌌",
+    "featured": true,
+    "createdAt": "2026-08-04"
   }
 ]
