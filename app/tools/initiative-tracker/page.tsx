@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import ToolHeader from '@/components/common/ToolHeader';
 import { useWebSocket } from '@/lib/useWebSocket';
+// 怪物图片清单：由 useEnemyList 从WebSocket服务器实时读取 public/image/enemies 目录
+// 图片命名规则：中文名_英文标识.png（如 哥布林弓手_goblin_archer.png），加图/改名后刷新页面即可生效，无需重启服务
+import { useEnemyList, getEnemyImageUrl, filterEnemies } from '@/lib/enemies';
 
 // 种族和职业数据
 const RACES = [
@@ -22,56 +25,9 @@ const CLASSES = [
   '圣武士', '游侠', '游荡者', '术士', '邪术师', '法师'
 ];
 
-// 获取所有敌人图片
-const ENEMY_IMAGES = [
-  'beast_bat', 'beast_spider', 'beast_spider_cave', 'beast_wolf', 'beast_wolfking', 'beast_worm',
-  'Bugbear_warrior', 'demon', 'demon_butcher', 'demon_imp', 'demon_imp_archer',
-  'goblin_archer', 'goblin_blade_shield', 'goblin_mage', 'goblin_rogue', 'goblin_spear',
-  'mummy', 'ratman_archer', 'ratman_crossbowman', 'ratman_heary_warrior', 'ratman_king',
-  'ratman_mage', 'ratman_spearman', 'ratman_warrior', 'skelton_archer', 'skelton_axe',
-  'skelton_heavy_armor', 'skelton_king', 'skelton_mage', 'skelton_shield', 'skelton_spear',
-  'zombie', 'zombie_soldier'
-];
-
-const ENEMY_NAMES = {
-  'beast_bat': '蝙蝠',
-  'beast_spider': '蜘蛛',
-  'beast_spider_cave': '洞穴蜘蛛',
-  'beast_wolf': '狼',
-  'beast_wolfking': '狼王',
-  'beast_worm': '虫子',
-  'Bugbear_warrior': '熊地精战士',
-  'demon': '恶魔',
-  'demon_butcher': '屠夫恶魔',
-  'demon_imp': '小恶魔',
-  'demon_imp_archer': '小恶魔弓手',
-  'goblin_archer': '哥布林弓手',
-  'goblin_blade_shield': '哥布林剑盾',
-  'goblin_mage': '哥布林法师',
-  'goblin_rogue': '哥布林游荡者',
-  'goblin_spear': '哥布林长矛',
-  'mummy': '木乃伊',
-  'ratman_archer': '鼠人弓手',
-  'ratman_crossbowman': '鼠人弩手',
-  'ratman_heary_warrior': '鼠人重装战士',
-  'ratman_king': '鼠人之王',
-  'ratman_mage': '鼠人法师',
-  'ratman_spearman': '鼠人矛兵',
-  'ratman_warrior': '鼠人战士',
-  'skelton_archer': '骷髅弓手',
-  'skelton_axe': '骷髅斧兵',
-  'skelton_heavy_armor': '骷髅重甲',
-  'skelton_king': '骷髅王',
-  'skelton_mage': '骷髅法师',
-  'skelton_shield': '骷髅盾兵',
-  'skelton_spear': '骷髅矛兵',
-  'zombie': '僵尸',
-  'zombie_soldier': '僵尸士兵'
-};
-
 // 角色类型
 interface Character {
-  id: string;
+  id: string; // 备选池中的唯一ID
   name: string;
   initiative: number;
   token: string;
@@ -80,6 +36,7 @@ interface Character {
   color: string;
   inCombat: boolean; // 是否在战斗区
   ownerId?: string; // 所属遥控器ID
+  combatId?: string; // 战斗区中的唯一ID（从备选池拖入时生成）
 }
 
 interface RoomState {
@@ -120,12 +77,10 @@ const CharacterCard = ({
   const textSize = isCombat ? 'text-5xl' : 'text-4xl';
   const nameSize = isCombat ? 'text-sm' : 'text-xs';
   
-  // 边框颜色：自己的角色金色，其他人灰色，当前回合高亮
-  const borderColor = isCurrent 
-    ? 'border-amber-400 shadow-amber-400/50' 
-    : isOwned 
-      ? 'border-amber-500/70' 
-      : 'border-slate-500/50';
+  // 边框颜色：自己的角色金色，其他人灰色
+  const borderColor = isOwned 
+    ? 'border-amber-500' 
+    : 'border-gray-500';
   
   return (
     <div
@@ -188,6 +143,9 @@ export default function InitiativeTrackerPage() {
   const [selectedClass, setSelectedClass] = useState(CLASSES[0]);
   const [raceImageIndex, setRaceImageIndex] = useState(0); // 当前种族的图片索引
   
+  // 怪物清单：实时从服务器读取 public/image/enemies 目录，加图/改名后刷新页面即可看到，无需重启服务
+  const { enemies: enemyList } = useEnemyList();
+
   // 敌人选择
   const [enemySearch, setEnemySearch] = useState('');
   const [selectedEnemy, setSelectedEnemy] = useState('');
@@ -201,23 +159,25 @@ export default function InitiativeTrackerPage() {
   
   const [draggedChar, setDraggedChar] = useState<Character | null>(null);
   const [dragPreviewInit, setDragPreviewInit] = useState<number | null>(null); // 拖拽预览先攻值
+  const [displayConnected, setDisplayConnected] = useState(true); // 主屏幕是否在线
   const [showOverlapModal, setShowOverlapModal] = useState(false); // 显示重叠弹窗
   const [overlapCharacters, setOverlapCharacters] = useState<Character[]>([]); // 重叠的角色
+  const [sortedOverlapChars, setSortedOverlapChars] = useState<Character[]>([]); // 排序后的重叠角色
   const combatZoneRef = useRef<HTMLDivElement>(null);
 
-  // 从 localStorage 加载本地备选池
+  // 从 localStorage 加载本地备选池（初始化时）
   useEffect(() => {
+    if (!controllerId) return;
+    
     const saved = localStorage.getItem('dnd-initiative-reserve-pool');
     if (saved) {
       try {
-        const data = JSON.parse(saved);
-        // 加载备选池，并标记为不在战斗中
-        const reservePool = data.map((c: Character) => ({ ...c, inCombat: false, ownerId: controllerId }));
-        setCharacters(prev => {
-          // 合并备选池和当前战斗角色
-          const combat = prev.filter(p => p.inCombat);
-          return [...reservePool, ...combat];
-        });
+        const reservePool = JSON.parse(saved).map((c: Character) => ({ 
+          ...c, 
+          inCombat: false, 
+          ownerId: controllerId 
+        }));
+        setCharacters(reservePool);
       } catch (e) {
         console.error('Failed to load reserve pool:', e);
       }
@@ -245,30 +205,28 @@ export default function InitiativeTrackerPage() {
       if (message.type === 'ROOM_STATE') {
         const roomData = message.payload;
         
-        // 合并策略：保留我的备选区角色 + 房间里所有战斗中的角色
+        // 接收房间战斗角色，与本地备选池合并
         setCharacters(prev => {
-          // 从localStorage读取我的备选池
-          const reserveSaved = localStorage.getItem('dnd-initiative-reserve-pool');
-          let myReserve: Character[] = [];
-          if (reserveSaved) {
-            try {
-              myReserve = JSON.parse(reserveSaved).map((c: Character) => ({
-                ...c,
-                inCombat: false,
-                ownerId: controllerId
-              }));
-            } catch (e) {
-              console.error('Failed to parse reserve pool:', e);
-            }
-          }
+          // 保留本地备选池（从localStorage）
+          const myReserve = prev.filter(c => !c.inCombat && c.ownerId === controllerId);
           
-          const allCombat = roomData.characters || []; // 房间里所有战斗角色
+          // 房间里所有战斗角色（保持原有ownerId）
+          const allCombat = (roomData.characters || []).map((c: Character) => ({
+            ...c,
+            inCombat: true,
+          }));
           
           return [...myReserve, ...allCombat];
         });
         
         setCurrentTurn(roomData.currentTurn || 0);
         setRoundNumber(roomData.roundNumber || 1);
+        if (typeof roomData.displayConnected === 'boolean') {
+          setDisplayConnected(roomData.displayConnected);
+        }
+      } else if (message.type === 'DISPLAY_STATUS') {
+        // 主屏幕连接状态变化通知
+        setDisplayConnected(message.payload.connected);
       } else if (message.type === 'ERROR') {
         alert(message.payload.message);
         setIsConnected(false);
@@ -284,6 +242,11 @@ export default function InitiativeTrackerPage() {
         });
       }
     },
+    onClose: () => {
+      // WebSocket断开时：移除战斗角色，保留备选池
+      console.log('⚠️ WebSocket连接关闭，移除战斗角色');
+      setCharacters(prev => prev.filter(c => !c.inCombat));
+    },
   });
 
   // 连接到房间
@@ -291,16 +254,23 @@ export default function InitiativeTrackerPage() {
     if (inputRoomId.length === 6 && /^\d+$/.test(inputRoomId)) {
       setRoomId(inputRoomId);
       setIsConnected(true);
+      setDisplayConnected(true);
       // WebSocket会在连接后自动验证房间是否存在
     } else {
       alert('请输入6位数字房间号');
     }
   }, [inputRoomId]);
 
-  // 断开房间
+  // 断开房间（移除战斗角色，保留备选池）
   const handleDisconnect = useCallback(() => {
+    // 只移除战斗角色，备选池保持不变
+    setCharacters(prev => prev.filter(c => !c.inCombat));
+    
     setIsConnected(false);
     setRoomId('');
+    setCurrentTurn(0);
+    setRoundNumber(1);
+    setDisplayConnected(true);
   }, []);
 
   // 更新房间数据（通过WebSocket）
@@ -313,12 +283,12 @@ export default function InitiativeTrackerPage() {
     });
   }, [isConnected, roomId, sendMessage]);
 
-  // 保存备选池到 localStorage（独立存储，跨房间保持）
+  // 保存备选池到 localStorage（只保存非战斗角色）
   useEffect(() => {
+    if (!controllerId) return;
+    
     const reservePool = characters.filter(c => !c.inCombat && c.ownerId === controllerId);
-    if (reservePool.length >= 0) {
-      localStorage.setItem('dnd-initiative-reserve-pool', JSON.stringify(reservePool));
-    }
+    localStorage.setItem('dnd-initiative-reserve-pool', JSON.stringify(reservePool));
   }, [characters, controllerId]);
 
   // 添加角色
@@ -331,13 +301,13 @@ export default function InitiativeTrackerPage() {
       imageUrl = `/image/player/${selectedRace.name}_${selectedRace.en}/${selectedClass}.png`;
     } else if (addingType === 'enemy' && selectedEnemy) {
       // 敌人：使用选中的敌人图片
-      imageUrl = `/image/enemies/${selectedEnemy}.png`;
+      imageUrl = getEnemyImageUrl(selectedEnemy, enemyList);
     } else if (addingType === 'npc') {
       // NPC：使用选中的图片
       if (npcImageType === 'player') {
         imageUrl = `/image/player/${npcSelectedRace.name}_${npcSelectedRace.en}/${npcSelectedClass}.png`;
       } else if (selectedNpcImage) {
-        imageUrl = `/image/enemies/${selectedNpcImage}.png`;
+        imageUrl = getEnemyImageUrl(selectedNpcImage, enemyList);
       }
     }
     
@@ -362,7 +332,7 @@ export default function InitiativeTrackerPage() {
     setNpcSearch('');
     setSelectedNpcImage('');
     setIsAddingCharacter(false);
-  }, [newCharName, newCharToken, addingType, selectedRace, selectedClass, selectedEnemy, npcImageType, npcSelectedRace, npcSelectedClass, selectedNpcImage, controllerId]);
+  }, [newCharName, newCharToken, addingType, selectedRace, selectedClass, selectedEnemy, npcImageType, npcSelectedRace, npcSelectedClass, selectedNpcImage, controllerId, enemyList]);
 
   // 获取当前种族可用的图片列表
   const getAvailableRaceImages = useCallback((race: typeof RACES[0]) => {
@@ -380,16 +350,16 @@ export default function InitiativeTrackerPage() {
       const primaryImage = `/image/player/${selectedRace.name}_${selectedRace.en}/${selectedClass}.png`;
       return primaryImage;
     } else if (addingType === 'enemy' && selectedEnemy) {
-      return `/image/enemies/${selectedEnemy}.png`;
+      return getEnemyImageUrl(selectedEnemy, enemyList);
     } else if (addingType === 'npc') {
       if (npcImageType === 'player') {
         return `/image/player/${npcSelectedRace.name}_${npcSelectedRace.en}/${npcSelectedClass}.png`;
       } else if (selectedNpcImage) {
-        return `/image/enemies/${selectedNpcImage}.png`;
+        return getEnemyImageUrl(selectedNpcImage, enemyList);
       }
     }
     return '';
-  }, [addingType, selectedRace, selectedClass, selectedEnemy, npcImageType, npcSelectedRace, npcSelectedClass, selectedNpcImage]);
+  }, [addingType, selectedRace, selectedClass, selectedEnemy, npcImageType, npcSelectedRace, npcSelectedClass, selectedNpcImage, enemyList]);
 
   // 切换到种族的其他图片
   const switchToRaceAlternative = useCallback(() => {
@@ -400,27 +370,11 @@ export default function InitiativeTrackerPage() {
     setRaceImageIndex((prev) => (prev + 1) % alternatives.length);
   }, []);
 
-  // 过滤敌人列表
-  const filteredEnemies = useMemo(() => {
-    if (!enemySearch.trim()) return ENEMY_IMAGES;
-    const search = enemySearch.toLowerCase();
-    return ENEMY_IMAGES.filter(enemy => {
-      const enName = enemy.toLowerCase();
-      const cnName = ENEMY_NAMES[enemy as keyof typeof ENEMY_NAMES]?.toLowerCase() || '';
-      return enName.includes(search) || cnName.includes(search);
-    });
-  }, [enemySearch]);
+  // 过滤敌人列表（按中文名或英文key搜索）
+  const filteredEnemies = useMemo(() => filterEnemies(enemyList, enemySearch), [enemyList, enemySearch]);
 
   // 过滤NPC敌人列表
-  const filteredNpcEnemies = useMemo(() => {
-    if (!npcSearch.trim()) return ENEMY_IMAGES;
-    const search = npcSearch.toLowerCase();
-    return ENEMY_IMAGES.filter(enemy => {
-      const enName = enemy.toLowerCase();
-      const cnName = ENEMY_NAMES[enemy as keyof typeof ENEMY_NAMES]?.toLowerCase() || '';
-      return enName.includes(search) || cnName.includes(search);
-    });
-  }, [npcSearch]);
+  const filteredNpcEnemies = useMemo(() => filterEnemies(enemyList, npcSearch), [enemyList, npcSearch]);
 
   // 快速添加
   const handleQuickAdd = useCallback((type: 'player' | 'enemy' | 'npc') => {
@@ -437,6 +391,25 @@ export default function InitiativeTrackerPage() {
     };
     setCharacters(prev => [...prev, newChar]);
   }, [characters]);
+
+  // 删除战斗区角色（带确认）
+  const handleRemoveCombatCharacter = useCallback((charId: string, charName: string) => {
+    if (!confirm(`确定要将「${charName}」移出战斗区吗？`)) {
+      return;
+    }
+    
+    setCharacters(prev => {
+      const newChars = prev.filter(c => c.id !== charId);
+      
+      // 同步到房间
+      if (isConnected && roomId) {
+        const combatChars = newChars.filter(c => c.inCombat);
+        updateRoom({ characters: combatChars });
+      }
+      
+      return newChars;
+    });
+  }, [isConnected, roomId, updateRoom]);
 
   // 删除角色
   const handleRemoveCharacter = useCallback((id: string) => {
@@ -528,7 +501,7 @@ export default function InitiativeTrackerPage() {
     setDraggedChar(char);
   };
 
-  // 拖拽到战斗区
+  // 拖拽到战斗区（复制模式：从备选池拖拽时不删除原角色）
   const handleDropToCombat = (e: React.DragEvent) => {
     e.preventDefault();
     
@@ -543,22 +516,51 @@ export default function InitiativeTrackerPage() {
 
     newInit = Math.round(newInit);
 
-    const updatedChar = { ...draggedChar, initiative: newInit, inCombat: true, ownerId: controllerId };
+    // 复制模式：如果从备选区拖拽，创建新的副本
+    let updatedChar: Character;
+    if (!draggedChar.inCombat) {
+      // 从备选区拖拽：创建战斗角色副本，生成新的combatId
+      const combatId = `${controllerId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      updatedChar = { 
+        ...draggedChar, 
+        id: combatId, // 新的唯一ID
+        initiative: newInit, 
+        inCombat: true, 
+        ownerId: controllerId 
+      };
+    } else {
+      // 从战斗区拖拽：只更新先攻值
+      updatedChar = { ...draggedChar, initiative: newInit, inCombat: true, ownerId: controllerId };
+    }
 
     // 检查是否有重叠
     const charsAtSameInit = characters.filter(
-      c => c.inCombat && c.id !== draggedChar.id && c.initiative === newInit
+      c => c.inCombat && c.id !== updatedChar.id && c.initiative === newInit
     );
 
     if (charsAtSameInit.length > 0) {
-      setOverlapCharacters([...charsAtSameInit, updatedChar]);
+      const allOverlap = [...charsAtSameInit, updatedChar];
+      setOverlapCharacters(allOverlap);
+      setSortedOverlapChars(allOverlap); // 初始化排序列表
       setShowOverlapModal(true);
-      setCharacters(prev =>
-        prev.map(c => c.id === draggedChar.id ? updatedChar : c)
-      );
+      
+      if (!draggedChar.inCombat) {
+        // 从备选区：添加新副本
+        setCharacters(prev => [...prev, updatedChar]);
+      } else {
+        // 从战斗区：更新现有角色
+        setCharacters(prev => prev.map(c => c.id === draggedChar.id ? updatedChar : c));
+      }
     } else {
       setCharacters(prev => {
-        const newChars = prev.map(c => c.id === draggedChar.id ? updatedChar : c);
+        let newChars: Character[];
+        if (!draggedChar.inCombat) {
+          // 从备选区：添加新副本（不删除原角色）
+          newChars = [...prev, updatedChar];
+        } else {
+          // 从战斗区：更新现有角色
+          newChars = prev.map(c => c.id === draggedChar.id ? updatedChar : c);
+        }
         
         // 同步到房间（通过WebSocket）
         if (isConnected && roomId) {
@@ -575,25 +577,11 @@ export default function InitiativeTrackerPage() {
     setDragPreviewInit(null);
   };
 
-  // 拖拽到备选区（移出战斗区）
+  // 拖拽到备选区（禁用：战斗区角色改用删除按钮）
   const handleDropToReserve = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!draggedChar) return;
-
-    setCharacters(prev => {
-      const newChars = prev.map(c => c.id === draggedChar.id ? { ...c, inCombat: false } : c);
-      
-      // 同步到房间 - 从房间移除这个角色（通过WebSocket）
-      if (isConnected && roomId) {
-        const combatChars = newChars.filter(c => c.inCombat);
-        updateRoom({ characters: combatChars });
-      }
-      
-      return newChars;
-    });
-    
-    setDraggedChar(null);
-    setDragPreviewInit(null);
+    // 不再允许拖回备选区
+    return;
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -692,6 +680,26 @@ export default function InitiativeTrackerPage() {
                 </div>
                 <div className="text-purple-300 text-sm">第 {roundNumber} 回合</div>
                 <div className="text-slate-500 text-xs">ID: {controllerId.slice(0, 8)}</div>
+                
+                {/* WebSocket连接状态指示 */}
+                {!wsConnected && (
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-red-950/50 border border-red-700/50">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-red-400 text-xs font-semibold">连接断开</span>
+                  </div>
+                )}
+                {wsConnected && !displayConnected && (
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-amber-950/50 border border-amber-600/50">
+                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                    <span className="text-amber-400 text-xs font-semibold">主屏幕已掉线</span>
+                  </div>
+                )}
+                {wsConnected && displayConnected && (
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-green-950/50 border border-green-700/50">
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-green-400 text-xs font-semibold">已连接</span>
+                  </div>
+                )}
               </div>
               <button
                 onClick={handleDisconnect}
@@ -701,13 +709,22 @@ export default function InitiativeTrackerPage() {
               </button>
             </div>
           )}
+          
+          {/* 主屏幕掉线警告横幅 */}
+          {isConnected && wsConnected && !displayConnected && (
+            <div className="bg-amber-950/80 border-b border-amber-600/40 px-4 py-2 text-center">
+              <span className="text-amber-300 text-sm font-semibold">
+                ⚠️ 主屏幕已断开连接，房间数据已保留，等待主屏幕重连中...
+              </span>
+            </div>
+          )}
 
-          {/* ========== 1. 战斗主显示区（房间模式下只读显示） ========== */}
+          {/* ========== 1. 战斗主显示区 ========== */}
           <div
             ref={combatZoneRef}
             onDragOver={handleDragOver}
             onDrop={handleDropToCombat}
-            className="relative h-[40vh] bg-slate-900/50 rounded-2xl mx-4 mt-4 border-2 border-purple-500/30 shadow-2xl overflow-hidden"
+            className="relative h-[400px] min-h-[400px] bg-slate-900/50 rounded-2xl mx-4 mt-4 border-2 border-purple-500/30 shadow-2xl overflow-hidden"
           >
             {/* 区域标题 */}
             <div className="absolute top-3 left-4 text-purple-300 font-bold text-sm z-20">
@@ -716,17 +733,19 @@ export default function InitiativeTrackerPage() {
 
             <div className="absolute inset-0 bg-gradient-to-b from-purple-900/20 to-transparent" />
         
-            {/* 战斗区角色立牌 */}
-            <div className="absolute top-8 left-8 right-8 bottom-24 flex items-center justify-center">
+            {/* 战斗区角色立牌：按先攻值排序平铺，避免拥挤重叠（可换行/滚动） */}
+            {/* flex-col + justify-end：让卡片整体贴着底部（靠近刻度尺），顶部富余空间留给箭头 */}
+            <div className="absolute top-8 left-8 right-8 bottom-14 overflow-y-auto flex flex-col justify-end">
               {combatCharacters.length === 0 ? (
-                <div className="text-center text-purple-400">
-                  <div className="text-4xl mb-2">⚔️</div>
-                  <p className="text-lg">从下方拖拽角色到这里</p>
+                <div className="h-full flex items-center justify-center text-center text-purple-400">
+                  <div>
+                    <div className="text-4xl mb-2">⚔️</div>
+                    <p className="text-lg">从下方拖拽角色到这里</p>
+                  </div>
                 </div>
               ) : (
-                <div className="relative w-full h-full">
+                <div className="flex flex-wrap items-end justify-center content-end gap-x-6 gap-y-10 pt-16 pb-0">
                   {combatCharacters.map((char, index) => {
-                    const position = ((30 - char.initiative) / 30) * 100;
                     const isOwned = char.ownerId === controllerId;
                     const isCurrent = index === currentTurn;
                     
@@ -735,21 +754,44 @@ export default function InitiativeTrackerPage() {
                         key={char.id}
                         draggable={isOwned} // 只有自己的角色可拖拽
                         onDragStart={() => handleDragStart(char)}
-                        className={`absolute ${isOwned ? 'cursor-move hover:z-20' : 'cursor-not-allowed'}`}
+                        className={`relative ${isOwned ? 'cursor-move' : 'cursor-not-allowed'} transition-all duration-300`}
                         style={{
-                          left: `${position}%`,
-                          bottom: '0',
-                          transform: `translateX(-50%)`,
-                          transition: 'all 0.3s ease-out',
-                          zIndex: 5,
+                          transform: `scale(${isCurrent ? 1.15 : 1})`,
+                          transformOrigin: 'bottom center',
+                          zIndex: isCurrent ? 10 : 1,
                         }}
                       >
+                        {/* 当前回合箭头指示 */}
+                        {isCurrent && (
+                          <div className="absolute -top-14 left-0 right-0 z-20 flex flex-col items-center animate-bounce">
+                            <div className="text-3xl">🔻</div>
+                          </div>
+                        )}
+                        
                         {/* 先攻值（在卡片上方） */}
-                        <div className="absolute -top-10 left-1/2 -translate-x-1/2">
-                          <div className="text-xl font-black px-2 py-0.5 rounded text-amber-400 bg-slate-900/80">
-                            {char.initiative}
+                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 z-10">
+                          <div className={`text-xl font-black px-2 py-0.5 rounded whitespace-nowrap ${
+                            isCurrent 
+                              ? 'text-white bg-amber-500' 
+                              : 'text-amber-400 bg-slate-900/80'
+                          }`}>
+                            {Math.floor(char.initiative)}
                           </div>
                         </div>
+                        
+                        {/* 删除按钮（只有自己的角色可删除） */}
+                        {isOwned && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveCombatCharacter(char.id, char.name);
+                            }}
+                            className="absolute -top-2 -right-2 z-30 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all hover:scale-110"
+                            title="移出战斗区"
+                          >
+                            ✕
+                          </button>
+                        )}
                         
                         {/* Token 立牌 */}
                         <CharacterCard char={char} isCombat={false} isCurrent={isCurrent} isOwned={isOwned} />
@@ -818,8 +860,6 @@ export default function InitiativeTrackerPage() {
 
           {/* ========== 2. 备选区 ========== */}
           <div
-            onDragOver={handleDragOver}
-            onDrop={handleDropToReserve}
             className="relative flex-1 p-6 overflow-auto bg-slate-900/50 rounded-2xl mx-4 my-4 border-2 border-purple-500/30 shadow-2xl"
           >
             {/* 区域标题 */}
@@ -1038,22 +1078,22 @@ export default function InitiativeTrackerPage() {
                 <div className="grid grid-cols-4 gap-3 max-h-64 overflow-y-auto p-2">
                   {filteredEnemies.map((enemy) => (
                     <button
-                      key={enemy}
-                      onClick={() => setSelectedEnemy(enemy)}
+                      key={enemy.key}
+                      onClick={() => setSelectedEnemy(enemy.key)}
                       className={`relative p-2 rounded-lg transition-all ${
-                        selectedEnemy === enemy
+                        selectedEnemy === enemy.key
                           ? 'bg-red-500/30 border-2 border-red-500 scale-105'
                           : 'bg-slate-800 border border-slate-700 hover:bg-slate-700'
                       }`}
                     >
                       <img
-                        src={`/image/enemies/${enemy}.png`}
-                        alt={enemy}
+                        src={getEnemyImageUrl(enemy.key, enemyList)}
+                        alt={enemy.name}
                         className="w-full h-20 object-contain"
                         style={{ imageRendering: 'pixelated' }}
                       />
                       <p className="text-xs text-white mt-1 truncate">
-                        {ENEMY_NAMES[enemy as keyof typeof ENEMY_NAMES] || enemy}
+                        {enemy.name}
                       </p>
                     </button>
                   ))}
@@ -1182,22 +1222,22 @@ export default function InitiativeTrackerPage() {
                     <div className="grid grid-cols-4 gap-3 max-h-64 overflow-y-auto p-2">
                       {filteredNpcEnemies.map((enemy) => (
                         <button
-                          key={enemy}
-                          onClick={() => setSelectedNpcImage(enemy)}
+                          key={enemy.key}
+                          onClick={() => setSelectedNpcImage(enemy.key)}
                           className={`relative p-2 rounded-lg transition-all ${
-                            selectedNpcImage === enemy
+                            selectedNpcImage === enemy.key
                               ? 'bg-green-500/30 border-2 border-green-500 scale-105'
                               : 'bg-slate-800 border border-slate-700 hover:bg-slate-700'
                           }`}
                         >
                           <img
-                            src={`/image/enemies/${enemy}.png`}
-                            alt={enemy}
+                            src={getEnemyImageUrl(enemy.key, enemyList)}
+                            alt={enemy.name}
                             className="w-full h-20 object-contain"
                             style={{ imageRendering: 'pixelated' }}
                           />
                           <p className="text-xs text-white mt-1 truncate">
-                            {ENEMY_NAMES[enemy as keyof typeof ENEMY_NAMES] || enemy}
+                            {enemy.name}
                           </p>
                         </button>
                       ))}
@@ -1238,7 +1278,7 @@ export default function InitiativeTrackerPage() {
       {/* 重叠角色排序弹窗 */}
       {showOverlapModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 rounded-2xl p-6 max-w-2xl w-full border-2 border-purple-500/50 shadow-2xl">
+          <div className="bg-slate-900 rounded-2xl p-6 max-w-3xl w-full max-h-[85vh] overflow-y-auto border-2 border-purple-500/50 shadow-2xl">
             <h3 className="text-2xl font-black text-amber-400 mb-4 text-center">
               先攻值重叠 - 调整顺序
             </h3>
@@ -1246,36 +1286,50 @@ export default function InitiativeTrackerPage() {
               拖动卡片左右排序，左边先行动
             </p>
             
-            <div className="flex gap-4 justify-center mb-6 overflow-x-auto p-4">
-              {overlapCharacters.map((char, index) => (
+            <div className="flex gap-6 justify-center mb-6 overflow-x-auto pt-12 pb-10 px-4">
+              {overlapCharacters.map((char, index) => {
+                const isDragging = draggedChar?.id === char.id;
+                return (
                 <div
                   key={char.id}
                   draggable
                   onDragStart={() => setDraggedChar(char)}
+                  onDragEnd={() => setDraggedChar(null)}
                   onDragOver={(e) => e.preventDefault()}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    if (!draggedChar || draggedChar.id === char.id) return;
+                    
+                    setOverlapCharacters(prev => {
+                      const dragIndex = prev.findIndex(c => c.id === draggedChar.id);
+                      const dropIndex = prev.findIndex(c => c.id === char.id);
+                      if (dragIndex === -1 || dropIndex === -1 || dragIndex === dropIndex) return prev;
+                      
+                      // 拖拽移动到目标位置（推挤其他卡片，而非交换）
+                      const newOrder = [...prev];
+                      const [moved] = newOrder.splice(dragIndex, 1);
+                      newOrder.splice(dropIndex, 0, moved);
+                      return newOrder;
+                    });
+                  }}
                   onDrop={(e) => {
                     e.preventDefault();
-                    if (!draggedChar) return;
-                    
-                    const newOrder = [...overlapCharacters];
-                    const dragIndex = newOrder.findIndex(c => c.id === draggedChar.id);
-                    const dropIndex = index;
-                    
-                    // 交换位置
-                    [newOrder[dragIndex], newOrder[dropIndex]] = [newOrder[dropIndex], newOrder[dragIndex]];
-                    setOverlapCharacters(newOrder);
+                    setDraggedChar(null);
                   }}
-                  className="relative cursor-move hover:scale-110 transition-all flex-shrink-0"
+                  className={`relative cursor-move flex-shrink-0 transition-all duration-300 ease-out ${
+                    isDragging ? 'scale-110 opacity-50 z-20' : 'hover:scale-105'
+                  }`}
                 >
                   <CharacterCard char={char} isCombat={false} isCurrent={false} />
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-amber-400 font-black text-xl">
-                    {char.initiative}
+                  <div className="absolute -top-9 left-1/2 -translate-x-1/2 text-amber-400 font-black text-xl whitespace-nowrap">
+                    {Math.floor(char.initiative)}
                   </div>
-                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-purple-300 text-xs">
+                  <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 text-purple-300 text-xs whitespace-nowrap">
                     顺序 {index + 1}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
             
             <button
@@ -1292,6 +1346,13 @@ export default function InitiativeTrackerPage() {
                     const idx = updated.findIndex(c => c.id === newChar.id);
                     if (idx !== -1) updated[idx] = newChar;
                   });
+                  
+                  // 同步到房间（通过WebSocket）
+                  if (isConnected && roomId) {
+                    const combatChars = updated.filter(c => c.inCombat);
+                    updateRoom({ characters: combatChars });
+                  }
+                  
                   return updated;
                 });
                 

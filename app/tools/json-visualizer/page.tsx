@@ -51,6 +51,7 @@ export default function JsonVisualizerPage() {
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showIds, setShowIds] = useState(false);
+  const [lineWidth, setLineWidth] = useState(0); // 星球连接线粗细，0.0 ~ 2.0
   const [selectedNodeIndex, setSelectedNodeIndex] = useState<number | null>(null);
   const [focusTrigger, setFocusTrigger] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -98,6 +99,9 @@ export default function JsonVisualizerPage() {
   const handleLoadSample = useCallback(() => setJsonText(SAMPLE), []);
 
   // ---- 选中星球 → 滚动源码 ----
+  // 注意：不同父层可以有相同的 key（比如多个 "name"），不能只按 key 文本匹配第一个，
+  // 否则点击第2、第3个同名星球时永远跳到源码里第一个同名字段。
+  // 修复：按“该节点是所有同 key 节点中的第几个”（遍历顺序），去源码里找对应的第几次出现。
   const handleSelectNode = useCallback((index: number) => {
     setSelectedNodeIndex(index);
     setFocusTrigger(prev => prev + 1);
@@ -109,19 +113,31 @@ export default function JsonVisualizerPage() {
     // 按 jsonPath 匹配：$.planets[0].name → 搜索 "name":
     const pathParts = node.jsonPath.replace(/^\$\.?/, '').split(/[.\[]/).filter(Boolean);
     const searchKey = pathParts[pathParts.length - 1]?.replace(/\]/g, '');
-    if (!searchKey) return;
-    // 找匹配行
+    if (!searchKey || /^\d+$/.test(searchKey)) return; // 数组项本身没有 "key": 文本，跳过定位
+
+    // 计算：在遍历顺序中，index 之前有多少个节点的 key 和当前节点相同
+    // （节点遍历顺序 = flatten() 按 Object.entries/数组下标的顺序，和源码中字段出现顺序一致）
+    let occurrenceIndex = 0;
+    for (let i = 0; i < index; i++) {
+      if (galaxyNodes[i].key === searchKey) occurrenceIndex++;
+    }
+
+    // 在源码里找第 occurrenceIndex 次出现的 "searchKey":
     const pattern = new RegExp(`"${searchKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:`);
+    let matchCount = 0;
     for (let i = 0; i < lines.length; i++) {
       if (pattern.test(lines[i])) {
-        const lineHeight = 21;
-        textareaRef.current.scrollTop = Math.max(0, (i - 3) * lineHeight);
-        textareaRef.current.focus();
-        // 设置光标位置
-        const charsBefore = lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
-        const matchPos = charsBefore + (lines[i].indexOf(searchKey) - 1);
-        textareaRef.current.setSelectionRange(matchPos, matchPos + searchKey.length + 2);
-        break;
+        if (matchCount === occurrenceIndex) {
+          const lineHeight = 21;
+          textareaRef.current.scrollTop = Math.max(0, (i - 3) * lineHeight);
+          textareaRef.current.focus();
+          // 设置光标位置
+          const charsBefore = lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
+          const matchPos = charsBefore + (lines[i].indexOf(searchKey) - 1);
+          textareaRef.current.setSelectionRange(matchPos, matchPos + searchKey.length + 2);
+          break;
+        }
+        matchCount++;
       }
     }
   }, [galaxyNodes, jsonText]);
@@ -133,6 +149,8 @@ export default function JsonVisualizerPage() {
   }, [selectedNode, handleSelectNode]);
 
   // ---- 编辑器点击 → 选中星球 ----
+  // 修复同名 key 的歧义：数出光标所在行的 "key": 是源码里第几次出现这个 key，
+  // 再去 galaxyNodes 里找同 key 节点中相同序号的那一个（而不是永远选第一个）。
   const handleEditorClick = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -144,7 +162,24 @@ export default function JsonVisualizerPage() {
     const m = line.match(/"([^"]+)"\s*:/);
     if (m) {
       const key = m[1];
-      const idx = galaxyNodes.findIndex(n => n.key === key);
+      const pattern = new RegExp(`"${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:`);
+
+      // 数出当前行是源码中第几次出现这个 key（0-based）
+      let occurrenceIndex = 0;
+      for (let i = 0; i < lineNum - 1; i++) {
+        if (pattern.test(lines[i])) occurrenceIndex++;
+      }
+
+      // 找到 galaxyNodes 中同 key 节点里的第 occurrenceIndex 个
+      let matchCount = 0;
+      let idx = -1;
+      for (let i = 0; i < galaxyNodes.length; i++) {
+        if (galaxyNodes[i].key === key) {
+          if (matchCount === occurrenceIndex) { idx = i; break; }
+          matchCount++;
+        }
+      }
+
       if (idx >= 0) {
         setSelectedNodeIndex(idx);
         setFocusTrigger(prev => prev + 1);
@@ -301,12 +336,13 @@ export default function JsonVisualizerPage() {
                 selectedNodeIndex={selectedNodeIndex}
                 onSelectNode={handleSelectNode}
                 focusTrigger={focusTrigger}
+                lineWidth={lineWidth}
               />
             </Suspense>
           </Canvas>
 
           {/* 浮动控件 */}
-          <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
+          <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 items-end">
             {/* 显示ID开关 */}
             <button
               onClick={() => setShowIds(o => !o)}
@@ -326,6 +362,32 @@ export default function JsonVisualizerPage() {
             >
               🎯
             </button>
+            {/* 连接线粗细滑块 */}
+            <div
+              className="w-10 rounded-xl flex flex-col items-center gap-1.5 py-2.5 bg-white/5 border border-white/10 backdrop-blur-md"
+              title="连接线粗细"
+            >
+              <span className="text-[10px] text-white/45 font-mono leading-none">
+                {lineWidth.toFixed(1)}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.01}
+                value={lineWidth}
+                onChange={(e) => setLineWidth(parseFloat(e.target.value))}
+                className="line-width-slider"
+                style={{
+                  writingMode: 'vertical-lr' as any,
+                  WebkitAppearance: 'slider-vertical' as any,
+                  direction: 'rtl',
+                  width: 4,
+                  height: 72,
+                }}
+              />
+              <span className="text-sm leading-none">〜</span>
+            </div>
           </div>
 
           {/* 底部提示 */}

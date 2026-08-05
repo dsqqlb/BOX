@@ -27,6 +27,7 @@ export interface JsonNode3D {
   parentIndex: number;
   parentPos: [number, number, number] | null;
   jsonPath: string;
+  hasChildren: boolean; // 是否展开了子星球（纯基础类型数组即使是array类型也不展开，直接完整显示内容）
 }
 
 // ====== 颜色与材质 ======
@@ -45,16 +46,31 @@ function getType(v: any): JsonNode3D['type'] {
   return typeof v as JsonNode3D['type'];
 }
 
+// 数组里的元素是否全是基础类型（string/number/boolean/null，不含对象和嵌套数组）
+// 这类数组（如手机号列表、标签列表、端口列表）不值得拆成一堆只有 [0][1][2] 标签的子星球，
+// 直接把完整内容当成叶子节点的值显示更清晰、也更省星球数量
+function isPrimitiveArray(v: any[]): boolean {
+  return v.every((item: any) => item === null || (typeof item !== 'object'));
+}
+
 function preview(v: any, t: JsonNode3D['type']): string {
   if (t === 'string') return `"${v.length > 30 ? v.slice(0, 30) + '\u2026' : v}"`;
   if (t === 'null') return 'null';
   if (t === 'boolean') return String(v);
   if (t === 'number') return String(v);
-  if (t === 'array') return `Array(${v.length})`;
+  if (t === 'array') {
+    if (isPrimitiveArray(v)) {
+      // 完整展示，只有真的很长时才截断（避免极端超长数组把标签撑爆）
+      const full = `[${v.map((item: any) => typeof item === 'string' ? `"${item}"` : String(item)).join(', ')}]`;
+      return full.length > 80 ? full.slice(0, 80) + '\u2026]' : full;
+    }
+    return `Array(${v.length})`;
+  }
   return `{\u2026${Object.keys(v).length} keys}`;
 }
 
-function nodeSize(t: JsonNode3D['type']): number {
+function nodeSize(t: JsonNode3D['type'], isLeafArray = false): number {
+  if (t === 'array' && isLeafArray) return 0.3; // 叶子数组（纯基础类型）当成值展示，尺寸接近 string
   return t === 'object' ? 0.7 : t === 'array' ? 0.55 : t === 'string' ? 0.28 : t === 'number' ? 0.24 : 0.18;
 }
 
@@ -67,19 +83,24 @@ export function jsonToGalaxy(obj: any): JsonNode3D[] {
     parentIndex: number, parentPos: [number, number, number], path: string
   ): number {
     const type = getType(value);
+    // 纯基础类型数组不展开子星球，直接把完整内容当叶子节点显示
+    const isLeafArray = type === 'array' && isPrimitiveArray(value);
     const cfg = TYPE_CFG[type];
     const idx = nodes.length;
     nodes.push({
       key, valuePreview: preview(value, type), type, depth,
       position: v3(0, 0, 0), color: cfg.color, emissive: cfg.emissive,
-      size: nodeSize(type), parentIndex,
+      size: nodeSize(type, isLeafArray), parentIndex,
       parentPos: parentIndex >= 0 ? parentPos : null, jsonPath: path,
+      hasChildren: type === 'object'
+        ? Object.keys(value).length > 0
+        : (type === 'array' && !isLeafArray ? value.length > 0 : false),
     });
     const myIdx = idx;
     if (type === 'object')
       Object.entries(value as Record<string, any>).forEach(([k, v]) =>
         flatten(v, k, depth + 1, myIdx, v3(0, 0, 0), `${path}.${k}`));
-    else if (type === 'array')
+    else if (type === 'array' && !isLeafArray)
       (value as any[]).forEach((item, i) =>
         flatten(item, `[${i}]`, depth + 1, myIdx, v3(0, 0, 0), `${path}[${i}]`));
     return myIdx;
@@ -202,7 +223,7 @@ function JsonPlanet({ node, index, isHovered, isSelected, showId, onHover, onUnh
         <meshStandardMaterial color={node.color} emissive={cfg.emissive}
           emissiveIntensity={active ? 1.3 : 0.5} roughness={cfg.roughness} metalness={cfg.metalness} />
       </mesh>
-      {(node.type === 'object' || node.type === 'array') && node.depth > 0 && (
+      {node.hasChildren && node.depth > 0 && (
         <group rotation={[Math.PI / 2.5, 0.3, 0]}>
           <mesh>
             <torusGeometry args={[s * 1.8, 0.018, 16, 64]} />
@@ -220,8 +241,11 @@ function JsonPlanet({ node, index, isHovered, isSelected, showId, onHover, onUnh
             }}>
             <span className="font-bold">{node.key}</span>
             {showId && <span className="text-white/40 ml-1.5" style={{ fontSize: '10px' }}>L{node.depth}#{index}</span>}
-            {!showId && node.type !== 'object' && node.type !== 'array' && (
+            {!showId && !node.hasChildren && node.type !== 'object' && (
               <span className="text-white/70 ml-1.5">{node.valuePreview}</span>
+            )}
+            {!showId && node.type === 'object' && !node.hasChildren && (
+              <span className="text-white/40 ml-1.5">{'{}'}</span>
             )}
           </div>
         </Html>
@@ -231,16 +255,18 @@ function JsonPlanet({ node, index, isHovered, isSelected, showId, onHover, onUnh
 }
 
 // ====== 连线 ======
-function ConnectionLines({ nodes }: { nodes: JsonNode3D[] }) {
+function ConnectionLines({ nodes, lineWidth }: { nodes: JsonNode3D[]; lineWidth: number }) {
   const lines = useMemo(() => {
     const r: { start: [number, number, number]; end: [number, number, number]; color: string }[] = [];
     nodes.forEach(n => { if (n.parentPos && n.depth > 0) r.push({ start: n.parentPos, end: n.position, color: n.color }); });
     return r;
   }, [nodes]);
+  // 线宽趋近于0时线本身几乎不可见，透明度跟着线宽走一点，视觉上更像"丝滑变细"而不是瞬间消失
+  const opacity = Math.min(0.65, 0.15 + lineWidth * 0.25);
   return (
     <group>
       {lines.map((l, i) => (
-        <Line key={i} points={[l.start, l.end]} color={l.color} lineWidth={0.4} transparent opacity={0.25} depthWrite={false} />
+        <Line key={i} points={[l.start, l.end]} color={l.color} lineWidth={lineWidth} transparent opacity={opacity} depthWrite={false} />
       ))}
     </group>
   );
@@ -310,27 +336,40 @@ export interface JsonGalaxyHandle {
 
 const JsonGalaxy = forwardRef<JsonGalaxyHandle, {
   nodes: JsonNode3D[]; showIds: boolean; selectedNodeIndex: number | null;
-  onSelectNode: (index: number) => void; focusTrigger: number;
-}>(function JsonGalaxy({ nodes, showIds, selectedNodeIndex, onSelectNode, focusTrigger }, ref) {
+  onSelectNode: (index: number) => void; focusTrigger: number; lineWidth?: number;
+}>(function JsonGalaxy({ nodes, showIds, selectedNodeIndex, onSelectNode, focusTrigger, lineWidth = 0 }, ref) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const controlsRef = useRef<any>(null);
   const focusPos = useRef<THREE.Vector3 | null>(null);
   const focusSz = useRef(0);
+  const focusDistOverride = useRef<number | null>(null); // 重置视角用：直接指定目标距离，跳过按size计算
   const prevTrigger = useRef(0);
   const { camera } = useThree();
+  // 记录相机初始位置，用于"重置视角"还原到最初的整体俯瞰视角
+  const initialCamPos = useRef(camera.position.clone());
+  const initialCamDist = useRef(camera.position.length());
 
   useImperativeHandle(ref, () => ({
     focusOn: (pos: [number, number, number], size: number) => {
       focusPos.current = new THREE.Vector3(...pos);
       focusSz.current = size;
+      focusDistOverride.current = null;
     },
   }));
 
   useEffect(() => {
-    if (focusTrigger > prevTrigger.current && selectedNodeIndex !== null && selectedNodeIndex < nodes.length) {
-      const n = nodes[selectedNodeIndex];
-      focusPos.current = new THREE.Vector3(...n.position);
-      focusSz.current = n.size;
+    if (focusTrigger > prevTrigger.current) {
+      if (selectedNodeIndex !== null && selectedNodeIndex < nodes.length) {
+        const n = nodes[selectedNodeIndex];
+        focusPos.current = new THREE.Vector3(...n.position);
+        focusSz.current = n.size;
+        focusDistOverride.current = null;
+      } else {
+        // selectedNodeIndex 为 null（点击"重置视角"）：回到原点，并还原到初始相机距离
+        // （按 size 换算的 desiredDist 上限只有12，达不到初始视角的距离，所以这里直接指定距离）
+        focusPos.current = new THREE.Vector3(0, 0, 0);
+        focusDistOverride.current = initialCamDist.current;
+      }
     }
     prevTrigger.current = focusTrigger;
   }, [focusTrigger, selectedNodeIndex, nodes]);
@@ -345,8 +384,10 @@ const JsonGalaxy = forwardRef<JsonGalaxyHandle, {
     // 平滑移动目标
     ct.lerp(t, 4 * delta);
 
-    // 计算合适距离：小节点近，大节点远
-    const desiredDist = Math.max(2, Math.min(12, focusSz.current * 11 + 2));
+    // 计算合适距离：小节点近，大节点远；重置视角时用初始相机距离覆盖
+    const desiredDist = focusDistOverride.current !== null
+      ? focusDistOverride.current
+      : Math.max(2, Math.min(12, focusSz.current * 11 + 2));
     const currentDist = cs.distanceTo(ct);
     const dir = cs.clone().sub(ct).normalize();
     const newDist = currentDist + (desiredDist - currentDist) * 3 * delta;
@@ -371,7 +412,7 @@ const JsonGalaxy = forwardRef<JsonGalaxyHandle, {
       <CentralStar node={rootNode} index={rootIdx} active={selectedNodeIndex === rootIdx || hoveredIndex === rootIdx}
         showId={showIds} onHover={() => setHoveredIndex(rootIdx)} onUnhover={() => setHoveredIndex(null)}
         onClick={() => onSelectNode(rootIdx)} />
-      <ConnectionLines nodes={nodes} />
+      <ConnectionLines nodes={nodes} lineWidth={lineWidth} />
       {nodes.filter(n => n.depth > 0).map((node) => {
         const ri = nodes.indexOf(node);
         return (

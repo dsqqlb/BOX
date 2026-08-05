@@ -1,8 +1,58 @@
 const WebSocket = require('ws');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
-// 创建HTTP服务器
-const server = http.createServer();
+// 怪物图片目录：命名规则为"中文名_英文标识.png"（如 哥布林弓手_goblin_archer.png）
+// 没有中文前缀的旧文件名会原样兜底（key=name=文件名本身）
+const ENEMY_DIR = path.join(__dirname, '..', 'public', 'image', 'enemies');
+const VALID_IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
+const CN_PREFIX_PATTERN = /^([\u4e00-\u9fa5]+)_(.+)$/;
+
+function parseEnemyFilename(filename) {
+  const ext = path.extname(filename);
+  const base = filename.slice(0, -ext.length);
+  const match = base.match(CN_PREFIX_PATTERN);
+  if (match) {
+    const [, name, key] = match;
+    return { key, name };
+  }
+  return { key: base, name: base };
+}
+
+// 每次调用都实时扫描目录，新增/改名图片后无需重启服务，刷新页面即可生效
+function getEnemyList() {
+  if (!fs.existsSync(ENEMY_DIR)) return [];
+
+  const files = fs
+    .readdirSync(ENEMY_DIR)
+    .filter((f) => VALID_IMAGE_EXT.has(path.extname(f).toLowerCase()));
+
+  const byKey = new Map();
+  for (const file of files) {
+    const { key, name } = parseEnemyFilename(file);
+    byKey.set(key, { key, name, file });
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
+}
+
+// 创建HTTP服务器：常规HTTP请求走这里，WebSocket升级请求由ws库单独处理，互不干扰
+const server = http.createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/enemies') {
+    const list = getEnemyList();
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+    });
+    res.end(JSON.stringify(list));
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('Not Found');
+});
 const wss = new WebSocket.Server({ server });
 
 // 存储所有房间的数据
@@ -34,19 +84,29 @@ wss.on('connection', (ws) => {
 
       switch (type) {
         case 'CREATE_ROOM': {
-          // 主屏幕创建房间
+          // 主屏幕创建房间（或断线后重新连回同一个房间）
           const { roomId } = payload;
+          const now = Date.now();
+          const isReconnect = rooms.has(roomId);
           
-          if (!rooms.has(roomId)) {
+          if (!isReconnect) {
             rooms.set(roomId, {
               roomId,
               characters: [],
               currentTurn: 0,
               roundNumber: 1,
-              createdAt: Date.now(),
+              createdAt: now,
+              lastActivity: now,
+              displayConnected: true,
             });
             console.log(`🏠 房间创建: ${roomId}`);
+          } else {
+            console.log(`🔁 主屏幕重新连接到已存在房间: ${roomId}`);
           }
+          
+          const room = rooms.get(roomId);
+          room.lastActivity = now;
+          room.displayConnected = true;
           
           ws.roomId = roomId;
           ws.isDisplay = true;
@@ -54,8 +114,16 @@ wss.on('connection', (ws) => {
           // 发送当前房间状态
           ws.send(JSON.stringify({
             type: 'ROOM_STATE',
-            payload: rooms.get(roomId),
+            payload: room,
           }));
+          
+          // 通知房间内所有遥控器：主屏幕已连接/重连
+          if (isReconnect) {
+            broadcastToRoom(roomId, {
+              type: 'DISPLAY_STATUS',
+              payload: { connected: true },
+            }, ws);
+          }
           break;
         }
 
@@ -73,6 +141,9 @@ wss.on('connection', (ws) => {
             return;
           }
           
+          const room = rooms.get(roomId);
+          room.lastActivity = Date.now();
+          
           ws.roomId = roomId;
           ws.controllerId = controllerId;
           ws.isDisplay = false;
@@ -82,7 +153,13 @@ wss.on('connection', (ws) => {
           // 发送当前房间状态
           ws.send(JSON.stringify({
             type: 'ROOM_STATE',
-            payload: rooms.get(roomId),
+            payload: room,
+          }));
+          
+          // 同步告知遥控器主屏幕当前的在线状态
+          ws.send(JSON.stringify({
+            type: 'DISPLAY_STATUS',
+            payload: { connected: room.displayConnected !== false },
           }));
           break;
         }
@@ -93,11 +170,16 @@ wss.on('connection', (ws) => {
           
           if (!rooms.has(roomId)) {
             console.log(`❌ 房间不存在: ${roomId}`);
+            ws.send(JSON.stringify({
+              type: 'ERROR',
+              payload: { message: '房间已失效，请重新连接' },
+            }));
             return;
           }
           
           const room = rooms.get(roomId);
           Object.assign(room, updates);
+          room.lastActivity = Date.now();
           rooms.set(roomId, room);
           
           console.log(`🔄 房间更新: ${roomId}`, Object.keys(updates));
@@ -132,10 +214,19 @@ wss.on('connection', (ws) => {
     if (ws.roomId) {
       console.log(`👋 客户端断开连接 (房间: ${ws.roomId})`);
       
-      // 如果是主屏幕断开，清理房间
-      if (ws.isDisplay) {
-        console.log(`🗑️ 主屏幕断开，清理房间: ${ws.roomId}`);
-        rooms.delete(ws.roomId);
+      // 如果是主屏幕断开，只标记状态，不删除房间数据
+      // 房间数据会保留，等待主屏幕刷新重连（走CREATE_ROOM的重连分支）
+      if (ws.isDisplay && rooms.has(ws.roomId)) {
+        console.log(`⚠️ 主屏幕断开，保留房间数据等待重连: ${ws.roomId}`);
+        const room = rooms.get(ws.roomId);
+        room.displayConnected = false;
+        room.lastActivity = Date.now();
+        
+        // 通知房间内所有遥控器：主屏幕已断开
+        broadcastToRoom(ws.roomId, {
+          type: 'DISPLAY_STATUS',
+          payload: { connected: false },
+        });
       }
     } else {
       console.log('👋 客户端断开连接');
@@ -147,14 +238,15 @@ wss.on('connection', (ws) => {
   });
 });
 
-// 定期清理过期房间（1小时无活动）
+// 定期清理过期房间（1小时无任何活动，而非1小时无论是否使用）
 setInterval(() => {
   const now = Date.now();
   const oneHour = 60 * 60 * 1000;
   
   rooms.forEach((room, roomId) => {
-    if (now - room.createdAt > oneHour) {
-      console.log(`🗑️ 清理过期房间: ${roomId}`);
+    const lastActive = room.lastActivity || room.createdAt;
+    if (now - lastActive > oneHour) {
+      console.log(`🗑️ 清理过期房间（1小时无活动）: ${roomId}`);
       rooms.delete(roomId);
     }
   });
