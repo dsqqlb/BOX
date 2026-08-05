@@ -8,6 +8,145 @@
     animation: spin 3s linear infinite;
   }
   
+  /* 慢速上下浮动 */
+  @keyframes bounce-slow {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+  
+  .animate-bounce-slow {
+    animation: bounce-slow 1.5s ease-in-out infinite;
+  }
+  
+  /* 金光粒子轨道动画 */
+  @keyframes orbit-1 {
+    0% {
+      transform: translate(-50%, 0) rotate(0deg) translateX(20px) rotate(0deg);
+      opacity: 0;
+    }
+    10% {
+      opacity: 1;
+    }
+    90% {
+      opacity: 1;
+    }
+    100% {
+      transform: translate(-50%, 0) rotate(360deg) translateX(20px) rotate(-360deg);
+      opacity: 0;
+    }
+  }
+  
+  @keyframes orbit-2 {
+    0% {
+      transform: translate(-50%, 0) rotate(0deg) translateX(24px) rotate(0deg);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.8;
+    }
+    90% {
+      opacity: 0.8;
+    }
+    100% {
+      transform: translate(-50%, 0) rotate(360deg) translateX(24px) rotate(-360deg);
+      opacity: 0;
+    }
+  }
+  
+  @keyframes orbit-3 {
+    0% {
+      transform: translate(-50%, 0) rotate(0deg) translateX(18px) rotate(0deg);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.6;
+    }
+    90% {
+      opacity: 0.6;
+    }
+    100% {
+      transform: translate(-50%, 0) rotate(360deg) translateX(18px) rotate(-360deg);
+      opacity: 0;
+    }
+  }
+  
+  @keyframes orbit-4 {
+    0% {
+      transform: translate(-50%, 0) rotate(0deg) translateX(22px) rotate(0deg);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.7;
+    }
+    90% {
+      opacity: 0.7;
+    }
+    100% {
+      transform: translate(-50%, 0) rotate(360deg) translateX(22px) rotate(-360deg);
+      opacity: 0;
+    }
+  }
+  
+  .animate-orbit-1 {
+    animation: orbit-1 2.5s ease-in-out infinite;
+  }
+  
+  .animate-orbit-2 {
+    animation: orbit-2 2.8s ease-in-out infinite;
+  }
+  
+  .animate-orbit-3 {
+    animation: orbit-3 3.2s ease-in-out infinite;
+  }
+  
+  .animate-orbit-4 {
+    animation: orbit-4 2.6s ease-in-out infinite;
+  }
+  
+  /* 金色光线沿边框流动 - SVG dashoffset 动画 */
+  @keyframes dash-border-1 {
+    0% {
+      stroke-dashoffset: 0;
+    }
+    100% {
+      stroke-dashoffset: -260;
+    }
+  }
+  
+  @keyframes dash-border-2 {
+    0% {
+      stroke-dashoffset: 0;
+    }
+    100% {
+      stroke-dashoffset: -220;
+    }
+  }
+  
+  @keyframes dash-border-3 {
+    0% {
+      stroke-dashoffset: 0;
+    }
+    100% {
+      stroke-dashoffset: -240;
+    }
+  }
+  
+  .animate-dash-border-1 {
+    animation: dash-border-1 3s linear infinite;
+  }
+  
+  .animate-dash-border-2 {
+    animation: dash-border-2 2.5s linear infinite;
+  }
+  
+  .animate-dash-border-3 {
+    animation: dash-border-3 3.5s linear infinite;
+  }
+  
   /* 角色进场动画 */
   @keyframes slideInUp {
     from {
@@ -38,6 +177,56 @@
   
   .animate-slideOutDown {
     animation: slideOutDown 0.8s ease-in forwards;
+  }
+  
+  /* 战场紧张感：边缘警示光晕呼吸 */
+  @keyframes tension-pulse {
+    0%, 100% {
+      opacity: 0.35;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+  
+  .animate-tension-pulse {
+    animation: tension-pulse 4s ease-in-out infinite;
+  }
+  
+  /* 战术网格缓慢平移 */
+  @keyframes grid-drift {
+    0% {
+      background-position: 0 0;
+    }
+    100% {
+      background-position: 40px 40px;
+    }
+  }
+  
+  .animate-grid-drift {
+    animation: grid-drift 12s linear infinite;
+  }
+  
+  /* 飘动余烬火星 */
+  @keyframes ember-float {
+    0% {
+      transform: translateY(0) translateX(0);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.8;
+    }
+    90% {
+      opacity: 0.5;
+    }
+    100% {
+      transform: translateY(-90vh) translateX(20px);
+      opacity: 0;
+    }
+  }
+  
+  .animate-ember-float {
+    animation: ember-float linear infinite;
   }
 }
 
@@ -126,5 +315,307 @@ body {
 
   ::-webkit-scrollbar-thumb:hover {
     background: rgba(200, 200, 200, 0.3);
+  }
+}
+
+/* JSON 星系工具：连接线粗细滑块（竖直方向） */
+.line-width-slider {
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+  background: transparent;
+  cursor: pointer;
+}
+
+.line-width-slider::-webkit-slider-runnable-track {
+  width: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.line-width-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #22d3ee;
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.7);
+  cursor: pointer;
+  margin-left: -5px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.line-width-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.9);
+}
+
+.line-width-slider::-moz-range-track {
+  width: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.line-width-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: #22d3ee;
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.7);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.line-width-slider::-moz-range-thumb:hover {
+  transform: scale(1.15);
+}
+
+/* ============ 塔罗牌工具 ============ */
+@layer utilities {
+  /* 翻牌：3D Y轴旋转翻转的容器需要透视 */
+  .tarot-flip-scene {
+    perspective: 1600px;
+  }
+
+  .tarot-flip-card {
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.8s cubic-bezier(0.4, 0.2, 0.2, 1);
+  }
+
+  .tarot-flip-card.is-flipped {
+    transform: rotateY(180deg);
+  }
+
+  .tarot-flip-face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  .tarot-flip-face-back {
+    transform: rotateY(180deg);
+  }
+
+  /* 神秘雾气缓慢飘移 */
+  @keyframes tarot-mist-drift {
+    0% { transform: translateX(-5%) translateY(0); }
+    50% { transform: translateX(3%) translateY(-2%); }
+    100% { transform: translateX(-5%) translateY(0); }
+  }
+
+  .animate-tarot-mist {
+    animation: tarot-mist-drift 18s ease-in-out infinite;
+  }
+
+  /* 星光闪烁 */
+  @keyframes tarot-twinkle {
+    0%, 100% { opacity: 0.25; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1.15); }
+  }
+
+  .animate-tarot-twinkle {
+    animation: tarot-twinkle 3s ease-in-out infinite;
+  }
+
+  /* 卡片静置时的柔和悬浮 */
+  @keyframes tarot-card-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+
+  .animate-tarot-float {
+    animation: tarot-card-float 4s ease-in-out infinite;
+  }
+
+  /*
+   * 抽牌：牌真正从桌上牌堆的实测位置飞到牌阵目标槊位。
+   * --dealx/--dealy/--dealr0 是"起点相对终点"的偏移量（由 JS 测量 pile 和目标槊的真实屏幕坐标算出，
+   * 而不是猜的固定值），--dealmidx/--dealmidy/--dealrm 是飞行中段的抛高弧顶点，
+   * 这样无论牌阵是横排还是凯尔特十字的复杂网格，起点终点都精确对齐，不会有跳帧。
+   */
+  @keyframes tarot-deal-fly {
+    0% {
+      opacity: 0;
+      transform: translate(var(--dealx), var(--dealy)) rotate(var(--dealr0, 0deg)) scale(0.55);
+    }
+    10% {
+      opacity: 1;
+    }
+    52% {
+      transform: translate(var(--dealmidx), var(--dealmidy)) rotate(var(--dealrm, 0deg)) scale(1.2);
+    }
+    100% {
+      opacity: 1;
+      transform: translate(0, 0) rotate(0deg) scale(1);
+    }
+  }
+
+  .animate-tarot-deal-fly {
+    animation: tarot-deal-fly 0.95s cubic-bezier(0.16, 0.7, 0.24, 1) both;
+    animation-delay: var(--deal-delay, 0s);
+  }
+
+  /* 洗牌：卡片左右交错抖动 */
+  @keyframes tarot-shuffle-shake {
+    0%, 100% { transform: translateX(0) rotate(0deg); }
+    20% { transform: translateX(-14px) rotate(-3deg); }
+    40% { transform: translateX(10px) rotate(2deg); }
+    60% { transform: translateX(-8px) rotate(-2deg); }
+    80% { transform: translateX(6px) rotate(1deg); }
+  }
+
+  .animate-tarot-shuffle {
+    animation: tarot-shuffle-shake 0.5s ease-in-out infinite;
+  }
+
+  /* 元素光效：火（权杖） */
+  @keyframes tarot-glow-fire {
+    0%, 100% { box-shadow: 0 0 18px 2px rgba(249,115,22,0.45), 0 0 40px 8px rgba(249,115,22,0.15); }
+    50% { box-shadow: 0 0 28px 6px rgba(249,115,22,0.65), 0 0 55px 14px rgba(249,115,22,0.25); }
+  }
+  .animate-tarot-glow-fire { animation: tarot-glow-fire 2.2s ease-in-out infinite; }
+
+  /* 元素光效：水（圣杯） */
+  @keyframes tarot-glow-water {
+    0%, 100% { box-shadow: 0 0 18px 2px rgba(56,189,248,0.45), 0 0 40px 8px rgba(56,189,248,0.15); }
+    50% { box-shadow: 0 0 28px 6px rgba(56,189,248,0.65), 0 0 55px 14px rgba(56,189,248,0.25); }
+  }
+  .animate-tarot-glow-water { animation: tarot-glow-water 2.6s ease-in-out infinite; }
+
+  /* 元素光效：风（宝剑） */
+  @keyframes tarot-glow-air {
+    0%, 100% { box-shadow: 0 0 16px 2px rgba(226,232,240,0.4), 0 0 36px 8px rgba(226,232,240,0.12); }
+    50% { box-shadow: 0 0 26px 6px rgba(226,232,240,0.6), 0 0 50px 14px rgba(226,232,240,0.22); }
+  }
+  .animate-tarot-glow-air { animation: tarot-glow-air 2s ease-in-out infinite; }
+
+  /* 元素光效：土（星币） */
+  @keyframes tarot-glow-earth {
+    0%, 100% { box-shadow: 0 0 18px 2px rgba(74,222,128,0.4), 0 0 40px 8px rgba(74,222,128,0.12); }
+    50% { box-shadow: 0 0 28px 6px rgba(74,222,128,0.6), 0 0 55px 14px rgba(74,222,128,0.22); }
+  }
+  .animate-tarot-glow-earth { animation: tarot-glow-earth 2.8s ease-in-out infinite; }
+
+  /* 元素光效：大阿卡纳（金色神圣光） */
+  @keyframes tarot-glow-major {
+    0%, 100% { box-shadow: 0 0 22px 3px rgba(251,191,36,0.5), 0 0 48px 10px rgba(251,191,36,0.2); }
+    50% { box-shadow: 0 0 34px 8px rgba(251,191,36,0.75), 0 0 65px 18px rgba(251,191,36,0.32); }
+  }
+  .animate-tarot-glow-major { animation: tarot-glow-major 2.4s ease-in-out infinite; }
+
+  /* 逆位牌：轻微倾斜 + 冷色调提示 */
+  .tarot-reversed-image {
+    transform: rotate(180deg);
+  }
+}
+
+/* ============ 塔罗牌：赌场花式洗牌（真3D翻转版） ============ */
+@layer utilities {
+  /*
+   * 单张牌的完整洗牌轨迹：分堆 -> 桥式冲撞 -> 扇形高抛炸开(此时会转到能瞥见正面) -> 甩尾回落 -> 精确收拢回静止扇形位。
+   * 位移/旋转/缩放通过 CSS 变量（每张牌各自算好）注入；rotateY 独立于 rotateZ 驱动，制造真正的3D立体翻牌感。
+   * 首尾两帧都精确等于该牌在静止扇形中的最终位置（--restx/--resty/--restr），
+   * 这样洗牌动画结束的瞬间画面和后面渲染的"静止扇形"完全重合，不会有跳帧。
+   */
+  @keyframes tarot-casino-shuffle-3d {
+    0% {
+      transform: translate(var(--restx), var(--resty)) rotate(var(--restr)) rotateY(0deg) scale(1);
+    }
+    12% {
+      transform: translate(var(--p1x), var(--p1y)) rotate(var(--p1r)) rotateY(90deg) scale(1.05);
+    }
+    30% {
+      transform: translate(var(--p2x), var(--p2y)) rotate(var(--p2r)) rotateY(220deg) scale(1.14);
+    }
+    50% {
+      transform: translate(var(--p3x), var(--p3y)) rotate(var(--p3r)) rotateY(400deg) scale(1.24);
+    }
+    68% {
+      transform: translate(var(--p4x), var(--p4y)) rotate(var(--p4r)) rotateY(560deg) scale(1.12);
+    }
+    84% {
+      transform: translate(var(--p5x), var(--p5y)) rotate(var(--p5r)) rotateY(680deg) scale(1.03);
+    }
+    100% {
+      transform: translate(var(--restx), var(--resty)) rotate(var(--restr)) rotateY(720deg) scale(1);
+    }
+  }
+
+  .animate-tarot-casino-shuffle-3d {
+    animation: tarot-casino-shuffle-3d 2.4s cubic-bezier(0.4, 0.05, 0.25, 1) both;
+  }
+
+  /* 洗牌用卡片容器：双面体需要独立的3D空间和透视保留 */
+  .tarot-shuffle-card-3d {
+    transform-style: preserve-3d;
+  }
+
+  /* 静止扇形状态下的轻微悬浮呼吸（基于同一套 --restx/--restr 变量，避免和内联transform冲突） */
+  @keyframes tarot-fan-float {
+    0%, 100% { transform: translate(var(--restx), var(--resty)) rotate(var(--restr)) rotateY(0deg); }
+    50% { transform: translate(var(--restx), calc(var(--resty) - 6px)) rotate(var(--restr)) rotateY(0deg); }
+  }
+
+  .animate-tarot-fan-float {
+    animation: tarot-fan-float 3.2s ease-in-out infinite;
+  }
+
+  /* 洗牌结束后：整叠牌的"镶头视角"从竖直朝向观众丝滑转成平放桌面朝下俯视 */
+  .tarot-table-tilt-wrap {
+    transition: transform 1.15s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .tarot-table-settled {
+    transform: rotateX(52deg) scale(0.92) translateY(14px);
+  }
+
+  /* 桌面质感光晕：随倾斜过渡淡入，模拟牌堆落在桌面上的投影 */
+  .tarot-table-surface {
+    transition: opacity 0.9s ease-out 0.3s;
+  }
+
+  /* 幽灵乱牌：只在动画中段淡入淡出的额外背景卡片，增加画面密度和混乱感；
+     首尾都是 opacity:0，所以不会和真实牌堆产生衔接问题 */
+  @keyframes tarot-ghost-fly {
+    0% { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0.6); }
+    25% { opacity: 0.55; }
+    50% {
+      opacity: 0.7;
+      transform: translate(var(--gx), var(--gy)) rotate(var(--gr)) scale(0.95);
+    }
+    75% { opacity: 0.4; }
+    100% { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0.6); }
+  }
+
+  .animate-tarot-ghost-fly {
+    animation: tarot-ghost-fly 2.4s ease-in-out both;
+  }
+
+  /* 金色爆闪：桥式飞牌最高潮瞬间的整体闪光 */
+  @keyframes tarot-shuffle-flash {
+    0%, 22% { opacity: 0; }
+    30% { opacity: 0.5; }
+    38% { opacity: 0.95; }
+    50% { opacity: 0.3; }
+    58% { opacity: 0; }
+    100% { opacity: 0; }
+  }
+
+  .animate-tarot-shuffle-flash {
+    animation: tarot-shuffle-flash 2.4s ease-out both;
+  }
+
+  /* 速度线：桥式飞牌瞬间划过的高光条纹，模拟运动模糊 */
+  @keyframes tarot-speed-line {
+    0%, 25% { opacity: 0; transform: scaleX(0.3) translateX(-40px); }
+    35% { opacity: 0.85; transform: scaleX(1.2) translateX(10px); }
+    50% { opacity: 0; transform: scaleX(1.5) translateX(70px); }
+    100% { opacity: 0; }
+  }
+
+  .animate-tarot-speed-line {
+    animation: tarot-speed-line 2.4s ease-out both;
   }
 }
