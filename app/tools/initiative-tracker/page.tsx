@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import ToolHeader from '@/components/common/ToolHeader';
-import { useWebSocket } from '@/lib/useWebSocket';
+import { useWebSocket, getWsUrl } from '@/lib/useWebSocket';
 // 怪物图片清单：由 useEnemyList 从WebSocket服务器实时读取 public/image/enemies 目录
 // 图片命名规则：中文名_英文标识.png（如 哥布林弓手_goblin_archer.png），加图/改名后刷新页面即可生效，无需重启服务
 import { useEnemyList, getEnemyImageUrl, filterEnemies } from '@/lib/enemies';
@@ -197,8 +197,8 @@ export default function InitiativeTrackerPage() {
     }
   }, []);
 
-  // WebSocket连接（临时硬编码用于测试）
-  const wsUrl = (isConnected && roomId) ? 'ws://localhost:9998' : null;
+  // WebSocket地址：优先用环境变量，否则自动跟随当前访问的主机名（局域网/公网设备都能连上同一台服务器）
+  const wsUrl = (isConnected && roomId) ? getWsUrl() : null;
   
   const { isConnected: wsConnected, sendMessage } = useWebSocket(wsUrl, {
     onMessage: (message) => {

@@ -5,6 +5,21 @@ interface WebSocketMessage {
   payload: any;
 }
 
+// 计算WebSocket服务器地址：
+// 1. 如果设置了 NEXT_PUBLIC_WS_URL 环境变量，优先使用（适合固定域名/反向代理场景）
+// 2. 否则自动取当前页面访问的hostname，拼上WS端口——这样同一份构建产物
+//    不管是本机访问(localhost)还是局域网/公网其他设备访问(实际IP或域名)，
+//    都能自动连到"同一台机器"上的WebSocket服务，不需要为每种访问方式单独改代码
+export function getWsUrl(port: number = 9998): string {
+  const envUrl = process.env.NEXT_PUBLIC_WS_URL;
+  if (envUrl) return envUrl;
+
+  if (typeof window === 'undefined') return `ws://localhost:${port}`;
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.hostname}:${port}`;
+}
+
 interface UseWebSocketOptions {
   onMessage?: (message: WebSocketMessage) => void;
   onOpen?: () => void;

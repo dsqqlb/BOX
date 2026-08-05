@@ -1,0 +1,13 @@
+{
+  "name": "box-websocket-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DND先攻追踪器 WebSocket 房间同步服务，独立于前端Next.js应用运行",
+  "main": "websocket-server.js",
+  "scripts": {
+    "start": "node websocket-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.2"
+  }
+}

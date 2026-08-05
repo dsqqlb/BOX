@@ -1,46 +1,43 @@
 #!/bin/bash
+# BOX 项目 Docker 部署脚本：拉取最新代码 -> 重新构建镜像 -> 重启容器 -> 清理旧镜像
+# 用法：./deploy.sh   （在项目根目录或 mac-mini/ 目录下运行都可以）
+set -euo pipefail
 
-echo "🚀 开始部署 BOX 项目到 Mac mini..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_DIR"
 
-# 检查是否在正确的目录
+LOG_PREFIX="[$(date '+%Y-%m-%d %H:%M:%S')]"
+echo "$LOG_PREFIX 🚀 开始部署 BOX 项目..."
+
 if [ ! -f "package.json" ]; then
-  echo "❌ 错误：请在项目根目录运行此脚本"
+  echo "❌ 错误：未找到 package.json，请检查项目路径: $PROJECT_DIR"
   exit 1
 fi
 
-# 拉取最新代码
-echo "📥 拉取最新代码..."
-git pull origin main
+# 记录当前commit，部署完成后可以对比
+BEFORE_SHA="$(git rev-parse HEAD)"
 
-# 安装依赖
-echo "📦 安装依赖..."
-pnpm install
+echo "$LOG_PREFIX 📥 拉取最新代码..."
+git fetch origin main
+git reset --hard origin/main
 
-# 构建项目
-echo "🔨 构建项目..."
-pnpm build
+AFTER_SHA="$(git rev-parse HEAD)"
 
-# 检查构建是否成功
-if [ ! -d "out" ]; then
-  echo "❌ 构建失败：out 目录不存在"
-  exit 1
+if [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
+  echo "$LOG_PREFIX ℹ️  代码没有变化 (${AFTER_SHA:0:7})，跳过重新构建"
+  exit 0
 fi
 
-echo "✅ 构建完成！"
-echo ""
-echo "📁 静态文件位置：$(pwd)/out"
-echo ""
-echo "接下来的步骤："
-echo "1. 配置 Nginx/Caddy 指向 out/ 目录"
-echo "2. 配置 Cloudflare Tunnel（如需内网穿透）"
-echo ""
-echo "Nginx 配置示例："
-echo "  server {"
-echo "    listen 80;"
-echo "    server_name box.yourdomain.com;"
-echo "    root $(pwd)/out;"
-echo "    index index.html;"
-echo "    location / {"
-echo "      try_files \$uri \$uri/ =404;"
-echo "    }"
-echo "  }"
+echo "$LOG_PREFIX 🔄 检测到新代码: ${BEFORE_SHA:0:7} -> ${AFTER_SHA:0:7}"
+echo "$LOG_PREFIX 🔨 重新构建并启动容器..."
+
+# --build: 每次都重新构建镜像（会利用Docker层缓存，代码没变的层不会重新跑）
+# -d: 后台运行
+docker compose up --build -d
+
+echo "$LOG_PREFIX 🧹 清理无用的旧镜像..."
+docker image prune -f
+
+echo "$LOG_PREFIX ✅ 部署完成！当前版本: ${AFTER_SHA:0:7}"
+docker compose ps

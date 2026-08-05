@@ -1,4 +1,4 @@
-# DND先攻追踪器 - 部署指南
+# BOX 项目部署指南
 
 ## 本地开发
 
@@ -18,236 +18,240 @@ npm run dev:full
 
 ### 3. 分别启动（可选）
 
-如果需要单独启动：
-
-**只启动前端：**
 ```bash
-npm run dev
+npm run dev        # 只启动前端
+npm run ws-server   # 只启动WebSocket服务器
 ```
 
-**只启动WebSocket服务器：**
+---
+
+## Mac Mini (M4) Docker 部署
+
+整体架构：两个独立容器，用 `docker-compose` 编排。
+
+| 容器 | 说明 | 端口 |
+|---|---|---|
+| `box-web` | Next.js 静态导出产物，由 nginx 托管 | 9999 -> 80 |
+| `box-ws-server` | WebSocket 房间同步 + 怪物图片清单接口 | 9998 |
+
+两个容器共享同一份 `public/image` 目录（通过 volume 挂载，只读），以后新增/修改塔罗牌图片、怪物图片，**直接把文件放进对应文件夹即可生效，不需要重新构建镜像**。
+
+### 1. 前置准备
+
+在 Mac mini 上安装 Docker Desktop（或 OrbStack，M系列芯片跑得更快更省电）：
+- Docker Desktop: https://www.docker.com/products/docker-desktop/
+- 或者 OrbStack: https://orbstack.dev/
+
+安装完成后确认命令可用：
 ```bash
-npm run ws-server
+docker --version
+docker compose version
+git --version
 ```
 
-## 使用方法
-
-### 主屏幕（服务器）
-1. 打开浏览器访问：`http://localhost:9999/tools/initiative-tracker/display`
-2. 会自动生成一个6位数字房间号
-3. 把这个房间号分享给玩家
-
-### 遥控器（客户端）
-1. 打开浏览器访问：`http://localhost:9999/tools/initiative-tracker`
-2. 输入主屏幕显示的6位房间号
-3. 点击"连接房间"
-4. 添加角色到备选池
-5. 拖拽角色到战斗区
-
-## Mac Mini 部署（内网穿透）
-
-### 1. 准备工作
-
-在Mac mini上安装Node.js（如果还没有）：
-```bash
-# 使用Homebrew安装
-brew install node
-```
-
-### 2. 克隆/上传项目到Mac mini
+### 2. 克隆项目到 Mac mini
 
 ```bash
-# 通过git克隆
-git clone <你的仓库地址>
+cd ~
+git clone https://github.com/dsqqlb/BOX.git
 cd BOX
-
-# 或者通过scp上传整个项目
-scp -r D:\dsqqjy\BOX username@macmini-ip:/path/to/destination
 ```
 
-### 3. 安装依赖并构建
+### 3. （可选）配置固定的 WebSocket 地址
+
+默认情况下**什么都不需要配置**：前端代码会自动识别访问者当前用的地址（IP或域名），拼上 `:9998` 去连 WebSocket 服务。局域网内其他设备（手机、平板、电脑）直接用 Mac mini 的局域网IP访问即可正常工作。
+
+只有当你有一个**固定域名 + 反向代理**（比如接了 Cloudflare Tunnel、走 HTTPS）的场景，才需要固定地址。此时新建 `.env` 文件：
 
 ```bash
-npm install
-npm run build
+cp .env.example .env
 ```
 
-### 4. 配置生产环境
-
-编辑 `.env.local` 文件：
+编辑 `.env`，加入：
 ```bash
-# 修改为你的公网地址（内网穿透后的地址）
-NEXT_PUBLIC_WS_URL=ws://your-domain.com:9998
+NEXT_PUBLIC_WS_URL=wss://ws.yourdomain.com
 ```
 
-### 5. 内网穿透配置
+> 注意：这个值会在**构建时**被打进静态文件里，改了之后需要重新 `docker compose up --build` 才生效。
 
-推荐使用 **frp** 或 **ngrok**：
-
-#### 使用 frp
-
-**在Mac mini上（frpc.ini）：**
-```ini
-[common]
-server_addr = 你的云服务器IP
-server_port = 7000
-
-[web]
-type = http
-local_port = 9999
-custom_domains = your-domain.com
-
-[websocket]
-type = tcp
-local_ip = 127.0.0.1
-local_port = 9998
-remote_port = 9998
-```
-
-启动frp客户端：
-```bash
-./frpc -c frpc.ini
-```
-
-#### 使用 ngrok
+### 4. 构建并启动
 
 ```bash
-# 启动HTTP隧道（Next.js）
-ngrok http 9999
-
-# 启动TCP隧道（WebSocket）- 需要在另一个终端
-ngrok tcp 9998
+docker compose up --build -d
 ```
 
-### 6. 启动生产服务
+第一次构建会比较慢（要下载 node/nginx 基础镜像 + npm install），之后代码没变的层会走缓存，速度会快很多。
 
-**方式1：使用PM2（推荐）**
-
-安装PM2：
+查看运行状态：
 ```bash
-npm install -g pm2
+docker compose ps
+docker compose logs -f          # 看全部日志
+docker compose logs -f ws-server  # 只看WebSocket服务日志
 ```
 
-创建 `ecosystem.config.js`：
-```javascript
-module.exports = {
-  apps: [
-    {
-      name: 'dnd-frontend',
-      script: 'npm',
-      args: 'start',
-      env: {
-        PORT: 9999
-      }
-    },
-    {
-      name: 'dnd-websocket',
-      script: 'server/websocket-server.js',
-      env: {
-        WS_PORT: 9998
-      }
-    }
-  ]
-};
-```
+### 5. 访问
 
-启动：
-```bash
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup  # 设置开机自启
-```
+- Mac mini 本机：`http://localhost:9999`
+- 局域网其他设备：`http://<Mac mini的局域网IP>:9999`（比如 `http://192.168.1.50:9999`）
+  - 查Mac mini的局域网IP：`ipconfig getifaddr en0`（Wi-Fi）或 `en1`（有线，具体看你的网络接口名）
 
-**方式2：使用screen（简单）**
+先攻追踪器主屏幕：`/tools/initiative-tracker/display`
+先攻追踪器遥控器：`/tools/initiative-tracker`
+塔罗牌占卜：`/tools/tarot-reading`
+
+### 6. 停止 / 重启
 
 ```bash
-# 启动前端
-screen -S dnd-frontend
-npm start
-# 按 Ctrl+A 然后 D 退出screen
-
-# 启动WebSocket
-screen -S dnd-websocket
-npm run ws-server
-# 按 Ctrl+A 然后 D 退出screen
-
-# 查看运行中的screen
-screen -ls
-
-# 重新连接到screen
-screen -r dnd-frontend
-screen -r dnd-websocket
+docker compose down          # 停止并移除容器
+docker compose restart       # 重启（不重新构建）
+docker compose up --build -d # 重新构建并启动（代码更新后用这个）
 ```
+
+---
+
+## GitHub Push 自动部署
+
+提供两种方案，**优先推荐方案A**（更简单、不需要暴露任何端口到公网）。
+
+### 方案 A：轮询自动部署（推荐）
+
+原理：Mac mini 上跑一个后台脚本，定期（默认60秒）检查 GitHub 上 `main` 分支有没有新提交，有就自动执行 `docker compose up --build -d`。
+
+**优点**：不需要把 Mac mini 暴露到公网，纯内网也能用。
+**缺点**：有轮询间隔的延迟（可接受，默认1分钟内会部署上）。
+
+#### 安装步骤
+
+1. 把 `mac-mini/com.box.autodeploy.plist` 里的路径占位符替换成项目实际路径，并复制到 launchd 的目录：
+
+```bash
+cd ~/BOX
+PROJECT_DIR="$(pwd)"
+
+# 替换占位符并复制到launchd目录
+sed "s|__PROJECT_DIR__|$PROJECT_DIR|g" mac-mini/com.box.autodeploy.plist > ~/Library/LaunchAgents/com.box.autodeploy.plist
+
+# 确保脚本有执行权限
+chmod +x mac-mini/deploy.sh mac-mini/auto-deploy-poll.sh
+
+# 加载并启动这个后台服务
+launchctl load ~/Library/LaunchAgents/com.box.autodeploy.plist
+```
+
+2. 验证是否在运行：
+
+```bash
+launchctl list | grep com.box.autodeploy
+tail -f mac-mini/autodeploy.log        # 看轮询日志
+```
+
+3. 之后每次你在本地 `git push` 到 `main` 分支，Mac mini 会在1分钟内自动检测到并重新部署。
+
+#### 管理命令
+
+```bash
+# 停止自动部署服务
+launchctl unload ~/Library/LaunchAgents/com.box.autodeploy.plist
+
+# 重新启动（比如改了轮询间隔之后）
+launchctl unload ~/Library/LaunchAgents/com.box.autodeploy.plist
+launchctl load ~/Library/LaunchAgents/com.box.autodeploy.plist
+
+# 手动触发一次部署（不用等轮询）
+./mac-mini/deploy.sh
+```
+
+### 方案 B：GitHub Webhook 即时部署
+
+原理：GitHub 在你 push 后主动发一个 HTTP 请求通知 Mac mini，几秒内触发部署，比轮询更即时。
+
+**前提**：Mac mini 需要能被 GitHub 访问到，也就是你已经配置了内网穿透（Cloudflare Tunnel / frp / ngrok）或者有公网IP+端口转发。如果没有这个前提，请用方案A。
+
+#### 安装步骤
+
+1. 在 Mac mini 上启动 webhook 接收服务（建议同样用 launchd 或 pm2 常驻）：
+
+```bash
+cd ~/BOX
+WEBHOOK_SECRET="设置一个随机密钥" WEBHOOK_PORT=9000 node mac-mini/webhook-server.js
+```
+
+2. 把这个 9000 端口通过你的内网穿透方案暴露出去，得到一个公开可访问的地址，例如 `https://webhook.yourdomain.com`。
+
+3. 在 GitHub 仓库页面：Settings -> Webhooks -> Add webhook
+   - Payload URL: `https://webhook.yourdomain.com/webhook`
+   - Content type: `application/json`
+   - Secret: 和上面设置的 `WEBHOOK_SECRET` 保持一致
+   - 事件: 选择 "Just the push event"
+
+4. 之后每次 push 到任意分支，GitHub 会通知 webhook 服务；服务只在检测到是 `main` 分支时才触发部署。
+
+> 想让 webhook-server.js 开机自启，可以参考方案A里的 launchd 配置方式，把 `ProgramArguments` 换成 `node mac-mini/webhook-server.js`，并把 `WEBHOOK_SECRET`/`WEBHOOK_PORT` 加进 `EnvironmentVariables`。
+
+---
 
 ## 测试跨设备连接
 
-1. 确保Mac mini上的服务已启动
-2. 确保内网穿透已配置
-3. 在Mac mini上打开主屏幕：`http://localhost:9999/tools/initiative-tracker/display`
-4. 在其他设备（手机/平板/电脑）上打开遥控器：`http://your-domain.com/tools/initiative-tracker`
-5. 输入房间号连接
+1. 确保 Mac mini 上 `docker compose ps` 显示两个容器都是 `running`/`healthy`
+2. 在 Mac mini 上打开主屏幕：`http://localhost:9999/tools/initiative-tracker/display`
+3. 在其他设备（手机/平板/电脑，需要和Mac mini在同一局域网）上打开遥控器：`http://<Mac mini局域网IP>:9999/tools/initiative-tracker`
+4. 输入房间号连接
 
 ## 故障排查
 
-### WebSocket连接失败
+### 容器起不来 / WebSocket连不上
 
-1. 检查WebSocket服务器是否运行：
 ```bash
-# Mac mini上
+docker compose ps                    # 看容器状态是否 healthy
+docker compose logs ws-server        # 看WebSocket服务的报错
+docker compose logs web               # 看nginx的报错
+
+# 检查端口有没有被本机其他程序占用
+lsof -i :9999
 lsof -i :9998
-# 或
-netstat -an | grep 9998
 ```
 
-2. 检查防火墙设置：
+### 图片显示不出来（怪物图/塔罗牌图/角色立绘）
+
+确认 `public/image` 目录在宿主机上确实存在对应文件，并且 volume 挂载生效：
 ```bash
-# 确保9998端口开放
-sudo ufw allow 9998
+docker compose exec web ls /usr/share/nginx/html/image/enemies
+docker compose exec ws-server ls /public/image/enemies
 ```
 
-3. 检查.env.local配置是否正确
+### 自动部署没有生效
 
-### 房间连接问题
+```bash
+# 方案A（轮询）
+launchctl list | grep com.box.autodeploy   # 确认服务在跑
+tail -50 mac-mini/autodeploy.log            # 看轮询日志，确认有没有检测到新commit
+tail -50 mac-mini/autodeploy.error.log      # 看有没有报错
 
-1. 查看浏览器Console（F12）是否有错误
-2. 查看WebSocket服务器日志
-3. 确认房间号输入正确
+# 手动跑一次部署脚本，看具体报错
+./mac-mini/deploy.sh
+```
 
-### 备选池丢失
+### 房间/备选池数据丢失
 
-备选池存储在本地localStorage，只有在：
-- 清除浏览器数据
-- 手动删除角色
-时才会丢失。
+- **战斗中的角色数据**：存在 WebSocket 服务的内存里，容器重启（比如自动部署触发的重新构建）会清空。这是当前架构的已知限制，如果需要持久化，后续可以考虑把房间状态存到文件或轻量数据库里。
+- **遥控器的备选池**：存在浏览器 localStorage，只有清除浏览器数据或手动删除角色才会丢失，跟服务器部署无关。
 
 ## 端口说明
 
-- **9999**: Next.js前端服务
-- **9998**: WebSocket服务器
+| 端口 | 用途 |
+|---|---|
+| 9999 | 前端（nginx托管的静态站点），映射到容器内的80 |
+| 9998 | WebSocket服务器（房间同步 + 怪物图片清单接口） |
+| 9000 | （可选）GitHub Webhook 接收服务，仅方案B需要 |
 
-如需修改端口，请同时修改：
-1. `package.json` 中的启动命令
-2. `.env.local` 中的 `NEXT_PUBLIC_WS_URL`
-3. `server/websocket-server.js` 中的 `PORT`
+如需修改端口，同时改：
+1. `docker-compose.yml` 里对应服务的 `ports`
+2. 如果改了9998，`server/websocket-server.js` 里的 `WS_PORT` 环境变量默认值，以及 `lib/useWebSocket.ts` 的 `getWsUrl()` 默认端口参数
 
 ## 安全建议
 
-生产环境建议：
-1. 使用HTTPS和WSS（加密WebSocket）
-2. 添加身份验证
-3. 限制房间数量和连接数
-4. 设置房间过期时间
-5. 添加速率限制
-
-## 监控
-
-查看PM2日志：
-```bash
-pm2 logs dnd-frontend
-pm2 logs dnd-websocket
-```
-
-查看实时状态：
-```bash
-pm2 monit
-```
+生产环境（尤其是暴露到公网时）建议：
+1. 用 Cloudflare Tunnel 之类的方案接入 HTTPS/WSS，不要直接裸奔 HTTP/WS
+2. GitHub Webhook 一定要设置 `WEBHOOK_SECRET`，否则任何人都能触发部署
+3. 给房间号/遥控器加基础的身份校验（当前版本没有做鉴权，房间号即权限）
+4. 限制房间数量和连接数，防止被刷爆内存

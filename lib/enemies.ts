@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getWsUrl } from './useWebSocket';
 
 // 怪物清单条目：由 server/websocket-server.js 的 /enemies 接口实时扫描
 // public/image/enemies 目录返回，无需生成文件、无需重启服务
@@ -8,11 +9,10 @@ export interface EnemyEntry {
   file: string;  // 图片文件名（含后缀）
 }
 
-// 怪物列表接口和WebSocket服务器跑在同一个进程里（端口9998），
-// 用当前页面的hostname而非硬编码localhost，这样局域网内其他设备访问遥控器页面时也能正常拉取列表
+// 怪物列表接口和WebSocket服务器跑在同一个进程里，端口号复用 getWsUrl() 的逻辑，
+// 只是把 ws(s):// 换成 http(s)://，避免两处各写一套主机名/端口推断逻辑
 function getEnemiesApiUrl(): string {
-  if (typeof window === 'undefined') return 'http://localhost:9998/enemies';
-  return `http://${window.location.hostname}:9998/enemies`;
+  return getWsUrl().replace(/^ws/, 'http') + '/enemies';
 }
 
 // 获取怪物图片的公开访问路径

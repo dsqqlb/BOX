@@ -1,0 +1,30 @@
+# 依赖和构建产物：容器内会重新安装/构建，不需要带进构建上下文
+node_modules
+.next
+out
+
+# 版本控制和IDE
+.git
+.gitignore
+.vscode
+.kiro
+
+# 环境变量文件：包含本机开发配置，不应打进镜像，运行时用 docker-compose environment/args 传入
+.env
+.env.local
+.env*.local
+
+# 文档、脚本、测试类，不影响运行时
+docs
+doc
+DEPLOYMENT.md
+README.md
+test-ws.js
+scripts
+
+# TypeScript构建缓存
+tsconfig.tsbuildinfo
+
+# 日志
+*.log
+npm-debug.log*

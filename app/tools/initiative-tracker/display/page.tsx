@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useWebSocket } from '@/lib/useWebSocket';
+import { useWebSocket, getWsUrl } from '@/lib/useWebSocket';
 
 // 角色类型
 interface Character {
@@ -248,8 +248,8 @@ function InitiativeDisplayPageInner() {
     }
   }, [paramRoomId]);
 
-  // WebSocket连接（临时硬编码用于测试）
-  const wsUrl = roomId ? 'ws://localhost:9998' : null;
+  // WebSocket地址：优先用环境变量，否则自动跟随当前访问的主机名（局域网/公网设备都能连上同一台服务器）
+  const wsUrl = roomId ? getWsUrl() : null;
   
   const { isConnected, sendMessage } = useWebSocket(wsUrl, {
     onMessage: (message) => {
