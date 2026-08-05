@@ -49,5 +49,15 @@
     "icon": "🌌",
     "featured": true,
     "createdAt": "2026-08-04"
+  },
+  {
+    "slug": "tarot-reading",
+    "title": "塔罗牌占卜",
+    "description": "78张韦特塔罗牌全解读，支持单张/三张/情况行动结果/凯尔特十字牌阵，含洗牌切牌与翻牌动画",
+    "category": "game",
+    "tags": ["tarot", "divination", "cards", "mystic"],
+    "icon": "🔮",
+    "featured": true,
+    "createdAt": "2026-08-04"
   }
 ]

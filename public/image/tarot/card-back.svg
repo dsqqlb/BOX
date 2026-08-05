@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 350 600" width="350" height="600">
+  <defs>
+    <!-- 底色：深紫到墨黑的径向渐变 -->
+    <radialGradient id="bgGrad" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#2e1065"/>
+      <stop offset="45%" stop-color="#1e1345"/>
+      <stop offset="100%" stop-color="#0b0716"/>
+    </radialGradient>
+
+    <!-- 金色渐变，用于边框和符文线条 -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="45%" stop-color="#d4af37"/>
+      <stop offset="100%" stop-color="#92661a"/>
+    </linearGradient>
+
+    <radialGradient id="goldGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#fbbf24" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff7d6" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#fff7d6" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 细密星点纹理 -->
+    <pattern id="starsPattern" width="60" height="60" patternUnits="userSpaceOnUse">
+      <circle cx="8" cy="12" r="1" fill="#e9d5ff" opacity="0.55"/>
+      <circle cx="34" cy="6" r="0.7" fill="#e9d5ff" opacity="0.4"/>
+      <circle cx="48" cy="30" r="1.1" fill="#fde68a" opacity="0.5"/>
+      <circle cx="20" cy="44" r="0.8" fill="#e9d5ff" opacity="0.45"/>
+      <circle cx="55" cy="52" r="0.6" fill="#e9d5ff" opacity="0.35"/>
+    </pattern>
+  </defs>
+
+  <!-- 底层背景 -->
+  <rect x="0" y="0" width="350" height="600" rx="18" fill="url(#bgGrad)"/>
+  <rect x="0" y="0" width="350" height="600" rx="18" fill="url(#starsPattern)"/>
+
+  <!-- 外边框：双线金框 -->
+  <rect x="10" y="10" width="330" height="580" rx="14" fill="none" stroke="url(#goldGrad)" stroke-width="3"/>
+  <rect x="20" y="20" width="310" height="560" rx="10" fill="none" stroke="url(#goldGrad)" stroke-width="1.2" opacity="0.75"/>
+
+  <!-- 四角花纹装饰 -->
+  <g stroke="url(#goldGrad)" stroke-width="1.4" fill="none" opacity="0.85">
+    <path d="M20,50 Q20,20 50,20"/>
+    <path d="M28,50 Q28,28 50,28"/>
+    <circle cx="24" cy="24" r="3" fill="url(#goldGrad)" stroke="none"/>
+
+    <path d="M330,50 Q330,20 300,20"/>
+    <path d="M322,50 Q322,28 300,28"/>
+    <circle cx="326" cy="24" r="3" fill="url(#goldGrad)" stroke="none"/>
+
+    <path d="M20,550 Q20,580 50,580"/>
+    <path d="M28,550 Q28,572 50,572"/>
+    <circle cx="24" cy="576" r="3" fill="url(#goldGrad)" stroke="none"/>
+
+    <path d="M330,550 Q330,580 300,580"/>
+    <path d="M322,550 Q322,572 300,572"/>
+    <circle cx="326" cy="576" r="3" fill="url(#goldGrad)" stroke="none"/>
+  </g>
+
+  <!-- 中央光晕 -->
+  <circle cx="175" cy="300" r="150" fill="url(#goldGlow)"/>
+
+  <!-- 中央大圆环（象征宇宙轮转） -->
+  <circle cx="175" cy="300" r="118" fill="none" stroke="url(#goldGrad)" stroke-width="2"/>
+  <circle cx="175" cy="300" r="104" fill="none" stroke="url(#goldGrad)" stroke-width="1" opacity="0.6"/>
+
+  <!-- 八芒星符文 -->
+  <g transform="translate(175,300)" stroke="url(#goldGrad)" stroke-width="1.6" fill="none" opacity="0.9">
+    <path d="M0,-95 L0,95"/>
+    <path d="M-95,0 L95,0"/>
+    <path d="M-67,-67 L67,67"/>
+    <path d="M-67,67 L67,-67"/>
+  </g>
+
+  <!-- 内圈小圆点刻度（十二宫位意象） -->
+  <g fill="url(#goldGrad)">
+    <circle cx="175" cy="182" r="2.4"/>
+    <circle cx="175" cy="418" r="2.4"/>
+    <circle cx="57" cy="300" r="2.4"/>
+    <circle cx="293" cy="300" r="2.4"/>
+    <circle cx="217.5" cy="196" r="2"/>
+    <circle cx="132.5" cy="196" r="2"/>
+    <circle cx="217.5" cy="404" r="2"/>
+    <circle cx="132.5" cy="404" r="2"/>
+  </g>
+
+  <!-- 中心：新月抱日符文 + 全视之眼意象 -->
+  <g transform="translate(175,300)">
+    <circle r="60" fill="url(#starGlow)"/>
+    <!-- 日 -->
+    <circle r="26" fill="none" stroke="url(#goldGrad)" stroke-width="2"/>
+    <g stroke="url(#goldGrad)" stroke-width="1.6">
+      <path d="M0,-40 L0,-32"/>
+      <path d="M0,32 L0,40"/>
+      <path d="M-40,0 L-32,0"/>
+      <path d="M32,0 L40,0"/>
+      <path d="M-28,-28 L-23,-23"/>
+      <path d="M23,23 L28,28"/>
+      <path d="M-28,28 L-23,23"/>
+      <path d="M23,-23 L28,-28"/>
+    </g>
+    <!-- 眼 -->
+    <path d="M-16,0 Q0,-14 16,0 Q0,14 -16,0 Z" fill="none" stroke="url(#goldGrad)" stroke-width="1.8"/>
+    <circle r="5.5" fill="url(#goldGrad)"/>
+  </g>
+
+  <!-- 顶部与底部装饰弧线 -->
+  <path d="M60,70 Q175,45 290,70" fill="none" stroke="url(#goldGrad)" stroke-width="1.4" opacity="0.85"/>
+  <path d="M60,530 Q175,555 290,530" fill="none" stroke="url(#goldGrad)" stroke-width="1.4" opacity="0.85"/>
+
+  <!-- 顶部与底部小五角星点缀 -->
+  <g fill="url(#goldGrad)">
+    <path d="M175 52 l3.2 6.6 7.2 1-5.2 5.1 1.2 7.2-6.4-3.4-6.4 3.4 1.2-7.2-5.2-5.1 7.2-1 z" opacity="0.9"/>
+    <path d="M175 548 l3.2 6.6 7.2 1-5.2 5.1 1.2 7.2-6.4-3.4-6.4 3.4 1.2-7.2-5.2-5.1 7.2-1 z" opacity="0.9"/>
+  </g>
+</svg>
