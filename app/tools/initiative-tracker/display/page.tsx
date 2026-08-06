@@ -52,6 +52,18 @@ const EMBER_PARTICLES = [
   { left: '93%', size: '3px', duration: '11s', delay: '2.5s' },
 ];
 
+// 全屏浮尘粒子固定参数（营造空气中悬浮光尘的电影质感，铺满整个屏幕，比余烬更细密安静）
+const DUST_PARTICLES = Array.from({ length: 24 }, (_, i) => ({
+  left: `${(i * 41 + 7) % 100}%`,
+  top: `${(i * 29 + 13) % 100}%`,
+  size: 1 + (i % 3),
+  dx: `${((i % 5) - 2) * 18}px`,
+  dy: `${-30 - (i % 4) * 15}px`,
+  duration: `${10 + (i % 6) * 2}s`,
+  delay: `${(i % 8) * 0.8}s`,
+  opacity: 0.25 + (i % 3) * 0.1,
+}));
+
 // 按当前回合角色阵营切换的背景主题色
 // player=玩家回合(冷静的蓝) enemy=怪物回合(危险的红) npc=NPC回合(中性的绿)
 const TURN_THEMES = {
@@ -115,6 +127,33 @@ const BG3CharacterCard = ({
       {/* 当前回合：优雅的指示 */}
       {isCurrent && (
         <>
+          {/* 脚下法阵光环：双环反向旋转，营造仪式感/被选中的视觉焦点 */}
+          <div
+            className="absolute left-1/2 -translate-x-1/2 z-0 pointer-events-none"
+            style={{ bottom: '-6px', width: 180, height: 180 }}
+          >
+            <svg viewBox="0 0 100 100" className="absolute inset-0 animate-rune-spin" style={{ opacity: 0.55 }}>
+              <circle cx="50" cy="50" r="46" fill="none" stroke={borderColor} strokeWidth="0.6" strokeDasharray="4 3" />
+              <circle cx="50" cy="50" r="38" fill="none" stroke={borderColor} strokeWidth="0.4" opacity="0.6" />
+            </svg>
+            <svg viewBox="0 0 100 100" className="absolute inset-0 animate-rune-spin-reverse" style={{ opacity: 0.4 }}>
+              <polygon points="50,6 88,74 12,74" fill="none" stroke={borderColor} strokeWidth="0.5" />
+              <polygon points="50,94 12,26 88,26" fill="none" stroke={borderColor} strokeWidth="0.4" opacity="0.7" />
+            </svg>
+          </div>
+
+          {/* 脚下聚光光柱：从角色位置向上升起的锥形光束 */}
+          <div
+            className="absolute left-1/2 -translate-x-1/2 z-0 pointer-events-none animate-beam-pulse"
+            style={{
+              bottom: '0px',
+              width: 90,
+              height: 260,
+              background: `linear-gradient(to top, ${borderColor}55, ${borderColor}14 40%, transparent 80%)`,
+              clipPath: 'polygon(35% 100%, 65% 100%, 100% 0%, 0% 0%)',
+            }}
+          />
+
           {/* 顶部动态箭头指示器 */}
           <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-30">
             <div className="relative flex flex-col items-center animate-bounce-slow">
@@ -132,7 +171,7 @@ const BG3CharacterCard = ({
       )}
       
       {/* 卡片容器 */}
-      <div className="relative">
+      <div className="relative z-10">
         {/* 先攻值徽章 - 缩小 */}
         <div className="absolute -top-2 -left-2 z-20">
           <div
@@ -228,13 +267,14 @@ const BG3CharacterCard = ({
           </div>
         </div>
         
-        {/* 名字放在卡片外面下方 */}
-        <div className="mt-2">
+        {/* 名字放在卡片外面下方：固定宽度跟随卡片(w-32)，超长名字换行最多两行+省略，
+            不会无限撑开撐乱flex布局导致整行卡片挤歪 */}
+        <div className="mt-2.5 w-32 mx-auto">
           <div
-            className={`font-black text-center leading-tight transition-all duration-500 px-1 ${
-              isCurrent ? 'text-lg' : 'text-base text-slate-300'
+            className={`font-black text-center leading-tight transition-all duration-500 px-1 line-clamp-2 break-words ${
+              isCurrent ? 'text-2xl' : 'text-xl text-slate-200'
             }`}
-            style={isCurrent ? { color: borderColor, filter: `drop-shadow(0 0 8px ${borderColor}99)` } : undefined}
+            style={isCurrent ? { color: borderColor, filter: `drop-shadow(0 0 10px ${borderColor}bb)` } : undefined}
           >
             {char.name}
           </div>
@@ -406,6 +446,45 @@ function InitiativeDisplayPageInner() {
           className="absolute top-0 left-0 right-0 h-px transition-colors duration-1000"
           style={{ background: `linear-gradient(to right, transparent, ${theme.line}, transparent)` }}
         />
+
+        {/* 全屏浮尘粒子：细密、安静地漂浮，增加空气感和纵深感 */}
+        {DUST_PARTICLES.map((d, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full bg-white animate-dust-float"
+            style={{
+              left: d.left,
+              top: d.top,
+              width: d.size,
+              height: d.size,
+              '--dust-x': d.dx,
+              '--dust-y': d.dy,
+              '--dust-duration': d.duration,
+              '--dust-opacity': d.opacity,
+              animationDelay: d.delay,
+            } as React.CSSProperties}
+          />
+        ))}
+
+        {/* 暗角运镜：四角压暗，把视觉焦点收拢到画面中央的战斗区域 */}
+        <div
+          className="absolute inset-0"
+          style={{ background: 'radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.55) 100%)' }}
+        />
+
+        {/* HUD科技边角框：四角呼吸式微光装饰，营造广播级战况面板感 */}
+        {[
+          { pos: 'top-6 left-6', border: 'border-t-2 border-l-2' },
+          { pos: 'top-6 right-6', border: 'border-t-2 border-r-2' },
+          { pos: 'bottom-6 left-6', border: 'border-b-2 border-l-2' },
+          { pos: 'bottom-6 right-6', border: 'border-b-2 border-r-2' },
+        ].map((corner, i) => (
+          <div
+            key={i}
+            className={`absolute ${corner.pos} w-16 h-16 ${corner.border} animate-hud-corner transition-colors duration-1000`}
+            style={{ borderColor: theme.line }}
+          />
+        ))}
       </div>
       
       {/* WebSocket连接状态 */}

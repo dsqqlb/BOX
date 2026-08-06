@@ -1150,8 +1150,8 @@ export default function InitiativeTrackerPage() {
                       key={enemy.key}
                       onClick={() => {
                         setSelectedEnemy(enemy.key);
-                        // 快捷填充角色名：仅在用户还没输入名字时才自动填，不覆盖已有输入
-                        if (!newCharName.trim()) setNewCharName(enemy.name);
+                        // 快捷填充角色名：每次点击图片都自动填成对应名字，方便连续挑选
+                        setNewCharName(enemy.name);
                       }}
                       className={`relative p-2 rounded-lg transition-all ${
                         selectedEnemy === enemy.key
@@ -1298,8 +1298,8 @@ export default function InitiativeTrackerPage() {
                           key={enemy.key}
                           onClick={() => {
                             setSelectedNpcImage(enemy.key);
-                            // 快捷填充角色名：仅在用户还没输入名字时才自动填
-                            if (!newCharName.trim()) setNewCharName(enemy.name);
+                            // 快捷填充角色名：每次点击图片都自动填成对应名字，方便连续挑选
+                            setNewCharName(enemy.name);
                           }}
                           className={`relative p-2 rounded-lg transition-all ${
                             selectedNpcImage === enemy.key
@@ -1411,8 +1411,8 @@ export default function InitiativeTrackerPage() {
                       onClick={() => {
                         setSelectedCustomMedia(item);
                         setCustomTextToken(''); // 选了图片就不再用文字模式
-                        // 快捷填充角色名：仅在用户还没输入名字时才自动填
-                        if (!newCharName.trim()) setNewCharName(item.name);
+                        // 快捷填充角色名：每次点击图片都自动填成对应名字，方便连续挑选
+                        setNewCharName(item.name);
                       }}
                       className={`relative p-2 rounded-lg transition-all ${
                         selectedCustomMedia?.key === item.key

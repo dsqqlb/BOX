@@ -749,3 +749,53 @@ body {
     );
   }
 }
+
+/* ============ 先攻追踪器主屏幕：电影感升级 ============ */
+@layer utilities {
+  /* 环境浮尘粒子：铺满全屏缓慢漂移，营造空气中光尘的质感（区别于底部的余烬火星） */
+  @keyframes dust-float {
+    0% { transform: translate(0, 0); opacity: 0; }
+    12% { opacity: var(--dust-opacity, 0.5); }
+    50% { transform: translate(var(--dust-x, 20px), var(--dust-y, -40px)); }
+    88% { opacity: var(--dust-opacity, 0.5); }
+    100% { transform: translate(0, 0); opacity: 0; }
+  }
+  .animate-dust-float {
+    animation: dust-float var(--dust-duration, 14s) ease-in-out infinite;
+  }
+
+  /* 法阵符文环：环绕当前回合角色缓慢旋转，双环反向叠加出"仪式感" */
+  @keyframes rune-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .animate-rune-spin {
+    animation: rune-spin 22s linear infinite;
+  }
+
+  @keyframes rune-spin-reverse {
+    from { transform: rotate(360deg); }
+    to { transform: rotate(0deg); }
+  }
+  .animate-rune-spin-reverse {
+    animation: rune-spin-reverse 15s linear infinite;
+  }
+
+  /* 聚光光柱：当前角色脚下升起的光束，呼吸式明暗 */
+  @keyframes beam-pulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.65; }
+  }
+  .animate-beam-pulse {
+    animation: beam-pulse 2.2s ease-in-out infinite;
+  }
+
+  /* HUD边角框微光呼吸，营造广播级战况面板的科技感 */
+  @keyframes hud-corner-glow {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 0.9; }
+  }
+  .animate-hud-corner {
+    animation: hud-corner-glow 3.5s ease-in-out infinite;
+  }
+}
