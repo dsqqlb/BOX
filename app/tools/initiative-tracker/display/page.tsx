@@ -13,8 +13,25 @@ interface Character {
   imageUrl?: string;
   type: 'player' | 'enemy' | 'npc';
   color: string;
-  ownerId: string; // 所属遥控器ID
   combatId?: string; // 战斗区中的唯一ID（与id相同）
+  borderColor?: string; // 自定义边框色（十六进制），未设置时按type使用阵营默认配色
+}
+
+// 阵营默认配色：玩家=金色，NPC=蓝色，怪物=红色
+const TYPE_THEME: Record<Character['type'], { border: string; tagBg: string; tagBorder: string; label: string }> = {
+  player: { border: '#fbbf24', tagBg: 'rgba(251,191,36,0.75)', tagBorder: 'rgba(251,191,36,0.5)', label: '玩家' },
+  npc: { border: '#3b82f6', tagBg: 'rgba(59,130,246,0.75)', tagBorder: 'rgba(59,130,246,0.5)', label: 'NPC' },
+  enemy: { border: '#ef4444', tagBg: 'rgba(239,68,68,0.75)', tagBorder: 'rgba(239,68,68,0.5)', label: '敌人' },
+};
+
+// 自定义生物允许用长文字当"图片"，卡片上的大字需要根据文字长度自适应缩小，避免溢出
+function getTokenFontSizeClass(token: string): string {
+  const len = token.length;
+  if (len <= 2) return 'text-6xl';
+  if (len <= 4) return 'text-4xl';
+  if (len <= 6) return 'text-2xl';
+  if (len <= 10) return 'text-lg';
+  return 'text-sm';
 }
 
 interface RoomState {
@@ -81,6 +98,10 @@ const BG3CharacterCard = ({
   isEntering?: boolean;
   isLeaving?: boolean;
 }) => {
+  // 阵营默认配色，除非角色设置了自定义边框色（borderColor）
+  const theme = TYPE_THEME[char.type];
+  const borderColor = char.borderColor || theme.border;
+
   return (
     <div
       className={`relative flex-shrink-0 transition-all duration-700 ease-out ${
@@ -101,9 +122,12 @@ const BG3CharacterCard = ({
             </div>
           </div>
           
-          {/* 底部发光 - 更强烈的光效 */}
-          <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-full h-2 bg-gradient-to-r from-transparent via-amber-400 to-transparent blur-md" />
-          <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-3/4 h-1 bg-amber-500/80 blur-sm" />
+          {/* 底部发光 - 跟随阵营/自定义边框色 */}
+          <div
+            className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-full h-2 blur-md"
+            style={{ background: `linear-gradient(to right, transparent, ${borderColor}, transparent)` }}
+          />
+          <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-3/4 h-1 blur-sm" style={{ backgroundColor: `${borderColor}cc` }} />
         </>
       )}
       
@@ -111,11 +135,14 @@ const BG3CharacterCard = ({
       <div className="relative">
         {/* 先攻值徽章 - 缩小 */}
         <div className="absolute -top-2 -left-2 z-20">
-          <div className={`relative w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-500 ${
-            isCurrent 
-              ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-md shadow-amber-500/40' 
-              : 'bg-slate-800/90 text-amber-400/80 border border-amber-600/20 shadow-lg'
-          }`}>
+          <div
+            className="relative w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-500 border"
+            style={
+              isCurrent
+                ? { background: `linear-gradient(135deg, ${borderColor}, ${borderColor}cc)`, color: '#fff', borderColor: 'transparent', boxShadow: `0 2px 8px ${borderColor}66` }
+                : { backgroundColor: 'rgba(30,41,59,0.9)', color: `${borderColor}cc`, borderColor: `${borderColor}33` }
+            }
+          >
             {Math.floor(char.initiative)}
             {/* 内光 */}
             {isCurrent && (
@@ -124,42 +151,41 @@ const BG3CharacterCard = ({
           </div>
         </div>
         
-        {/* 类型标签 - 缩小并降低透明度 */}
+        {/* 类型标签 - 缩小并降低透明度，跟随阵营配色（不随自定义边框色变化，始终反映真实阵营） */}
         <div className="absolute -top-1 -right-1 z-20">
-          <div className={`px-1.5 py-0.5 rounded text-[10px] font-medium backdrop-blur-sm border transition-all duration-300 ${
-            char.type === 'player' 
-              ? 'bg-blue-500/70 text-blue-50 border-blue-400/40 shadow-sm shadow-blue-500/10' :
-            char.type === 'enemy' 
-              ? 'bg-red-500/70 text-red-50 border-red-400/40 shadow-sm shadow-red-500/10' :
-              'bg-emerald-500/70 text-emerald-50 border-emerald-400/40 shadow-sm shadow-emerald-500/10'
-          }`}>
-            {char.type === 'player' ? '玩家' : char.type === 'enemy' ? '敌人' : 'NPC'}
+          <div
+            className="px-1.5 py-0.5 rounded text-[10px] font-medium backdrop-blur-sm border transition-all duration-300 text-white"
+            style={{ backgroundColor: theme.tagBg, borderColor: theme.tagBorder }}
+          >
+            {theme.label}
           </div>
         </div>
         
         {/* 主卡片 */}
         <div
-          className={`relative w-32 h-48 rounded-lg overflow-hidden transition-all duration-500 border-2 ${
-            isCurrent 
-              ? 'shadow-2xl shadow-amber-500/50 border-amber-400' 
-              : 'shadow-xl shadow-black/40 border-slate-700/50'
-          }`}
-        >
-          {/* 卡片边框 - 使用渐变和内阴影 */}
-          <div className={`absolute inset-0 rounded-lg transition-all duration-500 ${
-            isCurrent 
-              ? 'bg-gradient-to-b from-amber-400/20 via-transparent to-amber-600/30' 
-              : 'bg-gradient-to-b from-slate-600/10 via-transparent to-slate-800/20'
-          }`} />
-          
-          <div className={`absolute inset-[2px] rounded-lg overflow-hidden border transition-all duration-500 ${
-            isCurrent 
-              ? 'border-amber-400/40' 
-              : 'border-slate-700/60'
-          }`}
+          className="relative w-32 h-48 rounded-lg overflow-hidden transition-all duration-500 border-2"
           style={{
-            background: 'linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(30,41,59,0.99) 100%)',
-          }}>
+            borderColor: isCurrent ? borderColor : `${borderColor}80`,
+            boxShadow: isCurrent ? `0 20px 40px -10px ${borderColor}80` : '0 8px 20px -4px rgba(0,0,0,0.4)',
+          }}
+        >
+          {/* 卡片边框 - 使用渐变和内阴影，跟随阵营/自定义边框色 */}
+          <div
+            className="absolute inset-0 rounded-lg transition-all duration-500"
+            style={{
+              background: isCurrent
+                ? `linear-gradient(180deg, ${borderColor}33, transparent, ${borderColor}4d)`
+                : `linear-gradient(180deg, ${borderColor}1a, transparent, rgba(30,41,59,0.2))`,
+            }}
+          />
+          
+          <div
+            className="absolute inset-[2px] rounded-lg overflow-hidden border transition-all duration-500"
+            style={{
+              borderColor: isCurrent ? `${borderColor}66` : 'rgba(51,65,85,0.6)',
+              background: 'linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(30,41,59,0.99) 100%)',
+            }}
+          >
             {/* 背景图片 */}
             {char.imageUrl && (
               <div className="absolute inset-0">
@@ -183,27 +209,33 @@ const BG3CharacterCard = ({
               </div>
             )}
             
-            {/* Token（如果没有图片） */}
+            {/* Token（如果没有图片，也用于自定义生物的长文字"当图片"，自动缩小字号避免溢出） */}
             {!char.imageUrl && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-6xl opacity-90">{char.token}</div>
+              <div className="absolute inset-0 flex items-center justify-center px-2">
+                <div className={`${getTokenFontSizeClass(char.token)} opacity-90 text-center leading-tight break-all`}>
+                  {char.token}
+                </div>
               </div>
             )}
             
             {/* 当前回合：顶部微光 */}
             {isCurrent && (
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
+              <div
+                className="absolute top-0 left-0 right-0 h-1"
+                style={{ background: `linear-gradient(to right, transparent, ${borderColor}66, transparent)` }}
+              />
             )}
           </div>
         </div>
         
         {/* 名字放在卡片外面下方 */}
         <div className="mt-2">
-          <div className={`font-black text-center leading-tight transition-all duration-500 px-1 ${
-            isCurrent 
-              ? 'text-amber-400 text-lg drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' 
-              : 'text-slate-300 text-base'
-          }`}>
+          <div
+            className={`font-black text-center leading-tight transition-all duration-500 px-1 ${
+              isCurrent ? 'text-lg' : 'text-base text-slate-300'
+            }`}
+            style={isCurrent ? { color: borderColor, filter: `drop-shadow(0 0 8px ${borderColor}99)` } : undefined}
+          >
             {char.name}
           </div>
         </div>

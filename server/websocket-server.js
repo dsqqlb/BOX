@@ -37,10 +37,62 @@ function getEnemyList() {
   return Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
 }
 
+// 玩家立绘目录：public/image/player/<种族名>_<英文>/<职业名>.png
+// 每个种族一个子文件夹，文件夹名同样是"中文_英文"格式；职业文件名就是中文职业名（或"其他N"占位图）
+const PLAYER_DIR = path.join(__dirname, '..', 'public', 'image', 'player');
+
+function getPlayerImageList() {
+  if (!fs.existsSync(PLAYER_DIR)) return [];
+
+  const raceDirs = fs
+    .readdirSync(PLAYER_DIR, { withFileTypes: true })
+    .filter((d) => d.isDirectory());
+
+  const result = [];
+  for (const dir of raceDirs) {
+    const match = dir.name.match(CN_PREFIX_PATTERN);
+    const raceName = match ? match[1] : dir.name;
+    const raceEn = match ? match[2] : dir.name;
+
+    const raceDirPath = path.join(PLAYER_DIR, dir.name);
+    const files = fs
+      .readdirSync(raceDirPath)
+      .filter((f) => VALID_IMAGE_EXT.has(path.extname(f).toLowerCase()));
+
+    for (const file of files) {
+      const ext = path.extname(file);
+      const className = file.slice(0, -ext.length); // 职业名，如"战士"、"其他1"
+      // key用种族英文+职业名拼接，保证跨种族不重名；name是给人看的完整显示名
+      const key = `${raceEn}__${className}`;
+      result.push({
+        key,
+        name: `${raceName} · ${className}`,
+        race: raceName,
+        raceEn,
+        className,
+        file: `${dir.name}/${file}`, // 相对 public/image/player 的路径
+      });
+    }
+  }
+
+  return result.sort((a, b) => a.key.localeCompare(b.key));
+}
+
 // 创建HTTP服务器：常规HTTP请求走这里，WebSocket升级请求由ws库单独处理，互不干扰
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/enemies') {
     const list = getEnemyList();
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+    });
+    res.end(JSON.stringify(list));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/player-images') {
+    const list = getPlayerImageList();
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
@@ -129,7 +181,7 @@ wss.on('connection', (ws) => {
 
         case 'JOIN_ROOM': {
           // 遥控器加入房间
-          const { roomId, controllerId } = payload;
+          const { roomId } = payload;
           
           if (!rooms.has(roomId)) {
             // 房间不存在
@@ -145,10 +197,9 @@ wss.on('connection', (ws) => {
           room.lastActivity = Date.now();
           
           ws.roomId = roomId;
-          ws.controllerId = controllerId;
           ws.isDisplay = false;
           
-          console.log(`🎮 遥控器 ${controllerId.slice(0, 8)} 加入房间 ${roomId}`);
+          console.log(`🎮 遥控器加入房间 ${roomId}`);
           
           // 发送当前房间状态
           ws.send(JSON.stringify({
