@@ -5,11 +5,14 @@ interface WebSocketMessage {
   payload: any;
 }
 
-// 计算WebSocket服务器地址：
-// 1. 如果设置了 NEXT_PUBLIC_WS_URL 环境变量，优先使用（适合固定域名/反向代理场景）
-// 2. 否则自动取当前页面访问的hostname，拼上WS端口——这样同一份构建产物
-//    不管是本机访问(localhost)还是局域网/公网其他设备访问(实际IP或域名)，
-//    都能自动连到"同一台机器"上的WebSocket服务，不需要为每种访问方式单独改代码
+// 计算WebSocket服务器地址，按优先级：
+// 1. NEXT_PUBLIC_WS_URL 环境变量：完全自定义地址，优先级最高
+// 2. NEXT_PUBLIC_WS_PATH_MODE=true：走"同域同端口 + /ws 路径"模式——
+//    适合 Cloudflare Tunnel / Nginx反代 这类"只暴露一个端口给公网"的场景，
+//    因为隧道通常只能把一个hostname指向一个源端口，没法再单独开一个端口给WebSocket。
+//    此时不再拼9998端口，而是用当前页面的协议+主机名（不带端口，跟着80/443走），
+//    加上 /ws 路径前缀，由nginx按路径把请求转发到WebSocket服务（见 nginx.conf 的 location /ws）。
+// 3. 默认：局域网/直连场景，自动取当前hostname拼WS端口（不经过反代，直接连WebSocket进程）
 export function getWsUrl(port: number = 9998): string {
   const envUrl = process.env.NEXT_PUBLIC_WS_URL;
   if (envUrl) return envUrl;
@@ -17,6 +20,12 @@ export function getWsUrl(port: number = 9998): string {
   if (typeof window === 'undefined') return `ws://localhost:${port}`;
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+  if (process.env.NEXT_PUBLIC_WS_PATH_MODE === 'true') {
+    // 不带端口：交给80/443端口上的nginx按路径反代，适配Cloudflare Tunnel等只转发单端口的场景
+    return `${protocol}//${window.location.host}/ws`;
+  }
+
   return `${protocol}//${window.location.hostname}:${port}`;
 }
 

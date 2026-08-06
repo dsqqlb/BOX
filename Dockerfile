@@ -11,11 +11,20 @@ RUN npm ci
 # 拷贝其余源码
 COPY . .
 
-# WebSocket地址：构建时通过build-arg传入，会被Next.js内联进静态HTML/JS里。
-# 留空的话运行时 lib/useWebSocket.ts 的 getWsUrl() 会自动使用访问者当前的hostname，
-# 这对大多数"局域网/公网直接用IP或域名访问"的场景已经够用，不需要额外配置。
+# WebSocket地址：构建时通过build-arg传入，会被Next.js内联进静态HTML/JS里，运行时无法再改，
+# 改了这两个值必须重新 docker compose build 才会生效。
+#
+# NEXT_PUBLIC_WS_URL：完全自定义WebSocket地址，留空则走下面的自动推断逻辑。
+#
+# NEXT_PUBLIC_WS_PATH_MODE：
+#   - "true"：走"同域同端口 + /ws 路径反代"模式。适合 Cloudflare Tunnel / 只暴露单个端口的反向代理场景——
+#     因为这类隧道通常一个hostname只能指向一个源端口，没法再单独开一个端口给WebSocket，
+#     所以让nginx把 /ws 开头的请求转发给ws-server容器（见 nginx.conf）。
+#   - 默认("false"/留空)：局域网直连模式，浏览器直接连 host:9998，不经过nginx反代。
 ARG NEXT_PUBLIC_WS_URL=""
+ARG NEXT_PUBLIC_WS_PATH_MODE=""
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+ENV NEXT_PUBLIC_WS_PATH_MODE=$NEXT_PUBLIC_WS_PATH_MODE
 
 RUN npm run build
 

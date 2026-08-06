@@ -1,13 +1,18 @@
 services:
-  # 前端：Next.js 静态导出产物，由 nginx 托管
+  # 前端：Next.js 静态导出产物，由 nginx 托管。
+  # 这是唯一需要暴露给Cloudflare Tunnel的端口——WebSocket通过nginx的 /ws 路径反代进来（见nginx.conf），
+  # 不需要再为WebSocket单独开一条隧道规则/一个hostname。
+  # cloudflared 配置里把 box.dsqqlb.top 指向 http://127.0.0.1:9999 即可。
   web:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        # 留空即可：运行时会自动用访问者当前的hostname拼WebSocket地址。
-        # 只有当你想固定用某个域名/反代地址时才需要在 .env 里设置 NEXT_PUBLIC_WS_URL 并取消下面的注释。
+        # 留空即可：运行时会自动用访问者当前的hostname拼WebSocket地址（局域网直连场景）。
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
+        # 走Cloudflare Tunnel等只暴露单端口的反代场景时设为 true（见 .env 配置），
+        # 会让前端改用 wss://box.dsqqlb.top/ws 这种同域路径地址，而不是直连9998端口
+        NEXT_PUBLIC_WS_PATH_MODE: ${NEXT_PUBLIC_WS_PATH_MODE:-}
     image: box-web:latest
     container_name: box-web
     restart: unless-stopped
@@ -20,7 +25,9 @@ services:
     depends_on:
       - ws-server
 
-  # WebSocket服务：房间实时同步 + /enemies 怪物图片清单接口
+  # WebSocket服务：房间实时同步 + /enemies + /player-images 接口。
+  # 9998端口只留给同机/局域网直连场景使用；经Cloudflare Tunnel访问时走的是web容器nginx的 /ws 反代，
+  # 不经过这个端口，所以这里的 ports 映射可以保留（不影响，只是公网通常不会直接打到9998）。
   ws-server:
     build:
       context: .
