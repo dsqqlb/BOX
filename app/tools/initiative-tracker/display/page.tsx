@@ -347,6 +347,15 @@ const BG3CharacterCard = ({
   );
 };
 
+// 房间列表接口返回的条目：/api/rooms
+interface RoomSummary {
+  roomId: string;
+  characterCount: number;
+  roundNumber: number;
+  displayConnected: boolean;
+  lastActivity: number;
+}
+
 function InitiativeDisplayPageInner() {
   const searchParams = useSearchParams();
   const paramRoomId = searchParams.get('room');
@@ -363,27 +372,67 @@ function InitiativeDisplayPageInner() {
   const [leavingCharIds, setLeavingCharIds] = useState<Set<string>>(new Set());
   const [prevCharacterIds, setPrevCharacterIds] = useState<Set<string>>(new Set());
 
+  // 房间选择器：只有URL里没带房间号时才会用到（比如断线/设备没电后重新打开主屏幕，
+  // 没有记录房间号在URL里，就展示"还在跑的房间"列表，可以选择回到原来的房间，或者新建一个）。
+  // null=还没决定要不要展示（等/api/rooms请求结果），true=展示选择器，false=已经决定好房间号了
+  const [showPicker, setShowPicker] = useState<boolean | null>(paramRoomId ? false : null);
+  const [roomList, setRoomList] = useState<RoomSummary[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+
   // 生成6位数字房间ID
   function generateRoomId() {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
-  // 初始化房间ID（客户端）
-  // 房间号会写入URL，这样"刷新重连"时才能连回同一个房间，而不是生成新房间
+  // 把房间号写入URL并激活连接（不管是选了已有房间还是新建的房间，都走这个函数）
+  function activateRoom(id: string) {
+    setRoomId(id);
+    setShowPicker(false);
+    const url = new URL(window.location.href);
+    url.searchParams.set('room', id);
+    window.history.replaceState({}, '', url.toString());
+  }
+
+  // 初始化房间ID（客户端）：
+  // - URL带了房间号：直接用它连（刷新页面/书签重连的既有行为，不受选择器影响）
+  // - URL没带房间号：先拉一下"还在跑的房间"列表，展示选择器，而不是立刻生成一个新房间号，
+  //   这样断线/设备没电后重新打开主屏幕，能选择回到原来的房间
   useEffect(() => {
     if (paramRoomId) {
       setRoomId(paramRoomId);
-    } else {
-      const id = generateRoomId();
-      setRoomId(id);
-      // 把房间号写入URL，避免刷新后房间号丢失
-      const url = new URL(window.location.href);
-      url.searchParams.set('room', id);
-      window.history.replaceState({}, '', url.toString());
+      return;
     }
+
+    let cancelled = false;
+    setPickerLoading(true);
+    fetch('/api/rooms', { cache: 'no-store' })
+      .then((res) => {
+        if (!res.ok) throw new Error(`获取房间列表失败: ${res.status}`);
+        return res.json();
+      })
+      .then((list: RoomSummary[]) => {
+        if (cancelled) return;
+        setRoomList(list);
+        setShowPicker(true);
+        setPickerLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('❌ 获取房间列表失败:', err);
+        setPickerError(err.message);
+        setPickerLoading(false);
+        // 房间列表拿不到（比如接口暂时挂了），不能卡在这里，直接退回"新建房间"这条老路
+        activateRoom(generateRoomId());
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [paramRoomId]);
 
   // WebSocket地址：优先用环境变量，否则自动跟随当前访问的主机名（局域网/公网设备都能连上同一台服务器）
+  // 选择器展示期间roomId还是空的，不会触发连接
   const wsUrl = roomId ? getWsUrl() : null;
   
   const { isConnected, sendMessage } = useWebSocket(wsUrl, {
@@ -462,6 +511,69 @@ function InitiativeDisplayPageInner() {
   // 根据当前回合角色的阵营，决定背景主题色
   const currentChar = sortedCharacters[roomState.currentTurn];
   const theme = currentChar ? TURN_THEMES[currentChar.type] : TURN_THEMES.default;
+
+  // 房间选择器：只在URL没带房间号时出现（首次打开主屏幕，或者断线/设备没电后重新打开）。
+  // 展示"服务器上还活着的房间"，可以选择回到之前的战斗，也可以直接新建一个空房间。
+  if (showPicker === null || showPicker === true) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-radial from-slate-900 via-slate-950 to-black" />
+        <div className="relative z-10 w-full max-w-2xl bg-slate-900/70 backdrop-blur-xl rounded-2xl border border-amber-600/30 shadow-2xl p-8">
+          <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 mb-2">
+            选择房间
+          </h1>
+          <p className="text-slate-400 text-sm mb-6">
+            服务还在跑的战斗房间列在下面，可以直接回到原来的战斗，或者新建一个。
+          </p>
+
+          {showPicker === null || pickerLoading ? (
+            <div className="text-slate-500 text-center py-10">正在查询服务器上的房间...</div>
+          ) : (
+            <>
+              {pickerError && (
+                <div className="text-red-400 text-sm mb-4">获取房间列表失败：{pickerError}</div>
+              )}
+
+              {roomList.length === 0 ? (
+                <div className="text-slate-500 text-center py-6 mb-4 bg-slate-800/40 rounded-xl">
+                  服务器上目前没有活跃的房间
+                </div>
+              ) : (
+                <div className="space-y-2 mb-6 max-h-80 overflow-y-auto">
+                  {roomList.map((room) => (
+                    <button
+                      key={room.roomId}
+                      onClick={() => activateRoom(room.roomId)}
+                      className="w-full flex items-center justify-between gap-4 px-5 py-3.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 hover:border-amber-500/50 transition-all text-left"
+                    >
+                      <div>
+                        <div className="text-2xl font-black font-mono text-amber-400 tracking-wider">
+                          {room.roomId}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {room.characterCount} 名角色 · 第 {room.roundNumber} 回合
+                          {room.displayConnected && <span className="text-emerald-500"> · 主屏在线</span>}
+                        </div>
+                      </div>
+                      <div className="text-amber-400 text-sm font-bold whitespace-nowrap">回到这个房间 →</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={() => activateRoom(generateRoomId())}
+                className="w-full px-6 py-3.5 rounded-xl font-bold text-white shadow-lg hover:scale-[1.02] transition-all"
+                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+              >
+                + 新建房间
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col overflow-hidden relative">

@@ -343,6 +343,12 @@ wss.on('connection', (ws) => {
         }
 
         case 'PING': {
+          // 心跳也算"活动"：只要客户端还连着、还在正常发心跳，就不该被当成"空闲房间"清理掉。
+          // 没有这一行的话，一个打开了很久但角色/回合数一直没变化的房间，光靠心跳是保不住的，
+          // 1小时后会被下面的定时清理误删，即使遥控器和主屏幕其实都还稳稳连着。
+          if (ws.roomId && rooms.has(ws.roomId)) {
+            rooms.get(ws.roomId).lastActivity = Date.now();
+          }
           ws.send(JSON.stringify({ type: 'PONG' }));
           break;
         }
@@ -380,19 +386,35 @@ wss.on('connection', (ws) => {
   });
 });
 
-// 定期清理过期房间（1小时无任何活动）
+// 房间是否还有客户端连着（主屏幕或遥控器，任意一个OPEN状态的连接都算）。
+// 清理时优先看这个，而不是只看lastActivity时间戳——
+// 只要还有人连着，这个房间就不该被清理，不管战斗数据本身多久没变化过。
+function roomHasLiveClients(roomId) {
+  for (const client of wss.clients) {
+    if (client.roomId === roomId && client.readyState === WebSocket.OPEN) return true;
+  }
+  return false;
+}
+
+// 房间空闲多久、多久检查一次，都可以通过环境变量调（方便测试，生产默认值不变：1小时/5分钟）
+const ROOM_IDLE_MS = Number(process.env.ROOM_IDLE_MS || 60 * 60 * 1000);
+const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS || 5 * 60 * 1000);
+
+// 定期清理过期房间：只清理"没有任何客户端连接、且超过ROOM_IDLE_MS无活动"的房间。
+// 有主屏幕或遥控器连着的房间永远不会被这个定时器清理，不管开着放多久不动。
 const cleanupTimer = setInterval(() => {
   const now = Date.now();
-  const oneHour = 60 * 60 * 1000;
 
   rooms.forEach((room, roomId) => {
+    if (roomHasLiveClients(roomId)) return; // 还有人连着，跳过
+
     const lastActive = room.lastActivity || room.createdAt;
-    if (now - lastActive > oneHour) {
-      console.log(`🗑️ 清理过期房间（1小时无活动）: ${roomId}`);
+    if (now - lastActive > ROOM_IDLE_MS) {
+      console.log(`🗑️ 清理过期房间（无人连接且长时间无活动）: ${roomId}`);
       rooms.delete(roomId);
     }
   });
-}, 5 * 60 * 1000);
+}, CLEANUP_INTERVAL_MS);
 
 // ============ 启动统一服务 ============
 
@@ -430,6 +452,22 @@ async function main() {
       if (pathname === '/api/player-images') return sendJson(res, getPlayerImageList());
       if (pathname === '/api/health') {
         return sendJson(res, { ok: true, dev: DEV, rooms: rooms.size });
+      }
+      // 房间列表：主屏幕刚打开时用这个展示"还在跑的房间"，方便断线/设备没电后选择回到原来的房间，
+      // 而不是只能盯着一个新生成的空房间号从头开始。
+      // 安全提示：这会把所有当前存在的房间号列出来，等同于把"猜房间号"这道门槛去掉了，
+      // 只适合内网/朋友间使用的场景，不建议在完全公开的部署上开这个接口。
+      if (pathname === '/api/rooms') {
+        const list = Array.from(rooms.values())
+          .map((room) => ({
+            roomId: room.roomId,
+            characterCount: room.characters.length,
+            roundNumber: room.roundNumber,
+            displayConnected: room.displayConnected !== false,
+            lastActivity: room.lastActivity || room.createdAt,
+          }))
+          .sort((a, b) => b.lastActivity - a.lastActivity);
+        return sendJson(res, list);
       }
 
       // 2) 页面：开发交给Next dev server，生产读静态产物
