@@ -8,6 +8,19 @@ import { useWebSocket, getWsUrl } from '@/lib/useWebSocket';
 import { useEnemyList, getEnemyImageUrl, filterEnemies } from '@/lib/enemies';
 // 统一图片库：合并怪物图和玩家立绘，供"自定义生物"创建时任意选择图片
 import { usePlayerImageList, buildMediaLibrary, filterMediaLibrary, MediaItem } from '@/lib/mediaLibrary';
+// 状态效果（buff/debuff/濒死）：类型、常量清单、状态变更的纯函数逻辑，遥控器和主屏幕共用。
+// 注意：遥控器只展示文字标签，不渲染环绕动效（动效只在主屏幕上展示，遥控器屏幕小、动效会显得拥挤）
+import {
+  StatusId,
+  CharacterStatusInstance,
+  STATUS_LIBRARY,
+  STATUS_ORDER,
+  addStatus,
+  removeStatusInstance,
+  setExhaustionLevel,
+  recordDeathSave,
+  tickStatusesForTurnStart,
+} from '@/lib/statusEffects';
 
 // 种族和职业数据
 const RACES = [
@@ -39,6 +52,7 @@ interface Character {
   inCombat: boolean; // 是否在战斗区
   combatId?: string; // 战斗区中的唯一ID（从备选池拖入时生成）
   borderColor?: string; // 自定义边框色（十六进制），未设置时按type使用阵营默认配色
+  statuses?: CharacterStatusInstance[]; // buff/debuff/濒死状态列表，只在战斗区角色身上有意义
 }
 
 interface RoomState {
@@ -46,7 +60,12 @@ interface RoomState {
   characters: Character[];
   currentTurn: number;
   roundNumber: number;
+  dimIntensity?: number; // 非当前回合角色的压暗强度(0~1)：0=完全不灰，1=特别灰，主屏幕据此渲染
 }
+
+// 非当前回合压暗强度的localStorage key + 默认值
+const DIM_INTENSITY_KEY = 'dnd-initiative-dim-intensity';
+const DEFAULT_DIM_INTENSITY = 0.55;
 
 // 预设 token
 const TOKEN_PRESETS = {
@@ -97,59 +116,98 @@ const BORDER_COLOR_PRESETS = [
   { label: '白', value: '#e5e7eb' },
 ];
 
+// 状态文字标签堆叠：纵向排列，悬浮在卡片正上方且留出间距（不贴着卡片）。
+// 当前回合箭头也并入这同一个纵向flex流里渲染（flex-col-reverse下DOM第一个子节点会落在最靠近卡片的位置），
+// 这样箭头永远紧贴卡片、状态标签永远排在箭头上方，靠正常布局流avoid叠在一起，而不是用魔法像素偏移量。
+const StatusLabelStack = ({ statuses, isCurrent = false }: { statuses?: CharacterStatusInstance[]; isCurrent?: boolean }) => {
+  const list = statuses || [];
+  if (list.length === 0 && !isCurrent) return null;
+  return (
+    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-20 flex flex-col-reverse items-center gap-1.5 pointer-events-none">
+      {isCurrent && (
+        <div className="text-red-500 text-2xl leading-none animate-bounce drop-shadow-[0_0_4px_rgba(239,68,68,0.8)]">
+          ▼
+        </div>
+      )}
+      {list.map((s) => {
+        const def = STATUS_LIBRARY[s.statusId];
+        let suffix = '';
+        if (s.statusId === 'exhaustion') suffix = ` ${s.level ?? 1}/6`;
+        else if (s.statusId === 'dying') suffix = ` ${s.successes ?? 0}成/${s.failures ?? 0}败`;
+        else if (s.duration != null) suffix = ` ${s.duration}回合`;
+        return (
+          <div
+            key={s.id}
+            className="px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap border shadow"
+            style={{ backgroundColor: `${def.color}cc`, borderColor: def.color, color: '#fff' }}
+          >
+            {def.name}{suffix}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // 角色卡片组件
 const CharacterCard = ({ 
   char, 
   isCombat = false, 
   isCurrent = false, 
   scale = 1,
+  onClick,
 }: { 
   char: Character; 
   isCombat?: boolean; 
   isCurrent?: boolean; 
   scale?: number;
+  onClick?: () => void;
 }) => {
   const size = isCombat ? 'w-24 h-32' : 'w-20 h-28';
   const nameSize = isCombat ? 'text-sm' : 'text-xs';
   const borderColor = char.borderColor || TYPE_BORDER_COLORS[char.type];
-  
+
   return (
-    <div
-      className={`relative ${size} rounded-xl shadow-2xl flex flex-col items-center justify-center border-4 overflow-hidden`}
-      style={{
-        borderColor,
-        background: char.imageUrl 
-          ? 'transparent' 
-          : `linear-gradient(135deg, ${char.color}, ${char.color}dd)`,
-      }}
-    >
-      {char.imageUrl ? (
-        <>
-          {/* 像素风GIF背景 */}
-          <img 
-            src={char.imageUrl} 
-            alt={char.name}
-            className="absolute inset-0 w-full h-full object-cover"
-            style={{ imageRendering: 'pixelated' }}
-          />
-          {/* 半透明遮罩显示名字 */}
-          <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm">
-            <div className={`text-white font-bold ${nameSize} px-1 py-1 text-center line-clamp-1`}>
+    // 外层容器：遥控器只叠状态文字标签，不渲染环绕动效
+    <div className={`relative ${onClick ? 'cursor-pointer' : ''}`} onClick={onClick}>
+      <StatusLabelStack statuses={char.statuses} isCurrent={isCurrent} />
+      <div
+        className={`relative ${size} rounded-xl shadow-2xl flex flex-col items-center justify-center border-4 overflow-hidden`}
+        style={{
+          borderColor,
+          background: char.imageUrl
+            ? 'transparent'
+            : `linear-gradient(135deg, ${char.color}, ${char.color}dd)`,
+        }}
+      >
+        {char.imageUrl ? (
+          <>
+            {/* 像素风GIF背景 */}
+            <img
+              src={char.imageUrl}
+              alt={char.name}
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ imageRendering: 'pixelated' }}
+            />
+            {/* 半透明遮罩显示名字 */}
+            <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm">
+              <div className={`text-white font-bold ${nameSize} px-1 py-1 text-center line-clamp-1`}>
+                {char.name}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Token（emoji 或自定义生物的长文字"当图片"，自动缩小字号避免溢出） */}
+            <div className={`${getTokenFontSizeClass(char.token, isCombat)} mb-1 px-1 text-center leading-tight break-all`}>
+              {char.token}
+            </div>
+            <div className={`text-white font-bold ${nameSize} px-1 text-center line-clamp-2`}>
               {char.name}
             </div>
-          </div>
-        </>
-      ) : (
-        <>
-          {/* Token（emoji 或自定义生物的长文字"当图片"，自动缩小字号避免溢出） */}
-          <div className={`${getTokenFontSizeClass(char.token, isCombat)} mb-1 px-1 text-center leading-tight break-all`}>
-            {char.token}
-          </div>
-          <div className={`text-white font-bold ${nameSize} px-1 text-center line-clamp-2`}>
-            {char.name}
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 };
@@ -209,6 +267,12 @@ export default function InitiativeTrackerPage() {
   const [overlapCharacters, setOverlapCharacters] = useState<Character[]>([]); // 重叠的角色
   const [sortedOverlapChars, setSortedOverlapChars] = useState<Character[]>([]); // 排序后的重叠角色
   const [removeTarget, setRemoveTarget] = useState<{ id: string; name: string } | null>(null); // 待确认移出战斗区的角色（自定义确认弹窗，替代浏览器alert/confirm）
+  const [statusModalCharId, setStatusModalCharId] = useState<string | null>(null); // 当前打开状态管理弹窗的角色ID（战斗区角色，点击卡片触发）
+  const [pendingStatusId, setPendingStatusId] = useState<StatusId>('bless'); // 弹窗里"待添加状态"的选择
+  const [pendingDuration, setPendingDuration] = useState<number | ''>(3); // 待添加状态的持续回合数，''表示无限
+  // 主屏幕上"非当前回合角色压暗强度"滑块：0=不灰，1=特别灰，默认0.55。
+  // 初次渲染先用默认值占位（避免SSR/CSR不一致），挂载后立即从localStorage读取真实值。
+  const [dimIntensity, setDimIntensity] = useState(DEFAULT_DIM_INTENSITY);
   const combatZoneRef = useRef<HTMLDivElement>(null);
   // 保存effect的首次执行必须跳过：挂载时"加载"和"保存"两个effect会在同一轮依次触发，
   // 加载effect里的 setCharacters 只是排队更新、不会立刻生效，如果保存effect紧接着用
@@ -229,6 +293,15 @@ export default function InitiativeTrackerPage() {
       } catch (e) {
         console.error('Failed to load reserve pool:', e);
       }
+    }
+  }, []);
+
+  // 从 localStorage 加载"压暗强度"滑块的记忆值（初始化时，只执行一次）
+  useEffect(() => {
+    const saved = localStorage.getItem(DIM_INTENSITY_KEY);
+    if (saved !== null) {
+      const parsed = parseFloat(saved);
+      if (!Number.isNaN(parsed)) setDimIntensity(parsed);
     }
   }, []);
 
@@ -317,6 +390,23 @@ export default function InitiativeTrackerPage() {
       payload: { roomId, updates },
     });
   }, [isConnected, roomId, sendMessage]);
+
+  // 滑块拖动：更新压暗强度，写入localStorage记住位置，并同步给主屏幕实时生效
+  const handleDimIntensityChange = useCallback((value: number) => {
+    setDimIntensity(value);
+    localStorage.setItem(DIM_INTENSITY_KEY, String(value));
+    updateRoom({ dimIntensity: value });
+  }, [updateRoom]);
+
+  // 连接成功后（或重连后），把本地记住的压暗强度推给房间，让主屏幕立即生效一次
+  // （不依赖首次挂载时的连接状态，wsConnected变为true时才有意义推送）
+  useEffect(() => {
+    if (wsConnected && isConnected && roomId) {
+      updateRoom({ dimIntensity });
+    }
+    // 只在"刚连上"这一刻推送一次，dimIntensity变化已经由handleDimIntensityChange自己同步，这里不需要重复依赖它
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsConnected, isConnected, roomId]);
 
   // 保存备选池到 localStorage（只保存非战斗角色）
   // 跳过首次执行，避免用挂载时的旧值把刚从localStorage读出来的备选池覆盖掉（见上方isFirstSaveRef注释）
@@ -478,33 +568,120 @@ export default function InitiativeTrackerPage() {
     setCurrentTurn(0);
   }, []);
 
+  // 打开某个战斗区角色的状态管理弹窗
+  const handleOpenStatusModal = useCallback((charId: string) => {
+    setPendingStatusId('bless');
+    setPendingDuration(3);
+    setStatusModalCharId(charId);
+  }, []);
+
+  // 通用：用一个"根据旧statuses算出新statuses"的函数去更新某个角色，并同步到房间
+  const applyStatusUpdate = useCallback((charId: string, updater: (statuses: CharacterStatusInstance[]) => CharacterStatusInstance[]) => {
+    setCharacters(prev => {
+      const next = prev.map(c => c.id === charId ? { ...c, statuses: updater(c.statuses || []) } : c);
+      if (isConnected && roomId) {
+        const combatChars = next.filter(c => c.inCombat);
+        updateRoom({ characters: combatChars });
+      }
+      return next;
+    });
+  }, [isConnected, roomId, updateRoom]);
+
+  // 添加一条buff/debuff（力竭/濒死走各自专门的按钮，不走这个通用添加）
+  const handleAddStatus = useCallback((charId: string, statusId: StatusId, duration: number | null) => {
+    applyStatusUpdate(charId, (statuses) => addStatus(statuses, statusId, duration));
+  }, [applyStatusUpdate]);
+
+  // 移除一条状态实例
+  const handleRemoveStatus = useCallback((charId: string, instanceId: string) => {
+    applyStatusUpdate(charId, (statuses) => removeStatusInstance(statuses, instanceId));
+  }, [applyStatusUpdate]);
+
+  // 调整力竭等级：达到6级视为死亡，直接把角色从战斗区移除（不弹确认，规则上是即时死亡）
+  const handleSetExhaustionLevel = useCallback((charId: string, level: number) => {
+    setCharacters(prev => {
+      const target = prev.find(c => c.id === charId);
+      if (!target) return prev;
+      const { statuses, died } = setExhaustionLevel(target.statuses || [], level);
+      const next = died
+        ? prev.filter(c => c.id !== charId)
+        : prev.map(c => c.id === charId ? { ...c, statuses } : c);
+      if (isConnected && roomId) {
+        const combatChars = next.filter(c => c.inCombat);
+        updateRoom({ characters: combatChars });
+      }
+      if (died) setStatusModalCharId(null);
+      return next;
+    });
+  }, [isConnected, roomId, updateRoom]);
+
+  // 记录一次死亡豁免（濒死状态专用）：3次成功稳定脱离濒死，3次失败彻底死亡（从战斗区移除）
+  const handleDeathSave = useCallback((charId: string, success: boolean) => {
+    setCharacters(prev => {
+      const target = prev.find(c => c.id === charId);
+      if (!target) return prev;
+      const { statuses, died } = recordDeathSave(target.statuses || [], success);
+      const next = died
+        ? prev.filter(c => c.id !== charId)
+        : prev.map(c => c.id === charId ? { ...c, statuses } : c);
+      if (isConnected && roomId) {
+        const combatChars = next.filter(c => c.inCombat);
+        updateRoom({ characters: combatChars });
+      }
+      if (died) setStatusModalCharId(null);
+      return next;
+    });
+  }, [isConnected, roomId, updateRoom]);
+
   // 下一个
   const handleNextTurn = useCallback(() => {
     const combatChars = characters.filter(c => c.inCombat).sort((a, b) => b.initiative - a.initiative);
     if (combatChars.length > 0) {
       const currentIndex = currentTurn;
       const nextIndex = (currentIndex + 1) % combatChars.length;
+      const newCurrentChar = combatChars[nextIndex];
       
       if (currentIndex === combatChars.length - 1 && nextIndex === 0) {
         const newRound = roundNumber + 1;
         setRoundNumber(newRound);
         setCurrentTurn(nextIndex);
-        
-        // 同步到房间
-        updateRoom({
-          roundNumber: newRound,
-          currentTurn: nextIndex,
+
+        // 轮到新的当前回合角色：其限时状态（buff/debuff）回合数-1，减到0自动清除
+        setCharacters(prev => {
+          const next = prev.map(c => c.id === newCurrentChar.id
+            ? { ...c, statuses: tickStatusesForTurnStart(c.statuses || []) }
+            : c);
+          if (isConnected && roomId) {
+            updateRoom({
+              roundNumber: newRound,
+              currentTurn: nextIndex,
+              characters: next.filter(c => c.inCombat),
+            });
+          } else {
+            updateRoom({ roundNumber: newRound, currentTurn: nextIndex });
+          }
+          return next;
         });
       } else {
         setCurrentTurn(nextIndex);
-        
-        // 同步到房间
-        updateRoom({
-          currentTurn: nextIndex,
+
+        setCharacters(prev => {
+          const next = prev.map(c => c.id === newCurrentChar.id
+            ? { ...c, statuses: tickStatusesForTurnStart(c.statuses || []) }
+            : c);
+          if (isConnected && roomId) {
+            updateRoom({
+              currentTurn: nextIndex,
+              characters: next.filter(c => c.inCombat),
+            });
+          } else {
+            updateRoom({ currentTurn: nextIndex });
+          }
+          return next;
         });
       }
     }
-  }, [characters, currentTurn, roundNumber, updateRoom]);
+  }, [characters, currentTurn, roundNumber, updateRoom, isConnected, roomId]);
 
   // 上一个
   const handlePrevTurn = useCallback(() => {
@@ -782,12 +959,29 @@ export default function InitiativeTrackerPage() {
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={handleDisconnect}
-                  className="rc-btn px-3 py-1.5 rounded-lg font-bold text-xs text-red-400 bg-red-950/60"
-                >
-                  断开连接
-                </button>
+                <div className="flex items-center gap-3">
+                  {/* 主屏幕非当前回合角色压暗强度滑块：0=不灰，1=特别灰，实时同步给主屏幕并记住在本机 */}
+                  <div className="flex items-center gap-2">
+                    <span className="rc-label whitespace-nowrap">压暗强度</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={dimIntensity}
+                      onChange={(e) => handleDimIntensityChange(parseFloat(e.target.value))}
+                      className="w-24 sm:w-32 accent-amber-500"
+                      title="主屏幕上非当前回合角色的压暗程度"
+                    />
+                    <span className="text-xs text-slate-400 font-mono w-8 text-right">{dimIntensity.toFixed(2)}</span>
+                  </div>
+                  <button
+                    onClick={handleDisconnect}
+                    className="rc-btn px-3 py-1.5 rounded-lg font-bold text-xs text-red-400 bg-red-950/60"
+                  >
+                    断开连接
+                  </button>
+                </div>
               </div>
             )}
             
@@ -825,7 +1019,7 @@ export default function InitiativeTrackerPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-wrap items-end justify-center content-end gap-x-6 gap-y-10 pt-16 pb-0">
+                <div className="flex flex-wrap items-end justify-center content-end gap-x-6 gap-y-20 pt-24 pb-0">
                   {combatCharacters.map((char, index) => {
                     const isCurrent = index === currentTurn;
                     
@@ -841,13 +1035,6 @@ export default function InitiativeTrackerPage() {
                           zIndex: isCurrent ? 10 : 1,
                         }}
                       >
-                        {/* 当前回合箭头指示 */}
-                        {isCurrent && (
-                          <div className="absolute -top-14 left-0 right-0 z-20 flex flex-col items-center animate-bounce">
-                            <div className="text-3xl">🔻</div>
-                          </div>
-                        )}
-                        
                         {/* 先攻值（在卡片上方） */}
                         <div className="absolute -top-10 left-1/2 -translate-x-1/2 z-10">
                           <div className={`text-xl font-black px-2 py-0.5 rounded whitespace-nowrap ${
@@ -871,8 +1058,13 @@ export default function InitiativeTrackerPage() {
                           ✕
                         </button>
                         
-                        {/* Token 立牌 */}
-                        <CharacterCard char={char} isCombat={false} isCurrent={isCurrent} />
+                        {/* Token 立牌：点击打开状态管理弹窗（buff/debuff/濒死） */}
+                        <CharacterCard
+                          char={char}
+                          isCombat={false}
+                          isCurrent={isCurrent}
+                          onClick={() => handleOpenStatusModal(char.id)}
+                        />
                       </div>
                     );
                   })}
@@ -1665,6 +1857,237 @@ export default function InitiativeTrackerPage() {
           </div>
         </div>
       )}
+
+      {/* 状态管理弹窗（buff/debuff/濒死）：点击战斗区角色卡触发 */}
+      {statusModalCharId && (() => {
+        const statusChar = characters.find((c) => c.id === statusModalCharId);
+        if (!statusChar) return null;
+        const statuses = statusChar.statuses || [];
+        const dyingInstance = statuses.find((s) => s.statusId === 'dying');
+        const exhaustionInstance = statuses.find((s) => s.statusId === 'exhaustion');
+        const pendingDef = STATUS_LIBRARY[pendingStatusId];
+
+        return (
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            onClick={() => setStatusModalCharId(null)}
+          >
+            <div
+              className="bg-slate-900 rounded-2xl p-6 max-w-lg w-full border-2 border-purple-500/50 shadow-2xl max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* 标题：角色名 + 小型卡片预览 */}
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-12 h-16 flex-shrink-0">
+                  <CharacterCard char={statusChar} isCombat={false} isCurrent={false} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-amber-400">{statusChar.name}</h3>
+                  <p className="text-xs text-slate-400">状态管理 · Buff / Debuff / 濒死</p>
+                </div>
+              </div>
+
+              {/* 已附加的状态列表 */}
+              <div className="mb-5">
+                <p className="text-sm font-medium text-purple-300 mb-2">当前状态</p>
+                {statuses.length === 0 ? (
+                  <p className="text-slate-500 text-sm py-3 text-center bg-slate-800/50 rounded-lg">暂无状态</p>
+                ) : (
+                  <div className="space-y-2">
+                    {statuses.map((s) => {
+                      const def = STATUS_LIBRARY[s.statusId];
+                      return (
+                        <div
+                          key={s.id}
+                          className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border"
+                          style={{ backgroundColor: `${def.color}1a`, borderColor: `${def.color}55` }}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-white truncate">{def.name}</p>
+                              <p className="text-xs text-slate-400">
+                                {s.statusId === 'exhaustion' && `等级 ${s.level ?? 1} / 6`}
+                                {s.statusId === 'dying' && `成功 ${s.successes ?? 0}/3 · 失败 ${s.failures ?? 0}/3`}
+                                {s.statusId !== 'exhaustion' && s.statusId !== 'dying' && (
+                                  s.duration == null ? '无限持续' : `剩余 ${s.duration} 回合`
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                          {/* 力竭/濒死有专用控件，不显示通用移除按钮（力竭用等级按钮调整，濒死只能通过豁免结果变化） */}
+                          {s.statusId !== 'exhaustion' && s.statusId !== 'dying' && (
+                            <button
+                              onClick={() => handleRemoveStatus(statusChar.id, s.id)}
+                              className="w-7 h-7 flex-shrink-0 rounded-full bg-slate-700 hover:bg-red-600 text-white text-xs transition-colors"
+                              title="移除状态"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 力竭等级调整（力竭已存在时才显示，或者从下方"添加状态"新增） */}
+              {exhaustionInstance && (
+                <div className="mb-5 p-3 rounded-lg bg-red-950/30 border border-red-700/40">
+                  <p className="text-sm font-medium text-red-300 mb-2">力竭等级（6级直接死亡）</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleSetExhaustionLevel(statusChar.id, (exhaustionInstance.level ?? 1) - 1)}
+                      className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold"
+                    >
+                      −
+                    </button>
+                    <div className="flex-1 text-center text-xl font-black text-red-400">
+                      {exhaustionInstance.level ?? 1} / 6
+                    </div>
+                    <button
+                      onClick={() => handleSetExhaustionLevel(statusChar.id, (exhaustionInstance.level ?? 1) + 1)}
+                      className="w-9 h-9 rounded-lg bg-red-700 hover:bg-red-600 text-white font-bold"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 濒死：死亡豁免记录（成功3次稳定脱离，失败3次彻底死亡并从战斗区移除） */}
+              {dyingInstance && (
+                <div className="mb-5 p-3 rounded-lg bg-red-950/40 border-2 border-red-600/50">
+                  <p className="text-sm font-bold text-red-300 mb-2">濒死 · 死亡豁免</p>
+                  <div className="flex items-center justify-center gap-4 mb-3">
+                    <div className="text-center">
+                      <div className="text-xs text-emerald-400 mb-1">成功</div>
+                      <div className="text-2xl font-black text-emerald-400">{dyingInstance.successes ?? 0} / 3</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-red-400 mb-1">失败</div>
+                      <div className="text-2xl font-black text-red-400">{dyingInstance.failures ?? 0} / 3</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleDeathSave(statusChar.id, true)}
+                      className="flex-1 px-3 py-2 rounded-lg font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
+                    >
+                      豁免成功
+                    </button>
+                    <button
+                      onClick={() => handleDeathSave(statusChar.id, false)}
+                      className="flex-1 px-3 py-2 rounded-lg font-bold text-white bg-red-600 hover:bg-red-500 transition-colors"
+                    >
+                      豁免失败
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 添加新状态 */}
+              <div className="border-t border-purple-500/20 pt-4">
+                <p className="text-sm font-medium text-purple-300 mb-2">添加状态</p>
+
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">增益 Buff</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {STATUS_ORDER.filter((id) => STATUS_LIBRARY[id].category === 'buff').map((id) => (
+                        <button
+                          key={id}
+                          onClick={() => setPendingStatusId(id)}
+                          className={`px-2 py-1 rounded-lg text-xs font-bold border-2 transition-all whitespace-nowrap ${
+                            pendingStatusId === id ? 'scale-105 border-white text-white' : 'border-transparent opacity-70 hover:opacity-100 text-slate-200'
+                          }`}
+                          style={{ backgroundColor: `${STATUS_LIBRARY[id].color}40` }}
+                        >
+                          {STATUS_LIBRARY[id].name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">减益 Debuff / 特殊</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {STATUS_ORDER.filter((id) => STATUS_LIBRARY[id].category !== 'buff').map((id) => (
+                        <button
+                          key={id}
+                          onClick={() => setPendingStatusId(id)}
+                          className={`px-2 py-1 rounded-lg text-xs font-bold border-2 transition-all whitespace-nowrap ${
+                            pendingStatusId === id ? 'scale-105 border-white text-white' : 'border-transparent opacity-70 hover:opacity-100 text-slate-200'
+                          }`}
+                          style={{ backgroundColor: `${STATUS_LIBRARY[id].color}40` }}
+                        >
+                          {STATUS_LIBRARY[id].name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-800/60 mb-3">
+                  <span className="text-sm font-bold text-white flex-1">{pendingDef.name}</span>
+                  <span className="text-xs text-slate-500">{pendingDef.description}</span>
+                </div>
+
+                {/* 力竭/濒死没有"回合数"概念，添加按钮文案和行为不同 */}
+                {pendingStatusId === 'exhaustion' ? (
+                  <button
+                    onClick={() => handleSetExhaustionLevel(statusChar.id, (exhaustionInstance?.level ?? 0) + 1)}
+                    className="w-full px-4 py-2.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-500 transition-colors"
+                  >
+                    {exhaustionInstance ? '力竭等级 +1' : '添加力竭（1级）'}
+                  </button>
+                ) : pendingStatusId === 'dying' ? (
+                  <button
+                    onClick={() => handleAddStatus(statusChar.id, 'dying', null)}
+                    disabled={!!dyingInstance}
+                    className="w-full px-4 py-2.5 rounded-xl font-bold text-white bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {dyingInstance ? '已处于濒死状态' : '进入濒死状态'}
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-slate-400 whitespace-nowrap">持续回合</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={pendingDuration}
+                      onChange={(e) => setPendingDuration(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 1))}
+                      disabled={pendingDuration === ''}
+                      className="w-16 px-2 py-1.5 rounded-lg bg-slate-800 border border-purple-500/30 text-white text-center text-sm disabled:opacity-40"
+                    />
+                    <label className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={pendingDuration === ''}
+                        onChange={(e) => setPendingDuration(e.target.checked ? '' : 3)}
+                      />
+                      无限
+                    </label>
+                    <button
+                      onClick={() => handleAddStatus(statusChar.id, pendingStatusId, pendingDuration === '' ? null : pendingDuration)}
+                      className="flex-1 px-4 py-2 rounded-xl font-bold text-white shadow-lg transition-all hover:scale-105"
+                      style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                    >
+                      ✓ 添加
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => setStatusModalCharId(null)}
+                className="w-full mt-4 px-4 py-2.5 rounded-xl font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

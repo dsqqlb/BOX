@@ -3,6 +3,10 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useWebSocket, getWsUrl } from '@/lib/useWebSocket';
+// 状态效果（buff/debuff/濒死）：主屏幕只做只读展示，复用和遥控器同一份类型/常量/动效映射
+import { CharacterStatusInstance, STATUS_LIBRARY, getAllCardEffects } from '@/lib/statusEffects';
+// 状态环绕动效：每种buff/debuff一个专属的粒子/光效组件，围绕在卡片周围渲染
+import StatusAura from '@/components/dnd/StatusAura';
 
 // 角色类型
 interface Character {
@@ -15,6 +19,7 @@ interface Character {
   color: string;
   combatId?: string; // 战斗区中的唯一ID（与id相同）
   borderColor?: string; // 自定义边框色（十六进制），未设置时按type使用阵营默认配色
+  statuses?: CharacterStatusInstance[]; // buff/debuff/濒死状态列表
 }
 
 // 阵营默认配色：玩家=金色，NPC=蓝色，怪物=红色
@@ -39,7 +44,11 @@ interface RoomState {
   characters: Character[];
   currentTurn: number;
   roundNumber: number;
+  dimIntensity?: number; // 非当前回合角色的压暗强度(0~1)，由遥控器上的滑块控制，0=不灰，1=特别灰
 }
+
+// 与遥控器一致的默认值：房间刚创建、遥控器还没推送过滑块值时使用
+const DEFAULT_DIM_INTENSITY = 0.55;
 
 // 背景飘动余烬火星的固定参数（避免每次渲染重新随机导致动效跳动）
 const EMBER_PARTICLES = [
@@ -98,21 +107,68 @@ const TURN_THEMES = {
   },
 } as const;
 
+// 主屏幕状态文字标签堆叠：纵向排列，悬浮在卡片正上方留出明显间距（不贴着卡片边缘），
+// 比遥控器上的版本字号更大更醒目，因为这是给所有人看的展示屏。纯文字，不用emoji。
+// 由近到远从下往上堆叠（离卡片最近的在最下面）。
+const StatusLabelStack = ({ statuses, isCurrent = false }: { statuses?: CharacterStatusInstance[]; isCurrent?: boolean }) => {
+  const list = statuses || [];
+  if (list.length === 0 && !isCurrent) return null;
+  return (
+    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-3 z-30 flex flex-col-reverse items-center gap-1.5 pointer-events-none">
+      {isCurrent && (
+        <div className="text-red-500 text-4xl leading-none animate-bounce-slow drop-shadow-[0_0_6px_rgba(239,68,68,0.85)]">
+          ▼
+        </div>
+      )}
+      {list.map((s) => {
+        const def = STATUS_LIBRARY[s.statusId];
+        let suffix = '';
+        if (s.statusId === 'exhaustion') suffix = ` ${s.level ?? 1}/6`;
+        else if (s.statusId === 'dying') suffix = ` ${s.successes ?? 0}成/${s.failures ?? 0}败`;
+        else if (s.duration != null) suffix = ` ${s.duration}回合`;
+        return (
+          <div
+            key={s.id}
+            className={`px-3 py-1 rounded-full text-sm font-bold whitespace-nowrap border-2 shadow-lg text-white ${
+              s.statusId === 'dying' ? 'status-badge-dying' : ''
+            }`}
+            style={{ backgroundColor: `${def.color}dd`, borderColor: def.color, boxShadow: `0 0 10px ${def.color}99` }}
+          >
+            {def.name}{suffix}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // 角色卡片组件（高级质感版）
 const BG3CharacterCard = ({ 
   char, 
   isCurrent,
   isEntering = false,
   isLeaving = false,
+  dimIntensity = DEFAULT_DIM_INTENSITY,
 }: { 
   char: Character; 
   isCurrent: boolean;
   isEntering?: boolean;
   isLeaving?: boolean;
+  dimIntensity?: number;
 }) => {
   // 阵营默认配色，除非角色设置了自定义边框色（borderColor）
   const theme = TYPE_THEME[char.type];
   const borderColor = char.borderColor || theme.border;
+  // 每一种活跃的状态都各自渲染一个专属的环绕动效（不再只挑一个"主要"效果）
+  const activeEffects = getAllCardEffects(char.statuses || []);
+  // 非当前回合角色：整体压暗+去饱和+轻微缩小，把视觉焦点让给当前回合角色。
+  // 压暗强度由遥控器上的滑块(0~1)控制：0=完全不灰，1=特别灰，按比例插值出灰度/亮度/饱和度/透明度。
+  const isDimmed = !isCurrent;
+  const t = Math.max(0, Math.min(1, dimIntensity));
+  const dimOpacity = 1 - t * 0.45; // 1 -> 0.55
+  const dimGrayscale = t * 0.55; // 0 -> 0.55
+  const dimBrightness = 1 - t * 0.38; // 1 -> 0.62
+  const dimSaturate = 1 - t * 0.25; // 1 -> 0.75
 
   return (
     <div
@@ -121,9 +177,12 @@ const BG3CharacterCard = ({
       } ${isLeaving ? 'animate-slideOutDown' : ''}`}
       style={{
         transform: `scale(${isCurrent ? 1.25 : 1}) translateY(${isCurrent ? '-12px' : '0'})`,
-        opacity: isLeaving ? 0 : 1,
+        opacity: isLeaving ? 0 : (isDimmed ? dimOpacity : 1),
+        filter: isDimmed ? `grayscale(${dimGrayscale}) brightness(${dimBrightness}) saturate(${dimSaturate})` : 'none',
       }}
     >
+      <StatusLabelStack statuses={char.statuses} isCurrent={isCurrent} />
+
       {/* 当前回合：优雅的指示 */}
       {isCurrent && (
         <>
@@ -154,13 +213,6 @@ const BG3CharacterCard = ({
             }}
           />
 
-          {/* 顶部动态箭头指示器 */}
-          <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-30">
-            <div className="relative flex flex-col items-center animate-bounce-slow">
-              <div className="text-4xl">🔻</div>
-            </div>
-          </div>
-          
           {/* 底部发光 - 跟随阵营/自定义边框色 */}
           <div
             className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-full h-2 blur-md"
@@ -200,14 +252,22 @@ const BG3CharacterCard = ({
           </div>
         </div>
         
-        {/* 主卡片 */}
-        <div
-          className="relative w-32 h-48 rounded-lg overflow-hidden transition-all duration-500 border-2"
-          style={{
-            borderColor: isCurrent ? borderColor : `${borderColor}80`,
-            boxShadow: isCurrent ? `0 20px 40px -10px ${borderColor}80` : '0 8px 20px -4px rgba(0,0,0,0.4)',
-          }}
-        >
+        {/* 状态环绕动效容器：不能有overflow-hidden，否则粒子会被卡片边界裁掉。
+            z-40明确高于下方主卡片(卡片图片是不透明的)，确保动效浮在图片前面而不是被挡在图片背后。 */}
+        <div className="relative">
+          <div className="absolute inset-0 z-40 pointer-events-none">
+            {activeEffects.map((fx) => (
+              <StatusAura key={fx.effect} effect={fx.effect} color={fx.color} scale={1.8} />
+            ))}
+          </div>
+          {/* 主卡片：只读展示不可交互 */}
+          <div
+            className="relative w-32 h-48 rounded-lg overflow-hidden transition-all duration-500 border-2"
+            style={{
+              borderColor: isCurrent ? borderColor : `${borderColor}80`,
+              boxShadow: isCurrent ? `0 20px 40px -10px ${borderColor}80` : '0 8px 20px -4px rgba(0,0,0,0.4)',
+            }}
+          >
           {/* 卡片边框 - 使用渐变和内阴影，跟随阵营/自定义边框色 */}
           <div
             className="absolute inset-0 rounded-lg transition-all duration-500"
@@ -225,13 +285,13 @@ const BG3CharacterCard = ({
               background: 'linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(30,41,59,0.99) 100%)',
             }}
           >
-            {/* 背景图片 */}
+            {/* 背景图片：当前回合角色额外叠加呼吸动效(缓慢放大+提亮再回落)，让焦点角色更"活" */}
             {char.imageUrl && (
               <div className="absolute inset-0">
                 <img 
                   src={char.imageUrl} 
                   alt={char.name}
-                  className="absolute inset-0 w-full h-full object-cover"
+                  className={`absolute inset-0 w-full h-full object-cover ${isCurrent ? 'animate-portrait-breathe' : ''}`}
                   style={{ 
                     imageRendering: 'pixelated',
                     filter: isCurrent 
@@ -248,10 +308,11 @@ const BG3CharacterCard = ({
               </div>
             )}
             
-            {/* Token（如果没有图片，也用于自定义生物的长文字"当图片"，自动缩小字号避免溢出） */}
+            {/* Token（如果没有图片，也用于自定义生物的长文字"当图片"，自动缩小字号避免溢出）
+                当前回合同样叠加呼吸动效，和有图片的角色保持一致的视觉语言 */}
             {!char.imageUrl && (
               <div className="absolute inset-0 flex items-center justify-center px-2">
-                <div className={`${getTokenFontSizeClass(char.token)} opacity-90 text-center leading-tight break-all`}>
+                <div className={`${getTokenFontSizeClass(char.token)} opacity-90 text-center leading-tight break-all ${isCurrent ? 'animate-portrait-breathe' : ''}`}>
                   {char.token}
                 </div>
               </div>
@@ -264,9 +325,11 @@ const BG3CharacterCard = ({
                 style={{ background: `linear-gradient(to right, transparent, ${borderColor}66, transparent)` }}
               />
             )}
+
+          </div>
           </div>
         </div>
-        
+
         {/* 名字放在卡片外面下方：固定宽度跟随卡片(w-32)，超长名字换行最多两行+省略，
             不会无限撑开撐乱flex布局导致整行卡片挤歪 */}
         <div className="mt-2.5 w-32 mx-auto">
@@ -569,8 +632,8 @@ function InitiativeDisplayPageInner() {
           </div>
         ) : (
           <>
-            {/* BG3样式的横向卡片条 */}
-            <div className="w-full flex items-center justify-center">
+            {/* BG3样式的横向卡片条：整体向下偏移一点，避免贴着顶部回合数/房间号显得太挤 */}
+            <div className="w-full flex items-center justify-center translate-y-12">
               <div className="relative max-w-[95vw]">
                 {/* 卡片容器 */}
                 <div className="flex items-center justify-center gap-6 px-4 py-8">
@@ -586,6 +649,7 @@ function InitiativeDisplayPageInner() {
                         isCurrent={isCurrent}
                         isEntering={isEntering}
                         isLeaving={isLeaving}
+                        dimIntensity={roomState.dimIntensity ?? DEFAULT_DIM_INTENSITY}
                       />
                     );
                   })}
