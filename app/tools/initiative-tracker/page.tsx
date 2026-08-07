@@ -87,21 +87,22 @@ const TYPE_BORDER_COLORS: Record<Character['type'], string> = {
   enemy: '#ef4444',
 };
 
-// 自定义生物允许用长文字当"图片"，卡片上的大字需要根据文字长度自适应缩小，避免溢出
+// 自定义生物允许用长文字当"图片"，卡片上的大字需要根据文字长度自适应缩小，避免溢出。
+// 手机端卡片更小，字号也随之缩小，桌面端保持原有大小。
 function getTokenFontSizeClass(token: string, isCombat: boolean): string {
   const len = token.length;
   if (isCombat) {
-    if (len <= 2) return 'text-5xl';
-    if (len <= 4) return 'text-3xl';
-    if (len <= 6) return 'text-xl';
-    if (len <= 10) return 'text-sm';
-    return 'text-xs';
+    if (len <= 2) return 'text-3xl sm:text-4xl md:text-5xl';
+    if (len <= 4) return 'text-xl sm:text-2xl md:text-3xl';
+    if (len <= 6) return 'text-base sm:text-lg md:text-xl';
+    if (len <= 10) return 'text-xs sm:text-sm';
+    return 'text-[10px] sm:text-xs';
   }
-  if (len <= 2) return 'text-4xl';
-  if (len <= 4) return 'text-2xl';
-  if (len <= 6) return 'text-lg';
-  if (len <= 10) return 'text-xs';
-  return 'text-[10px]';
+  if (len <= 2) return 'text-2xl sm:text-3xl md:text-4xl';
+  if (len <= 4) return 'text-lg sm:text-xl md:text-2xl';
+  if (len <= 6) return 'text-sm sm:text-base md:text-lg';
+  if (len <= 10) return 'text-[10px] sm:text-xs';
+  return 'text-[8px] sm:text-[10px]';
 }
 
 // 边框可选预设色（自定义生物创建时可选，任意角色也可以从颜色选择器自由选色）
@@ -150,26 +151,39 @@ const StatusLabelStack = ({ statuses, isCurrent = false }: { statuses?: Characte
 };
 
 // 角色卡片组件
-const CharacterCard = ({ 
-  char, 
-  isCombat = false, 
-  isCurrent = false, 
+const CharacterCard = ({
+  char,
+  isCombat = false,
+  isCurrent = false,
   scale = 1,
   onClick,
-}: { 
-  char: Character; 
-  isCombat?: boolean; 
-  isCurrent?: boolean; 
+  onTouchStart,
+}: {
+  char: Character;
+  isCombat?: boolean;
+  isCurrent?: boolean;
   scale?: number;
   onClick?: () => void;
+  onTouchStart?: (e: React.TouchEvent) => void;
 }) => {
-  const size = isCombat ? 'w-24 h-32' : 'w-20 h-28';
-  const nameSize = isCombat ? 'text-sm' : 'text-xs';
+  // 手机端竖屏自适应：卡片在手机上更小，随着屏幕变宽逐步变大
+  const size = isCombat
+    ? 'w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-32'
+    : 'w-14 h-20 sm:w-16 sm:h-24 md:w-20 md:h-28';
+  const nameSize = isCombat
+    ? 'text-[10px] sm:text-xs md:text-sm'
+    : 'text-[10px] sm:text-xs';
   const borderColor = char.borderColor || TYPE_BORDER_COLORS[char.type];
 
   return (
     // 外层容器：遥控器只叠状态文字标签，不渲染环绕动效
-    <div className={`relative ${onClick ? 'cursor-pointer' : ''}`} onClick={onClick}>
+    // touch-action:none 阻止手机端长按图片时浏览器的放大/预览行为
+    <div
+      className={`relative ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={onClick}
+      onTouchStart={onTouchStart}
+      style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' as any }}
+    >
       <StatusLabelStack statuses={char.statuses} isCurrent={isCurrent} />
       <div
         className={`relative ${size} rounded-xl shadow-2xl flex flex-col items-center justify-center border-4 overflow-hidden`}
@@ -182,10 +196,11 @@ const CharacterCard = ({
       >
         {char.imageUrl ? (
           <>
-            {/* 像素风GIF背景 */}
+            {/* 像素风GIF背景：draggable=false 阻止浏览器原生图片拖拽 */}
             <img
               src={char.imageUrl}
               alt={char.name}
+              draggable={false}
               className="absolute inset-0 w-full h-full object-cover"
               style={{ imageRendering: 'pixelated' }}
             />
@@ -735,16 +750,12 @@ export default function InitiativeTrackerPage() {
     setDraggedChar(char);
   };
 
-  // 拖拽到战斗区（复制模式：从备选池拖拽时不删除原角色）
-  const handleDropToCombat = (e: React.DragEvent) => {
-    e.preventDefault();
-    
-    if (!draggedChar || !combatZoneRef.current) {
-      return;
-    }
+  // 核心放置逻辑：从鼠标/触摸坐标计算先攻值并放入战斗区，供拖拽和触摸两种输入共用
+  const processDrop = (clientX: number) => {
+    if (!draggedChar || !combatZoneRef.current) return;
 
     const zone = combatZoneRef.current.getBoundingClientRect();
-    const x = e.clientX - zone.left - 32;
+    const x = clientX - zone.left - 32;
     const percentage = Math.max(0, Math.min(1, x / (zone.width - 64)));
     let newInit = Math.round((1 - percentage) * 30);
 
@@ -755,11 +766,11 @@ export default function InitiativeTrackerPage() {
     if (!draggedChar.inCombat) {
       // 从备选区拖拽：创建战斗角色副本，生成新的combatId
       const combatId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      updatedChar = { 
-        ...draggedChar, 
+      updatedChar = {
+        ...draggedChar,
         id: combatId, // 新的唯一ID
-        initiative: newInit, 
-        inCombat: true, 
+        initiative: newInit,
+        inCombat: true,
       };
     } else {
       // 从战斗区拖拽：只更新先攻值
@@ -776,7 +787,7 @@ export default function InitiativeTrackerPage() {
       setOverlapCharacters(allOverlap);
       setSortedOverlapChars(allOverlap); // 初始化排序列表
       setShowOverlapModal(true);
-      
+
       if (!draggedChar.inCombat) {
         // 从备选区：添加新副本
         setCharacters(prev => [...prev, updatedChar]);
@@ -794,20 +805,26 @@ export default function InitiativeTrackerPage() {
           // 从战斗区：更新现有角色
           newChars = prev.map(c => c.id === draggedChar.id ? updatedChar : c);
         }
-        
+
         // 同步到房间（通过WebSocket）
         if (isConnected && roomId) {
           // 准备要发送的角色列表（只包含战斗中的角色）
           const combatChars = newChars.filter(c => c.inCombat);
           updateRoom({ characters: combatChars });
         }
-        
+
         return newChars;
       });
     }
-    
+
     setDraggedChar(null);
     setDragPreviewInit(null);
+  };
+
+  // 拖拽到战斗区（复制模式：从备选池拖拽时不删除原角色）
+  const handleDropToCombat = (e: React.DragEvent) => {
+    e.preventDefault();
+    processDrop(e.clientX);
   };
 
   // 拖拽到备选区（禁用：战斗区角色改用删除按钮）
@@ -819,7 +836,7 @@ export default function InitiativeTrackerPage() {
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    
+
     // 实时显示先攻值预览
     if (draggedChar && combatZoneRef.current && e.currentTarget === combatZoneRef.current) {
       const zone = combatZoneRef.current.getBoundingClientRect();
@@ -828,6 +845,38 @@ export default function InitiativeTrackerPage() {
       const previewInit = Math.round((1 - percentage) * 30);
       setDragPreviewInit(previewInit);
     }
+  };
+
+  // ===== 手机端触摸拖拽：HTML5 Drag API 在移动端不工作，用 touch 事件做等效实现 =====
+
+  // 触摸开始（在卡片上触发）：标记当前拖拽的角色
+  const handleCardTouchStart = (char: Character, e: React.TouchEvent) => {
+    e.stopPropagation();
+    setDraggedChar(char);
+  };
+
+  // 触摸移动（在战斗区容器上触发）：实时计算先攻值预览
+  const handleCombatZoneTouchMove = (e: React.TouchEvent) => {
+    if (!draggedChar || !combatZoneRef.current) return;
+    e.preventDefault(); // 阻止页面跟随手指滚动
+
+    const touch = e.touches[0];
+    const zone = combatZoneRef.current.getBoundingClientRect();
+    const x = touch.clientX - zone.left - 32;
+    const percentage = Math.max(0, Math.min(1, x / (zone.width - 64)));
+    const previewInit = Math.round((1 - percentage) * 30);
+    setDragPreviewInit(previewInit);
+  };
+
+  // 触摸结束（在战斗区容器上触发）：执行放置
+  const handleCombatZoneTouchEnd = (e: React.TouchEvent) => {
+    if (!draggedChar) {
+      setDraggedChar(null);
+      setDragPreviewInit(null);
+      return;
+    }
+    const touch = e.changedTouches[0];
+    processDrop(touch.clientX);
   };
 
   const combatCharacters = characters.filter(c => c.inCombat).sort((a, b) => b.initiative - a.initiative);
@@ -999,7 +1048,10 @@ export default function InitiativeTrackerPage() {
               ref={combatZoneRef}
               onDragOver={handleDragOver}
               onDrop={handleDropToCombat}
-              className="rc-screen rc-scanline relative h-[400px] min-h-[400px] rounded-2xl mb-3 overflow-hidden"
+              onTouchMove={handleCombatZoneTouchMove}
+              onTouchEnd={handleCombatZoneTouchEnd}
+              className="rc-screen rc-scanline relative h-[320px] min-h-[320px] sm:h-[380px] sm:min-h-[380px] md:h-[400px] md:min-h-[400px] rounded-2xl mb-3 overflow-hidden"
+              style={{ touchAction: 'none' }}
             >
               {/* 区域标题 */}
               <div className="absolute top-3 left-4 rc-label z-20">
@@ -1019,7 +1071,7 @@ export default function InitiativeTrackerPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-wrap items-end justify-center content-end gap-x-6 gap-y-20 pt-24 pb-0">
+                <div className="flex flex-wrap items-end justify-center content-end gap-x-2 sm:gap-x-4 md:gap-x-6 gap-y-12 sm:gap-y-16 md:gap-y-20 pt-12 sm:pt-20 md:pt-24 pb-0">
                   {combatCharacters.map((char, index) => {
                     const isCurrent = index === currentTurn;
                     
@@ -1028,16 +1080,20 @@ export default function InitiativeTrackerPage() {
                         key={char.id}
                         draggable
                         onDragStart={() => handleDragStart(char)}
+                        onTouchStart={(e) => handleCardTouchStart(char, e)}
                         className="relative cursor-move transition-all duration-300"
                         style={{
                           transform: `scale(${isCurrent ? 1.15 : 1})`,
                           transformOrigin: 'bottom center',
                           zIndex: isCurrent ? 10 : 1,
+                          touchAction: 'none',
+                          userSelect: 'none',
+                          WebkitUserSelect: 'none' as any,
                         }}
                       >
                         {/* 先攻值（在卡片上方） */}
-                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 z-10">
-                          <div className={`text-xl font-black px-2 py-0.5 rounded whitespace-nowrap ${
+                        <div className="absolute -top-8 sm:-top-10 left-1/2 -translate-x-1/2 z-10">
+                          <div className={`text-base sm:text-lg md:text-xl font-black px-2 py-0.5 rounded whitespace-nowrap ${
                             isCurrent 
                               ? 'text-white bg-amber-500' 
                               : 'text-amber-400 bg-slate-900/80'
@@ -1121,13 +1177,15 @@ export default function InitiativeTrackerPage() {
                   <p>备选区为空，从下方添加角色</p>
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-3 justify-center">
+                <div className="flex flex-wrap gap-2 sm:gap-3 justify-center">
                   {reserveCharacters.map((char) => (
                     <div
                       key={char.id}
                       draggable
                       onDragStart={() => handleDragStart(char)}
+                      onTouchStart={(e) => handleCardTouchStart(char, e)}
                       className="relative cursor-move hover:scale-110 transition-all"
+                      style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' as any }}
                     >
                       <CharacterCard char={char} isCombat={false} isCurrent={false} />
                       
@@ -1295,6 +1353,7 @@ export default function InitiativeTrackerPage() {
                     <img
                       src={getPreviewImage()}
                       alt="预览"
+                      draggable={false}
                       className="w-32 h-48 object-contain rounded-lg border-2 border-purple-500"
                       style={{ imageRendering: 'pixelated' }}
                       onError={(e) => {
@@ -1354,6 +1413,7 @@ export default function InitiativeTrackerPage() {
                       <img
                         src={getEnemyImageUrl(enemy.key, enemyList)}
                         alt={enemy.name}
+                        draggable={false}
                         className="w-full h-20 object-contain"
                         style={{ imageRendering: 'pixelated' }}
                       />
@@ -1450,6 +1510,7 @@ export default function InitiativeTrackerPage() {
                         <img
                           src={getPreviewImage()}
                           alt="预览"
+                          draggable={false}
                           className="w-32 h-48 object-contain rounded-lg border-2 border-green-500"
                           style={{ imageRendering: 'pixelated' }}
                           onError={(e) => {
@@ -1502,6 +1563,7 @@ export default function InitiativeTrackerPage() {
                           <img
                             src={getEnemyImageUrl(enemy.key, enemyList)}
                             alt={enemy.name}
+                            draggable={false}
                             className="w-full h-20 object-contain"
                             style={{ imageRendering: 'pixelated' }}
                           />
@@ -1615,6 +1677,7 @@ export default function InitiativeTrackerPage() {
                       <img
                         src={item.url}
                         alt={item.name}
+                        draggable={false}
                         className="w-full h-20 object-contain"
                         style={{ imageRendering: 'pixelated' }}
                       />
@@ -1714,15 +1777,42 @@ export default function InitiativeTrackerPage() {
               拖动卡片左右排序，左边先行动
             </p>
             
-            <div className="flex gap-6 justify-center mb-6 overflow-x-auto pt-12 pb-10 px-4">
+            <div className="flex gap-6 justify-center mb-6 overflow-x-auto pt-12 pb-10 px-4"
+              onTouchMove={(e) => {
+                // 触摸排序：检测手指划过哪张卡片，动态调整顺序
+                if (!draggedChar) return;
+                const touch = e.touches[0];
+                const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (target) {
+                  const cardEl = target.closest('[data-overlap-char-id]');
+                  if (cardEl) {
+                    const targetId = cardEl.getAttribute('data-overlap-char-id');
+                    if (targetId && targetId !== draggedChar.id) {
+                      setOverlapCharacters(prev => {
+                        const dragIndex = prev.findIndex(c => c.id === draggedChar.id);
+                        const dropIndex = prev.findIndex(c => c.id === targetId);
+                        if (dragIndex === -1 || dropIndex === -1 || dragIndex === dropIndex) return prev;
+                        const newOrder = [...prev];
+                        const [moved] = newOrder.splice(dragIndex, 1);
+                        newOrder.splice(dropIndex, 0, moved);
+                        return newOrder;
+                      });
+                    }
+                  }
+                }
+              }}
+              onTouchEnd={() => setDraggedChar(null)}
+            >
               {overlapCharacters.map((char, index) => {
                 const isDragging = draggedChar?.id === char.id;
                 return (
                 <div
                   key={char.id}
+                  data-overlap-char-id={char.id}
                   draggable
                   onDragStart={() => setDraggedChar(char)}
                   onDragEnd={() => setDraggedChar(null)}
+                  onTouchStart={(e) => { e.stopPropagation(); setDraggedChar(char); }}
                   onDragOver={(e) => e.preventDefault()}
                   onDragEnter={(e) => {
                     e.preventDefault();
@@ -1747,6 +1837,7 @@ export default function InitiativeTrackerPage() {
                   className={`relative cursor-move flex-shrink-0 transition-all duration-300 ease-out ${
                     isDragging ? 'scale-110 opacity-50 z-20' : 'hover:scale-105'
                   }`}
+                  style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' as any }}
                 >
                   <CharacterCard char={char} isCombat={false} isCurrent={false} />
                   <div className="absolute -top-9 left-1/2 -translate-x-1/2 text-amber-400 font-black text-xl whitespace-nowrap">

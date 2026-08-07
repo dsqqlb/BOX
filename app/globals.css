@@ -242,6 +242,12 @@
   }
 }
 
+/* 移动端触摸优化：阻止双击放大和长按图片弹出预览，保留正常滚动和双指缩放 */
+html {
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
@@ -250,6 +256,13 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* 全局禁止图片的原生拖拽行为（防止手机端和桌面端浏览器默认图片拖拽） */
+img {
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 @layer utilities {
