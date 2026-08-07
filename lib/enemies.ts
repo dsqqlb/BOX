@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getWsUrl } from './useWebSocket';
 
-// 怪物清单条目：由 server/websocket-server.js 的 /enemies 接口实时扫描
+// 怪物清单条目：由 server/index.js 的 /api/enemies 接口实时扫描
 // public/image/enemies 目录返回，无需生成文件、无需重启服务
 export interface EnemyEntry {
   key: string;   // 英文标识，代码里用它来引用怪物、拼接图片路径
@@ -9,11 +8,9 @@ export interface EnemyEntry {
   file: string;  // 图片文件名（含后缀）
 }
 
-// 怪物列表接口和WebSocket服务器跑在同一个进程里，端口号复用 getWsUrl() 的逻辑，
-// 只是把 ws(s):// 换成 http(s)://，避免两处各写一套主机名/端口推断逻辑
-function getEnemiesApiUrl(): string {
-  return getWsUrl().replace(/^ws/, 'http') + '/enemies';
-}
+// 接口和页面由同一个进程、同一个端口提供，所以直接用同源相对路径即可，
+// 不需要推断主机名/端口，也不需要任何环境变量
+const ENEMIES_API_URL = '/api/enemies';
 
 // 获取怪物图片的公开访问路径
 export function getEnemyImageUrl(key: string, list: EnemyEntry[]): string {
@@ -44,7 +41,7 @@ export function useEnemyList() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch(getEnemiesApiUrl(), { cache: 'no-store' })
+    fetch(ENEMIES_API_URL, { cache: 'no-store' })
       .then((res) => {
         if (!res.ok) throw new Error(`加载怪物列表失败: ${res.status}`);
         return res.json();

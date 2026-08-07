@@ -1,42 +1,39 @@
-# ============ 前端：多阶段构建 ============
-# 阶段1：安装依赖 + 构建静态导出产物（next.config.ts 里 output: 'export'，产物在 out/ 目录）
+# ============ 阶段1：构建静态产物 ============
+# next.config.ts 里是 output: 'export'，产物在 out/ 目录
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# 先只拷贝依赖清单，能最大化利用Docker层缓存：package.json不变时不用重新npm install
+# 先只拷贝依赖清单，最大化利用Docker层缓存：package.json不变时不用重新npm install
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# 拷贝其余源码
 COPY . .
 
-# WebSocket地址：构建时通过build-arg传入，会被Next.js内联进静态HTML/JS里，运行时无法再改，
-# 改了这两个值必须重新 docker compose build 才会生效。
-#
-# NEXT_PUBLIC_WS_URL：完全自定义WebSocket地址，留空则走下面的自动推断逻辑。
-#
-# NEXT_PUBLIC_WS_PATH_MODE：
-#   - "true"：走"同域同端口 + /ws 路径反代"模式。适合 Cloudflare Tunnel / 只暴露单个端口的反向代理场景——
-#     因为这类隧道通常一个hostname只能指向一个源端口，没法再单独开一个端口给WebSocket，
-#     所以让nginx把 /ws 开头的请求转发给ws-server容器（见 nginx.conf）。
-#   - 默认("false"/留空)：局域网直连模式，浏览器直接连 host:9998，不经过nginx反代。
-ARG NEXT_PUBLIC_WS_URL=""
-ARG NEXT_PUBLIC_WS_PATH_MODE=""
-ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
-ENV NEXT_PUBLIC_WS_PATH_MODE=$NEXT_PUBLIC_WS_PATH_MODE
-
+# 注意：不再需要任何 NEXT_PUBLIC_WS_* 构建参数。
+# 前端固定连"当前页面同源的 /ws"（见 lib/useWebSocket.ts），页面和WebSocket由同一个
+# Node进程、同一个端口提供服务，所以不管是localhost、局域网IP还是公网域名都自动正确。
 RUN npm run build
 
-# ============ 阶段2：用nginx托管静态产物 ============
-FROM nginx:1.27-alpine
+# ============ 阶段2：运行时（只有 Node + ws + 静态产物，不需要nginx） ============
+FROM node:20-alpine
 
-COPY --from=builder /app/out /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /app
 
-EXPOSE 80
+ENV NODE_ENV=production
+ENV PORT=9999
+
+# 运行时只依赖 ws 这一个库（ws自身零依赖），直接从构建阶段拷过来，
+# 不用在运行时镜像里再装一遍 next/react/three 那一大堆只在构建期需要的前端依赖
+COPY --from=builder /app/node_modules/ws ./node_modules/ws
+
+# 静态产物 + 统一服务器（托管静态页面 + WebSocket + /api 接口，全在一个端口上）
+COPY --from=builder /app/out ./out
+COPY server/index.js ./server/index.js
+
+EXPOSE 9999
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost/ || exit 1
+  CMD node -e "require('http').get('http://localhost:9999/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server/index.js"]

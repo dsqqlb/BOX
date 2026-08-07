@@ -1,44 +1,21 @@
 services:
-  # 前端：Next.js 静态导出产物，由 nginx 托管。
-  # 这是唯一需要暴露给Cloudflare Tunnel的端口——WebSocket通过nginx的 /ws 路径反代进来（见nginx.conf），
-  # 不需要再为WebSocket单独开一条隧道规则/一个hostname。
-  # cloudflared 配置里把 box.dsqqlb.top 指向 http://127.0.0.1:9999 即可。
-  web:
+  # 整个项目只有这一个服务、一个进程、一个端口(9999)。
+  # server/index.js 同时负责：托管静态页面 + WebSocket房间同步(/ws) + 图片清单接口(/api/*)。
+  #
+  # Cloudflare Tunnel: 把域名指向 http://127.0.0.1:9999 即可（WebSocket走同一个端口的/ws路径，
+  #   不需要额外的隧道规则、不需要子域名）。
+  # 局域网访问: http://<Mac mini局域网IP>:9999
+  box:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        # 留空即可：运行时会自动用访问者当前的hostname拼WebSocket地址（局域网直连场景）。
-        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
-        # 走Cloudflare Tunnel等只暴露单端口的反代场景时设为 true（见 .env 配置），
-        # 会让前端改用 wss://box.dsqqlb.top/ws 这种同域路径地址，而不是直连9998端口
-        NEXT_PUBLIC_WS_PATH_MODE: ${NEXT_PUBLIC_WS_PATH_MODE:-}
-    image: box-web:latest
-    container_name: box-web
+    image: box:latest
+    container_name: box
     restart: unless-stopped
     ports:
-      - "9999:80"
+      - "9999:9999"
     volumes:
-      # 挂载图片目录：以后加塔罗牌图/怪物图片直接放进这个宿主机文件夹即可生效，
-      # 不需要重新build镜像（nginx直接从磁盘读文件）
-      - ./public/image:/usr/share/nginx/html/image:ro
-    depends_on:
-      - ws-server
-
-  # WebSocket服务：房间实时同步 + /enemies + /player-images 接口。
-  # 9998端口只留给同机/局域网直连场景使用；经Cloudflare Tunnel访问时走的是web容器nginx的 /ws 反代，
-  # 不经过这个端口，所以这里的 ports 映射可以保留（不影响，只是公网通常不会直接打到9998）。
-  ws-server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-    image: box-ws-server:latest
-    container_name: box-ws-server
-    restart: unless-stopped
-    ports:
-      - "9998:9998"
-    volumes:
-      # 和前端共享同一份图片目录（只读），/enemies 接口会实时扫描这里的怪物图片子目录
-      - ./public/image:/public/image:ro
-    environment:
-      - WS_PORT=9998
+      # 挂载图片目录（覆盖到静态产物的image目录）：以后加怪物图/玩家立绘/塔罗牌图，
+      # 直接把文件放进宿主机的 public/image 即可生效，不需要重新构建镜像。
+      # /api/enemies 和 /api/player-images 每次请求都会实时重新扫描这个目录。
+      - ./public/image:/app/out/image:ro

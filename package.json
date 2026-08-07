@@ -3,12 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack -p 9999",
+    "dev": "node server/index.js --dev",
     "build": "next build",
-    "start": "next start -p 9999",
-    "lint": "next lint",
-    "ws-server": "node server/websocket-server.js",
-    "dev:full": "concurrently \"npm run dev\" \"npm run ws-server\""
+    "start": "node server/index.js",
+    "lint": "next lint"
   },
   "dependencies": {
     "@react-three/cannon": "^6.6.0",

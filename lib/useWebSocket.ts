@@ -5,28 +5,20 @@ interface WebSocketMessage {
   payload: any;
 }
 
-// 计算WebSocket服务器地址，按优先级：
-// 1. NEXT_PUBLIC_WS_URL 环境变量：完全自定义地址，优先级最高
-// 2. NEXT_PUBLIC_WS_PATH_MODE=true：走"同域同端口 + /ws 路径"模式——
-//    适合 Cloudflare Tunnel / Nginx反代 这类"只暴露一个端口给公网"的场景，
-//    因为隧道通常只能把一个hostname指向一个源端口，没法再单独开一个端口给WebSocket。
-//    此时不再拼9998端口，而是用当前页面的协议+主机名（不带端口，跟着80/443走），
-//    加上 /ws 路径前缀，由nginx按路径把请求转发到WebSocket服务（见 nginx.conf 的 location /ws）。
-// 3. 默认：局域网/直连场景，自动取当前hostname拼WS端口（不经过反代，直接连WebSocket进程）
-export function getWsUrl(port: number = 9998): string {
-  const envUrl = process.env.NEXT_PUBLIC_WS_URL;
-  if (envUrl) return envUrl;
-
-  if (typeof window === 'undefined') return `ws://localhost:${port}`;
+// WebSocket地址：固定连"当前页面同源的 /ws"，不需要任何环境变量、也不需要推断端口号。
+//
+// 因为页面和WebSocket由同一个Node进程、同一个端口提供服务（见 server/index.js），
+// 所以浏览器访问什么地址，WebSocket就连什么地址：
+//   本地开发   http://localhost:9999        -> ws://localhost:9999/ws
+//   局域网     http://192.168.1.50:9999     -> ws://192.168.1.50:9999/ws
+//   公网域名   https://box.dsqqlb.top       -> wss://box.dsqqlb.top/ws
+// window.location.host 自带端口（有端口时），https自动切wss，所以三种场景都不用额外配置。
+export function getWsUrl(): string {
+  // SSR/静态导出预渲染阶段没有window，返回占位值；真正连接发生在客户端useEffect里
+  if (typeof window === 'undefined') return '';
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-
-  if (process.env.NEXT_PUBLIC_WS_PATH_MODE === 'true') {
-    // 不带端口：交给80/443端口上的nginx按路径反代，适配Cloudflare Tunnel等只转发单端口的场景
-    return `${protocol}//${window.location.host}/ws`;
-  }
-
-  return `${protocol}//${window.location.hostname}:${port}`;
+  return `${protocol}//${window.location.host}/ws`;
 }
 
 interface UseWebSocketOptions {
@@ -108,8 +100,8 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions = 
         // 检查是否是连接失败
         if (ws?.readyState === WebSocket.CLOSED || ws?.readyState === WebSocket.CLOSING) {
           console.error('❌ WebSocket连接失败，可能原因：');
-          console.error('   1. WebSocket服务器未运行（检查: node server/websocket-server.js）');
-          console.error('   2. 端口不正确（当前尝试: ' + url + '）');
+          console.error('   1. 服务未通过 server/index.js 启动（开发用 npm run dev，生产用 npm start）');
+          console.error('   2. 反向代理/隧道没有转发WebSocket升级请求（当前尝试: ' + url + '）');
           console.error('   3. 防火墙阻止连接');
         }
         

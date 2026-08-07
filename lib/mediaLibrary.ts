@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { getWsUrl } from './useWebSocket';
 import { EnemyEntry } from './enemies';
 
-// 玩家立绘条目：由 server/websocket-server.js 的 /player-images 接口实时扫描
+// 玩家立绘条目：由 server/index.js 的 /api/player-images 接口实时扫描
 // public/image/player/<种族>_<英文>/<职业>.png 目录返回
 export interface PlayerImageEntry {
   key: string;       // raceEn__className，保证跨种族不重名
@@ -22,9 +21,8 @@ export interface MediaItem {
   source: 'enemy' | 'player';
 }
 
-function getPlayerImagesApiUrl(): string {
-  return getWsUrl().replace(/^ws/, 'http') + '/player-images';
-}
+// 同源相对路径：接口和页面由同一个进程、同一个端口提供
+const PLAYER_IMAGES_API_URL = '/api/player-images';
 
 // 实时获取玩家立绘清单
 export function usePlayerImageList() {
@@ -35,7 +33,7 @@ export function usePlayerImageList() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch(getPlayerImagesApiUrl(), { cache: 'no-store' })
+    fetch(PLAYER_IMAGES_API_URL, { cache: 'no-store' })
       .then((res) => {
         if (!res.ok) throw new Error(`加载玩家立绘列表失败: ${res.status}`);
         return res.json();

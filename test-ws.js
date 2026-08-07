@@ -1,9 +1,13 @@
-// 测试WebSocket服务器是否正常运行
+// 快速测试服务是否正常运行（房间同步WebSocket）
+// 页面和WebSocket共用同一个端口，所以这里连的就是访问站点的那个端口 + /ws 路径
 const WebSocket = require('ws');
 
-console.log('🔍 测试连接到 ws://localhost:9998...');
+const PORT = process.env.PORT || 9999;
+const URL = `ws://localhost:${PORT}/ws`;
 
-const ws = new WebSocket('ws://localhost:9998');
+console.log(`🔍 测试连接到 ${URL} ...`);
+
+const ws = new WebSocket(URL);
 
 ws.on('open', () => {
   console.log('✅ WebSocket连接成功！');
@@ -13,6 +17,7 @@ ws.on('open', () => {
 
 ws.on('error', (error) => {
   console.error('❌ WebSocket连接失败:', error.message);
+  console.error('   请确认服务已启动：开发用 npm run dev，生产用 npm start');
   process.exit(1);
 });
 
