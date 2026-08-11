@@ -285,47 +285,33 @@ class DiceBox {
 	}
 
 	async loadSounds(){
-		let surfaces = {
-			felt: 7,
-			wood_table: 7,
-			wood_tray: 7,
-			metal: 9
-		}
+		// 音效包精简为4个高频素材：两种毛毡桌面撞击声 + 两种塑料骰子互撞声。
+		// 主屏骰盘始终是绿毛毡桌面；即使以后切换桌面/骰子纹理，也统一复用这两组，
+		// 从而不会为不同材质请求已被移除的音频文件。
+		const surfaceKey = 'felt'
+		const surfaceFiles = ['surface_felt1.mp3', 'surface_felt2.mp3']
+		const diceFiles = ['dicehit_plastic1.mp3', 'dicehit_plastic2.mp3']
 
-		// 每种撞击音材质对应的素材数量（文件名结尾的随机序号范围），跟sounds/dicehit目录里实际文件对应
-		let dieMaterials = {
-			coin: 6,
-			metal: 12,
-			plastic: 15,
-			wood: 12
-		}
-
-		if(!this.sounds_table.hasOwnProperty(this.surface)){
-			this.sounds_table[this.surface] = [];
-			let numsounds = surfaces[this.surface]
-			for (let s=1; s <= numsounds; ++s) {
-				const clip = await this.loadAudio(this.assetPath + 'sounds/surfaces/surface_'+this.surface+s+'.mp3')
-				this.sounds_table[this.surface].push(clip);
+		if (!this.sounds_table[surfaceKey]) {
+			this.sounds_table[surfaceKey] = []
+			for (const filename of surfaceFiles) {
+				const clip = await this.loadAudio(this.assetPath + 'sounds/surfaces/' + filename)
+				this.sounds_table[surfaceKey].push(clip)
 			}
 		}
+		// 任何桌面类型都指向保留的两段毛毡撞击声。
+		this.sounds_table[this.surface] = this.sounds_table[surfaceKey]
 
-		// 这次投掷里实际会用到哪些撞击音材质：按形状分别用到的材质(shapeSoundMaterials)去重，
-		// 再加上兜底材质和硬币(d2)专用音效，只加载真正需要的那几套，不会一次性把所有材质全加载。
-		const materialsToLoad = new Set(['coin', this.fallbackSoundMaterial || 'plastic'])
-		for (const shape of Object.keys(this.shapeSoundMaterials || {})) {
-			materialsToLoad.add(this.shapeSoundMaterials[shape])
-		}
-
-		for (const material of materialsToLoad) {
-			if(this.sounds_dice.hasOwnProperty(material)) continue
-			this.sounds_dice[material] = []
-			let numsounds = dieMaterials[material]
-			if (!numsounds) continue
-			const filePrefix = material === 'coin' ? 'dicehit_coin' : 'dicehit_'+material
-			for (let s=1; s <= numsounds; ++s) {
-				const clip = await this.loadAudio(this.assetPath + 'sounds/dicehit/'+filePrefix+s+'.mp3')
-				this.sounds_dice[material].push(clip);
+		if (!this.sounds_dice.default) {
+			this.sounds_dice.default = []
+			for (const filename of diceFiles) {
+				const clip = await this.loadAudio(this.assetPath + 'sounds/dicehit/' + filename)
+				this.sounds_dice.default.push(clip)
 			}
+		}
+		// coin / metal / wood / plastic 等所有骰子材质统一映射到保留的两段骰子碰撞声。
+		for (const material of ['coin', 'metal', 'plastic', 'wood']) {
+			this.sounds_dice[material] = this.sounds_dice.default
 		}
 	}
 
