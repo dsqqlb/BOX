@@ -59,5 +59,15 @@
     "icon": "🔮",
     "featured": true,
     "createdAt": "2026-08-04"
+  },
+  {
+    "slug": "savings-tracker",
+    "title": "省钱网页",
+    "description": "反记账神器：忍住没买就是赚到！记录每一次省钱的冲动克制，看看你为未来省下了多少",
+    "category": "life",
+    "tags": ["savings", "money", "life", "tracker"],
+    "icon": "🐷",
+    "featured": true,
+    "createdAt": "2026-08-11"
   }
 ]

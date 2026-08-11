@@ -39,6 +39,33 @@ const IMAGE_DIR = path.resolve(
 );
 const ENEMY_DIR = path.join(IMAGE_DIR, 'enemies');
 const PLAYER_DIR = path.join(IMAGE_DIR, 'player');
+const SAVINGS_FILE = path.join(PROJECT_ROOT, 'data', 'savings.json');
+
+// ============ 省钱记录数据读写 ============
+
+function loadSavings() {
+  try {
+    if (fs.existsSync(SAVINGS_FILE)) {
+      const raw = fs.readFileSync(SAVINGS_FILE, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error('读取省钱记录失败:', e.message);
+  }
+  return [];
+}
+
+function saveSavings(data) {
+  try {
+    const dir = path.dirname(SAVINGS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(SAVINGS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    return true;
+  } catch (e) {
+    console.error('保存省钱记录失败:', e.message);
+    return false;
+  }
+}
 
 // ============ 图片目录扫描（怪物图 / 玩家立绘） ============
 // 命名规则：怪物图为"中文名_英文标识.png"；玩家立绘为 player/<种族中文>_<种族英文>/<职业中文>.png
@@ -118,6 +145,16 @@ function sendJson(res, data) {
     'Cache-Control': 'no-store',
   });
   res.end(JSON.stringify(data));
+}
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      try { resolve(JSON.parse(body)); } catch { resolve(null); }
+    });
+  });
 }
 
 // ============ 静态文件托管（替代原来的 nginx） ============
@@ -533,6 +570,60 @@ async function main() {
           }))
           .sort((a, b) => b.lastActivity - a.lastActivity);
         return sendJson(res, list);
+      }
+
+      // 省钱记录 API
+      if (pathname === '/api/savings') {
+        if (req.method === 'POST') {
+          const body = await readBody(req);
+          if (!body || !body.date || !body.time || !body.activity || !body.item || body.amount == null) {
+            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+            return res.end(JSON.stringify({ error: '缺少必填字段' }));
+          }
+          const records = loadSavings();
+          const record = {
+            id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15),
+            date: body.date,
+            time: body.time,
+            activity: body.activity,
+            item: body.item,
+            amount: Number(body.amount),
+            createdAt: new Date().toISOString(),
+          };
+          records.push(record);
+          saveSavings(records);
+          return sendJson(res, record);
+        }
+        if (req.method === 'DELETE') {
+          const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+          const id = url.searchParams.get('id');
+          if (!id) {
+            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+            return res.end(JSON.stringify({ error: '缺少 id 参数' }));
+          }
+          let records = loadSavings();
+          records = records.filter((r) => r.id !== id);
+          saveSavings(records);
+          return sendJson(res, { success: true });
+        }
+        if (req.method === 'PUT') {
+          const body = await readBody(req);
+          if (!body || !body.id) {
+            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+            return res.end(JSON.stringify({ error: '缺少 id 参数' }));
+          }
+          let records = loadSavings();
+          const idx = records.findIndex((r) => r.id === body.id);
+          if (idx === -1) {
+            res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+            return res.end(JSON.stringify({ error: '记录不存在' }));
+          }
+          records[idx] = { ...records[idx], ...body, id: records[idx].id, createdAt: records[idx].createdAt };
+          saveSavings(records);
+          return sendJson(res, records[idx]);
+        }
+        // GET: 返回全部记录
+        return sendJson(res, loadSavings());
       }
 
       // 2) 页面：开发交给Next dev server，生产读静态产物

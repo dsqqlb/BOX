@@ -982,4 +982,162 @@ img {
   .status-badge-dying {
     animation: status-badge-dying-pulse 1s ease-in-out infinite;
   }
+
+  /* ===== 省钱网页趣味动画 ===== */
+  @keyframes coin-drop {
+    0% { transform: translateY(-20px); opacity: 0; }
+    60% { transform: translateY(4px); opacity: 1; }
+    80% { transform: translateY(-2px); }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+  .animate-coin-drop {
+    animation: coin-drop 0.5s ease-out;
+  }
+
+  @keyframes piggy-celebrate {
+    0%, 100% { transform: scale(1) rotate(0deg); }
+    15% { transform: scale(1.3) rotate(-8deg); }
+    30% { transform: scale(1.2) rotate(6deg); }
+    45% { transform: scale(1.25) rotate(-4deg); }
+    60% { transform: scale(1.15) rotate(2deg); }
+    75% { transform: scale(1.1) rotate(0deg); }
+  }
+  .animate-piggy-celebrate {
+    animation: piggy-celebrate 0.8s ease-out;
+  }
+}
+
+/* ===== 省钱网页 页面级样式 ===== */
+
+.savings-page-bg {
+  background: linear-gradient(135deg, #fef5f0 0%, #fce4ec 30%, #fff8e7 70%, #fef5f0 100%);
+  background-attachment: fixed;
+}
+.dark .savings-page-bg {
+  background: linear-gradient(135deg, #1a1a2e 0%, #1e1e30 30%, #16213e 60%, #0f1123 100%);
+  background-attachment: fixed;
+}
+
+.savings-header {
+  background: rgba(253, 242, 248, 0.6);
+  backdrop-filter: blur(12px);
+  border-bottom: 2px solid rgba(251, 207, 232, 0.5);
+}
+.dark .savings-header {
+  background: rgba(24, 24, 40, 0.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 2px solid rgba(55, 65, 81, 0.5);
+}
+
+.savings-header-link {
+  color: #ff6b47;
+}
+.savings-header-link:hover {
+  color: #e55a3a;
+}
+.dark .savings-header-link {
+  color: #ff8c6e;
+}
+.dark .savings-header-link:hover {
+  color: #ffb8a5;
+}
+
+/* 统计卡片亮/暗 */
+.savings-stat-card {
+  @apply bg-white/70 backdrop-blur-sm rounded-2xl p-4 border shadow-sm text-center transition-colors;
+  border-color: rgba(251, 207, 232, 0.6);
+}
+.dark .savings-stat-card {
+  @apply bg-zinc-800/60;
+  border-color: rgba(55, 65, 81, 0.6);
+}
+
+/* 表单容器 */
+.savings-form-card {
+  @apply bg-white/80 backdrop-blur-sm rounded-2xl p-5 border-2 shadow-lg;
+  border-color: rgba(251, 207, 232, 0.8);
+}
+.dark .savings-form-card {
+  @apply bg-zinc-800/80;
+  border-color: rgba(75, 85, 99, 0.6);
+}
+
+/* 记录卡片 */
+.savings-record-card {
+  @apply bg-white/80 backdrop-blur-sm rounded-2xl p-4 border shadow-sm transition-all duration-300;
+  border-color: rgba(251, 207, 232, 0.6);
+}
+.dark .savings-record-card {
+  @apply bg-zinc-800/60;
+  border-color: rgba(55, 65, 81, 0.5);
+}
+.savings-record-card:hover {
+  @apply shadow-md;
+}
+
+/* 预设 chip */
+.savings-chip {
+  @apply px-2.5 py-1 text-xs rounded-lg border transition-all;
+  border-color: rgba(228, 228, 231, 0.8);
+  color: #71717a;
+  background: #fff;
+}
+.savings-chip:hover {
+  border-color: #ffb8a5;
+  color: #ff6b47;
+}
+.dark .savings-chip {
+  background: #3f3f46;
+  border-color: rgba(82, 82, 91, 0.6);
+  color: #a1a1aa;
+}
+.dark .savings-chip:hover {
+  border-color: #ff8c6e;
+  color: #ffb8a5;
+}
+.savings-chip-active {
+  @apply shadow-sm;
+  background: #ff6b47;
+  border-color: #ff6b47;
+  color: #fff;
+}
+.dark .savings-chip-active {
+  background: #ff8c6e;
+  border-color: #ff8c6e;
+  color: #fff;
+}
+
+/* 输入框 */
+.savings-input {
+  @apply w-full px-3 py-2.5 rounded-xl border-2 outline-none transition-all;
+  border-color: rgba(251, 207, 232, 0.8);
+  background: rgba(255, 255, 255, 0.8);
+  color: #3f3f46;
+}
+.savings-input:focus {
+  border-color: #ff8c6e;
+  box-shadow: 0 0 0 6px rgba(255, 107, 71, 0.15);
+}
+.dark .savings-input {
+  background: rgba(63, 63, 70, 0.8);
+  border-color: rgba(82, 82, 91, 0.5);
+  color: #e4e4e7;
+}
+.dark .savings-input:focus {
+  border-color: #ff8c6e;
+  box-shadow: 0 0 0 6px rgba(255, 140, 110, 0.15);
+}
+
+/* 主题切换按钮 */
+.savings-theme-toggle {
+  @apply p-2 rounded-xl backdrop-blur-sm border shadow-sm transition-all hover:-translate-y-0.5;
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(228, 228, 231, 0.8);
+}
+.savings-theme-toggle:hover {
+  @apply shadow-md;
+}
+.dark .savings-theme-toggle {
+  background: rgba(39, 39, 42, 0.8);
+  border-color: rgba(82, 82, 91, 0.5);
 }

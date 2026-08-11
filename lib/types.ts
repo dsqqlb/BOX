@@ -10,4 +10,4 @@ export interface Tool {
   createdAt: string;
 }
 
-export type ToolCategory = 'learning' | 'ai' | 'game' | 'utility' | 'visualization';
+export type ToolCategory = 'learning' | 'ai' | 'game' | 'utility' | 'visualization' | 'life';

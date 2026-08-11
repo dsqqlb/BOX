@@ -11,6 +11,7 @@ const CATEGORY_MAP: Record<string, string> = {
   game: '游戏',
   utility: '工具',
   visualization: '可视化',
+  life: '生活',
 };
 
 export default function ToolShell() {
