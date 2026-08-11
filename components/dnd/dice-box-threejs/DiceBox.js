@@ -1,0 +1,1257 @@
+import * as THREE from "three"
+import * as CANNON from "cannon-es"
+
+import { DiceNotation } from './DiceNotation.js';
+import { DiceFactory } from './DiceFactory.js';
+import { DiceColors } from './DiceColors.js';
+import { THEMES } from './const/themes.js';
+// import CannonDebugger from 'cannon-es-debugger'
+
+import { debounce } from "./helpers"
+
+// 把纹理自带的material字段(metal/wood/glass/none/undefined)归类成"撞击音效材质"：
+// 素材库里只有木头(wood)、金属(metal)、塑料(plastic)三种撞击声，glass/none/未标注的纹理
+// (大理石/冰霜/星空/骷髅等)都归到plastic兜底——这也是原素材库自身的规则，不是我们瞎猜的。
+function resolveSoundMaterial(materialField) {
+	return (materialField === 'wood' || materialField === 'metal') ? materialField : 'plastic'
+}
+
+const defaultConfig = {
+	assetPath: "./",
+	framerate: (1/60),
+	sounds: false,
+	volume: 100,
+	// 同一时刻最多允许几个撞击音效同时播放，避免多个骰子同时落地时声音叠得太乱、太吵
+	maxConcurrentSounds: 5,
+	color_spotlight: 0xefdfd5,
+	shadows: true,
+	theme_surface:  "green-felt",
+	sound_dieMaterial: 'plastic',
+	theme_customColorset: null,
+	theme_colorset: "white",
+	theme_texture: "",
+	theme_material: "glass",
+	// 按骰子形状(d4/d6/d8/d10/d12/d20)单独指定纹理，如 {d6:'marble', d20:'fire'}。
+	// 优先级高于theme_texture：配置了某个形状就用它，没配置的形状继续用theme_texture（整体颜色方案自带的纹理）。
+	theme_shapeTextures: null,
+	gravity_multiplier: 400,
+	light_intensity: 0.7,
+	baseScale: 100,
+	strength: 1,
+	iterationLimit: 1000,
+	onRollComplete: () => {},
+	onRerollComplete: () => {},
+	onAddDiceComplete: () => {},
+	onRemoveDiceComplete: () => {},
+}
+
+class DiceBox {
+
+	constructor(element_container, options = {}) {
+		//private variables
+		this.initialized = false
+		this.container = document.querySelector(element_container);
+		this.dimensions = new THREE.Vector2(this.container.clientWidth, this.container.clientHeight)
+		this.adaptive_timestep = false;
+		this.last_time = 0;
+		this.running = false;
+		this.rolling = false;
+		this.threadid;
+
+		this.display = {
+			currentWidth: null,
+			currentHeight: null,
+			containerWidth: null,
+			containerHeight: null,
+			aspect: null,
+			scale: null
+		};
+
+		this.cameraHeight = {
+			max: null,
+			close: null,
+			medium: null,
+			far: null
+		};
+
+		this.scene = new THREE.Scene();
+		this.world = new CANNON.World();
+		this.dice_body_material = new CANNON.Material();
+		this.sounds_table = {};
+		this.sounds_dice = [];
+		this.lastSoundType = '';
+		this.lastSoundStep = 0;
+		this.lastSound = 0;
+		// 追踪当前正在播放的音效数量，配合maxConcurrentSounds做节流：
+		// 用Set记一下正在播的<audio>元素，播放结束/出错就自动摘掉，countActive()就是当前同时响的声音数
+		this._activeSounds = new Set()
+		this.playSoundHelpers = {
+			countActive: () => this._activeSounds.size,
+			play: (audioEl) => {
+				this._activeSounds.add(audioEl)
+				const cleanup = () => this._activeSounds.delete(audioEl)
+				audioEl.addEventListener('ended', cleanup, { once: true })
+				audioEl.play().catch(() => cleanup())
+			}
+		}
+		this.iteration;
+		this.renderer;
+		this.barrier;
+		this.camera;
+		this.light;
+		this.light_amb;
+		this.desk;
+		this.box_body = {};
+		this.bodies = [];
+		this.meshes = [];
+		this.diceList = [];
+		// 取高/取低高亮特效：给"被保留(未丢弃)"的骰子贴一个简单的同色点光源，kh=金色，kl=红色，
+		// 让"3D6取最高"这种情况能一眼看出到底是哪颗骰子在算数。光源会跟着骰子走，不需要每帧同步坐标。
+		this.highlightMeshes = [];
+		this.notationVectors = null
+		this.dieIndex = 0
+
+		//public variables
+		// this.framerate = (1/60);
+		// this.sounds = false;
+		// this.volume = 100;
+		// this.theme_surface = "green-felt"
+		// this.sound_dieMaterial = 'plastic'
+		this.soundDelay = 10; // time between sound effects in ms
+		this.animstate = '';
+		// this.tally = true;
+
+
+		this.selector = {
+			animate: true,
+			rotate: true,
+			intersected: null,
+			dice: []
+		};
+
+		// this.colors = {
+		// 	ambient:  0xf0f5fb,
+		// 	spotlight: 0xefdfd5
+		// };
+
+		// this.shadows = true
+
+		// merge this with default config and any options coming in
+		Object.assign(this, defaultConfig, options)
+
+		this.DiceColors = new DiceColors({assetPath: this.assetPath});
+		this.DiceFactory = new DiceFactory({
+			baseScale: this.baseScale
+		});
+		this.DiceFactory.setBumpMapping(true);
+
+		// post config settings
+		this.surface = THEMES[this.theme_surface].surface
+
+	}
+
+
+	enableShadows(){
+		this.shadows = true;
+		if (this.renderer) this.renderer.shadowMap.enabled = this.shadows;
+		if (this.light) this.light.castShadow = this.shadows;
+		if (this.desk) this.desk.receiveShadow = this.shadows;
+	}
+	disableShadows() {
+		this.shadows = false;
+		if (this.renderer) this.renderer.shadowMap.enabled = this.shadows;
+		if (this.light) this.light.castShadow = this.shadows;
+		if (this.desk) this.desk.receiveShadow = this.shadows;
+	}
+
+	async initialize() {
+
+		// this.cannonDebugger = new CannonDebugger(this.scene,this.world)
+		this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+		this.container.appendChild(this.renderer.domElement);
+		this.renderer.shadowMap.enabled = this.shadows;
+		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+		this.renderer.setClearColor(0x000000, 0);
+
+		this.setDimensions(this.dimensions);
+
+		this.world.gravity.set(0, 0, -9.8 * this.gravity_multiplier);
+		this.world.broadphase = new CANNON.NaiveBroadphase();
+		this.world.solver.iterations = 14;
+		this.world.allowSleep = true;
+
+		// this.scene.add(new THREE.HemisphereLight( 0xffffbb, 0x676771, 1 ));
+
+		this.makeWorldBox()
+		
+		this.resizeWorld()
+
+		await this.loadTheme({
+			colorset: this.theme_colorset,
+			texture: this.theme_texture,
+			material: this.theme_material
+		})
+		.catch(e=>{throw new Error("Unable to load theme")})
+
+		if(this.sounds){
+			await this.loadSounds()
+			.catch(e=>{throw new Error("Unable to load sounds")})
+		}
+
+		// this.DiceFactory.setCubeMap(`./themes/${this.theme_surface}/`,THEMES[this.theme_surface].cubeMap)
+
+		this.initialized = true
+
+		this.renderer.render(this.scene, this.camera);
+	}
+
+	makeWorldBox(){
+		if(Object.keys(this.box_body).length) {
+			this.world.removeBody(this.box_body.desk)
+			this.world.removeBody(this.box_body.topWall)
+			this.world.removeBody(this.box_body.bottomWall)
+			this.world.removeBody(this.box_body.leftWall)
+			this.world.removeBody(this.box_body.rightWall)
+		}
+
+		const desk_body_material = new CANNON.Material();
+		const barrier_body_material = new CANNON.Material();
+
+		this.world.addContactMaterial(new CANNON.ContactMaterial( desk_body_material, this.dice_body_material, {mass:0,friction: 0.6, restitution: 0.5}));
+		this.world.addContactMaterial(new CANNON.ContactMaterial( barrier_body_material, this.dice_body_material, {mass:0, friction: 0.6, restitution: 1.0}));
+		this.world.addContactMaterial(new CANNON.ContactMaterial( this.dice_body_material, this.dice_body_material, {mass:0,friction: 0.6, restitution: 0.5}));
+
+		this.box_body.desk = new CANNON.Body({allowSleep: false, mass: 0, shape: new CANNON.Plane(), material: desk_body_material})
+		this.world.addBody(this.box_body.desk);
+		
+		this.box_body.topWall = new CANNON.Body({allowSleep: false, mass: 0, shape: new CANNON.Plane(), material: barrier_body_material});
+		this.box_body.topWall.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2);
+		this.box_body.topWall.position.set(0, this.display.containerHeight * 0.93, 0);
+		this.world.addBody(this.box_body.topWall);
+
+		this.box_body.bottomWall = new CANNON.Body({allowSleep: false, mass: 0, shape: new CANNON.Plane(), material: barrier_body_material});
+		this.box_body.bottomWall.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+		this.box_body.bottomWall.position.set(0, -this.display.containerHeight * 0.93, 0);
+		this.world.addBody(this.box_body.bottomWall);
+
+		this.box_body.leftWall = new CANNON.Body({allowSleep: false, mass: 0, shape: new CANNON.Plane(), material: barrier_body_material});
+		this.box_body.leftWall.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -Math.PI / 2);
+		this.box_body.leftWall.position.set(this.display.containerWidth * 0.93, 0, 0);
+		this.world.addBody(this.box_body.leftWall);
+
+		this.box_body.rightWall = new CANNON.Body({allowSleep: false, mass: 0, shape: new CANNON.Plane(), material: barrier_body_material});
+		this.box_body.rightWall.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.PI / 2);
+		this.box_body.rightWall.position.set(-this.display.containerWidth * 0.93, 0, 0);
+		this.world.addBody(this.box_body.rightWall);
+	}
+
+	async loadTheme(themeConfig){
+		let colorData
+		if(this.theme_customColorset){
+			colorData = await this.DiceColors.makeColorSet(this.theme_customColorset)
+		} else {
+			colorData = await this.DiceColors.getColorSet(themeConfig)
+		}
+		this.DiceFactory.applyColorSet(colorData)
+		this.colorData = colorData
+
+		// 按形状指定的纹理覆盖：把每个"形状->纹理名"解析成DiceFactory.create()能直接使用的纹理数据对象，
+		// 存到DiceFactory.shapeTextureOverrides上。同一形状的每一颗骰子（比如同时投3个d6）都会读到
+		// 同一份纹理数据，天然满足"同一形状统一用一种纹理"的要求。
+		this.DiceFactory.shapeTextureOverrides = null
+		// 按形状(d4/d6/d8/d10/d12/d20)记录"该形状撞击音效该用哪种材质"，跟纹理绑定保持一致：
+		// 配置了专属纹理的形状，声音材质从这张纹理的material字段推断；没配置的形状用整体颜色方案纹理的材质。
+		this.shapeSoundMaterials = {}
+		const fallbackSoundMaterial = resolveSoundMaterial(colorData?.texture?.material)
+		if (this.theme_shapeTextures && Object.keys(this.theme_shapeTextures).length) {
+			const overrides = {}
+			for (const shape of Object.keys(this.theme_shapeTextures)) {
+				const texName = this.theme_shapeTextures[shape]
+				if (!texName) {
+					this.shapeSoundMaterials[shape] = fallbackSoundMaterial
+					continue
+				}
+				const texData = await this.DiceColors.getTextureData(texName)
+				overrides[shape] = texData
+				this.shapeSoundMaterials[shape] = resolveSoundMaterial(texData?.material)
+			}
+			this.DiceFactory.shapeTextureOverrides = overrides
+		}
+		this.fallbackSoundMaterial = fallbackSoundMaterial
+	}
+
+	async loadSounds(){
+		let surfaces = {
+			felt: 7,
+			wood_table: 7,
+			wood_tray: 7,
+			metal: 9
+		}
+
+		// 每种撞击音材质对应的素材数量（文件名结尾的随机序号范围），跟sounds/dicehit目录里实际文件对应
+		let dieMaterials = {
+			coin: 6,
+			metal: 12,
+			plastic: 15,
+			wood: 12
+		}
+
+		if(!this.sounds_table.hasOwnProperty(this.surface)){
+			this.sounds_table[this.surface] = [];
+			let numsounds = surfaces[this.surface]
+			for (let s=1; s <= numsounds; ++s) {
+				const clip = await this.loadAudio(this.assetPath + 'sounds/surfaces/surface_'+this.surface+s+'.mp3')
+				this.sounds_table[this.surface].push(clip);
+			}
+		}
+
+		// 这次投掷里实际会用到哪些撞击音材质：按形状分别用到的材质(shapeSoundMaterials)去重，
+		// 再加上兜底材质和硬币(d2)专用音效，只加载真正需要的那几套，不会一次性把所有材质全加载。
+		const materialsToLoad = new Set(['coin', this.fallbackSoundMaterial || 'plastic'])
+		for (const shape of Object.keys(this.shapeSoundMaterials || {})) {
+			materialsToLoad.add(this.shapeSoundMaterials[shape])
+		}
+
+		for (const material of materialsToLoad) {
+			if(this.sounds_dice.hasOwnProperty(material)) continue
+			this.sounds_dice[material] = []
+			let numsounds = dieMaterials[material]
+			if (!numsounds) continue
+			const filePrefix = material === 'coin' ? 'dicehit_coin' : 'dicehit_'+material
+			for (let s=1; s <= numsounds; ++s) {
+				const clip = await this.loadAudio(this.assetPath + 'sounds/dicehit/'+filePrefix+s+'.mp3')
+				this.sounds_dice[material].push(clip);
+			}
+		}
+	}
+
+	loadAudio(src){
+		return new Promise((resolve, reject) => {
+			let audio = new Audio()
+			audio.oncanplaythrough = () => resolve(audio)
+			audio.crossOrigin = "anonymous";
+			audio.src = src
+			audio.onerror = (error) => reject(error)
+		}).catch(e => {
+			console.error("Unable to load audio")
+		})
+	}
+
+	async updateConfig(options = {}){
+		// if(options.scale && this.scale !== options.scale){
+		// 	this.DiceFactory.updateConfig({
+		// 		scale: options.scale
+		// 	})
+		// }
+		// 修复笔误：Object.apply不是一个真实存在的API(会直接抛异常导致这个方法从来没能跑完)，
+		// 应该是Object.assign。不过下面已经逐个字段手动赋值了，这一行其实没必要，直接删掉即可。
+		this.theme_customColorset = options.theme_customColorset ? options.theme_customColorset : null
+		if(options.theme_colorset){
+			this.theme_colorset = options.theme_colorset
+		}
+		if(options.theme_texture){
+			this.theme_texture = options.theme_texture
+		}
+		if(options.theme_material){
+			this.theme_material = options.theme_material
+		}
+		if(options.theme_shapeTextures !== undefined){
+			this.theme_shapeTextures = options.theme_shapeTextures
+		}
+		if(options.theme_colorset || options.theme_texture || options.theme_material || options.theme_customColorset || options.theme_shapeTextures !== undefined){
+			await this.loadTheme({
+				colorset: this.theme_colorset,
+				texture: this.theme_texture,
+				material: this.theme_material
+			})
+		}
+
+	}
+
+	setDimensions(dimensions) {
+		this.display.currentWidth = this.container.clientWidth / 2;
+		this.display.currentHeight = this.container.clientHeight / 2;
+		if (dimensions) {
+			this.display.containerWidth = dimensions.x;
+			this.display.containerHeight = dimensions.y;
+		} else {
+			this.display.containerWidth = this.display.currentWidth;
+			this.display.containerHeight = this.display.currentHeight;
+		}
+		this.display.aspect = Math.min(this.display.currentWidth / this.display.containerWidth, this.display.currentHeight / this.display.containerHeight);
+		this.display.scale = Math.sqrt(this.display.containerWidth * this.display.containerWidth + this.display.containerHeight * this.display.containerHeight) / 13;
+
+		this.makeWorldBox()
+
+		this.renderer.setSize(this.display.currentWidth * 2, this.display.currentHeight * 2);
+
+		this.cameraHeight.max = this.display.currentHeight / this.display.aspect / Math.tan(10 * Math.PI / 180);
+
+		this.cameraHeight.medium = this.cameraHeight.max / 1.5;
+		this.cameraHeight.far = this.cameraHeight.max;
+		this.cameraHeight.close = this.cameraHeight.max / 2;
+
+		if (this.camera) this.scene.remove(this.camera);
+		this.camera = new THREE.PerspectiveCamera(20, this.display.currentWidth / this.display.currentHeight, 1, this.cameraHeight.max * 1.3);
+
+		switch (this.animstate) {
+			case 'selector':
+				this.camera.position.z = this.selector.dice.length > 9 ? this.cameraHeight.far : (this.selector.dice.length < 6 ? this.cameraHeight.close : this.cameraHeight.medium);
+				break;
+			case 'throw': case 'afterthrow': default: this.camera.position.z = this.cameraHeight.far;
+
+		}
+
+		this.camera.lookAt(new THREE.Vector3(0,0,0));
+		
+		const maxwidth = Math.max(this.display.containerWidth, this.display.containerHeight);
+
+		if (this.light) this.scene.remove(this.light);
+		if (this.light_amb) this.scene.remove(this.light_amb);
+		this.light = new THREE.SpotLight(this.color_spotlight, this.light_intensity);
+		this.light.position.set(-maxwidth / 2, maxwidth / 2, maxwidth * 3);
+		this.light.target.position.set(0, 0, 0);
+		this.light.distance = maxwidth * 5;
+		this.light.angle = Math.PI/4;
+		this.light.castShadow = this.shadows;
+		this.light.shadow.camera.near = maxwidth / 10;
+		this.light.shadow.camera.far = maxwidth * 5;
+		this.light.shadow.camera.fov = 50;
+		this.light.shadow.bias = 0.001;
+		this.light.shadow.mapSize.width = 1024;
+		this.light.shadow.mapSize.height = 1024;
+		this.scene.add(this.light);
+
+		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity );
+		this.scene.add(this.light_amb);
+
+		if (this.desk) this.scene.remove(this.desk);
+		let shadowplane = new THREE.ShadowMaterial();
+		shadowplane.opacity = 0.5;
+		this.desk = new THREE.Mesh(new THREE.PlaneGeometry(this.display.containerWidth * 6, this.display.containerHeight * 6, 1, 1), shadowplane);
+		this.desk.receiveShadow = this.shadows;
+		this.scene.add(this.desk);
+
+		this.renderer.render(this.scene, this.camera);
+	}
+
+	resizeWorld(){
+		const resize = () => {
+			const canvas = this.renderer.domElement;
+			const width = this.container.clientWidth;
+			const height = this.container.clientHeight;
+			const needResize = canvas.width !== width || canvas.height !== height;
+			if (needResize) {
+				this.setDimensions(new THREE.Vector2(this.container.clientWidth, this.container.clientHeight))
+			}
+			return needResize;
+		}
+		const debounceResize = debounce(resize)
+		window.addEventListener("resize", debounceResize)
+	}
+
+	vectorRand({x, y}) {
+		let angle = Math.random() * Math.PI / 5 - Math.PI / 5 / 2;
+		let vec = {
+			x: x * Math.cos(angle) - y * Math.sin(angle),
+			y: x * Math.sin(angle) + y * Math.cos(angle)
+		};
+		if (vec.x == 0) vec.x = 0.01;
+		if (vec.y == 0) vec.y = 0.01;
+		return vec;
+	}
+
+	//returns an array of vectordata objects
+	getNotationVectors(notation, vector, boost, dist){
+
+		let notationVectors = new DiceNotation(notation);
+
+		for (let i in notationVectors.set) {
+
+			const diceobj = this.DiceFactory.get(notationVectors.set[i].type);
+			let numdice = notationVectors.set[i].num;
+			let operator = notationVectors.set[i].op;
+			let sid = notationVectors.set[i].sid;
+			let gid = notationVectors.set[i].gid;
+			let glvl = notationVectors.set[i].glvl;
+			let func = notationVectors.set[i].func;
+			let args = notationVectors.set[i].args;
+
+			for(let k = 0; k < numdice; k++){
+
+				let vec = this.vectorRand(vector);
+
+				vec.x /= dist;
+				vec.y /= dist;
+
+				let pos = {
+					x: this.display.containerWidth * (vec.x > 0 ? -1 : 1) * 0.9,
+					y: this.display.containerHeight * (vec.y > 0 ? -1 : 1) * 0.9,
+					z: Math.random() * 200 + 200
+				};
+
+				let projector = Math.abs(vec.x / vec.y);
+				if (projector > 1.0) pos.y /= projector; else pos.x *= projector;
+
+				let velvec = this.vectorRand(vector);
+				velvec.x /= dist;
+				velvec.y /= dist;
+				let velocity, angle, axis;
+
+				if (diceobj.shape != "d2") {
+
+					velocity = { 
+						x: velvec.x * boost, 
+						y: velvec.y * boost, 
+						z: -10
+					};
+
+					angle = {
+						x: -(Math.random() * vec.y * 5 + diceobj.inertia * vec.y),
+						y: Math.random() * vec.x * 5 + diceobj.inertia * vec.x,
+						z: 0
+					};
+
+					axis = { 
+						x: Math.random(), 
+						y: Math.random(), 
+						z: Math.random(), 
+						a: Math.random()
+					};
+				} else {
+					//coin flip
+					velocity = { 
+						x: velvec.x * boost / 10, 
+						y: velvec.y * boost / 10, 
+						z: 3000
+					};
+
+					angle = {
+						x: 12 * diceobj.inertia,//-(Math.random() * velvec.y * 50 + diceobj.inertia * velvec.y ) ,
+						y: 1 * diceobj.inertia,//Math.random() * velvec.x * 50 + diceobj.inertia * velvec.x ,
+						z: 0
+					};
+
+					axis = { 
+						x: 1,//Math.random(), 
+						y: 1,//Math.random(), 
+						z: Math.random(), 
+						a: Math.random()
+					};
+				}
+
+				notationVectors.vectors.push({ 
+					index: this.dieIndex++,
+					type: diceobj.type, 
+					op: operator,
+					sid: sid,  
+					gid: gid, 
+					glvl: glvl,
+					func: func, 
+					args: args, 
+					pos: pos, 
+					velocity: velocity, 
+					angle: angle, 
+					axis: axis
+				});
+			}            
+		}
+
+		return notationVectors;
+	}
+
+	// swaps dice faces to match desired result
+	swapDiceFace(dicemesh, result){
+		const diceobj = this.DiceFactory.get(dicemesh.notation.type);
+
+		// flag this result as forced
+		dicemesh.resultReason = 'forced'
+
+		if (diceobj.shape == 'd4') {
+			this.swapDiceFace_D4(dicemesh, result);
+			return;
+		}
+
+		let values = diceobj.values;
+		let value = parseInt(dicemesh.getLastValue().value);
+		result = parseInt(result);
+		
+		if (dicemesh.notation.type == 'd10' && value == 0) value = 10;
+		if (dicemesh.notation.type == 'd100' && value == 0) value = 100;
+		if (dicemesh.notation.type == 'd100' && (value > 0 && value < 10)) value *= 10;
+
+		if (dicemesh.notation.type == 'd10' && result == 0) result = 10;
+		if (dicemesh.notation.type == 'd100' && result == 0) result = 100;
+		if (dicemesh.notation.type == 'd100' && (result > 0 && result < 10)) result *= 10;
+
+		let valueindex = diceobj.values.indexOf(value);
+		let resultindex = diceobj.values.indexOf(result);
+
+		if (valueindex < 0 || resultindex < 0) return;
+		if (valueindex == resultindex) return;
+
+		// find material index for corresponding value -> face and swap them
+		// must clone the geom before modifying it
+		let geom = dicemesh.geometry.clone();
+
+		// find list of faces that use the matching material index for the given value/result
+		let geomindex_value = [];
+		let geomindex_result = [];
+
+		// it's magic but not really
+		// the mesh's materials start at index 2
+		let magic = 2;
+		// except on d10 meshes
+		if (diceobj.shape == 'd10') magic = 1;
+
+		let material_value, material_result = (resultindex+magic);
+
+		//and D2 meshes have a lot more faces
+		if(diceobj.shape != "d2"){
+			material_value = (valueindex+magic);
+			material_result = (resultindex+magic);
+		} else {
+			material_value = valueindex+1;
+			material_result = resultindex+1;
+		}
+
+		//and probably some third rule eventually...
+
+		// let normals = geom.getAttribute('normal').array;
+		for (var i = 0, l = geom.groups.length; i < l; ++i) {
+			const face = geom.groups[i];
+			const matindex = face.materialIndex;
+
+			if (matindex == material_value) {
+				geomindex_value.push(i);
+				continue;
+			}
+			if (matindex == material_result) {
+				geomindex_result.push(i);
+				continue;
+			}
+		}
+
+		if (geomindex_value.length <= 0 || geomindex_result.length <= 0) return;
+
+		//swap the materials
+		for(let i = 0, l = geomindex_result.length; i < l; i++) {
+			geom.groups[geomindex_result[i]].materialIndex = material_value;
+		}
+
+		for(let i = 0, l = geomindex_value.length; i < l; i++) {
+			geom.groups[geomindex_value[i]].materialIndex = material_result;
+		}
+
+		dicemesh.geometry = geom;
+		dicemesh.result = [];
+	}
+
+	swapDiceFace_D4(dicemesh, result) {
+		const diceobj = this.DiceFactory.get(dicemesh.notation.type);
+		let value = parseInt(dicemesh.getLastValue().value);
+		result = parseInt(result);
+
+		if (!(value >= 1 && value <= 4)) return;
+
+		let num = result - value;
+		let geom = dicemesh.geometry.clone();
+
+		for (let i = 0, l = geom.groups.length; i < l; ++i) {
+			const face = geom.groups[i];
+			let matindex = face.materialIndex;
+			if (matindex == 0) continue;
+        
+			matindex += num - 1;
+
+			while (matindex > 4) matindex -= 4;
+			while (matindex < 1) matindex += 4;
+
+			face.materialIndex = matindex + 1;
+		}
+		if (num != 0) {
+			if (num < 0) num += 4;
+			dicemesh.material = this.DiceFactory.createMaterials(diceobj, 0, 0, false, num);
+		}
+
+		dicemesh.geometry = geom;
+	}
+
+	//spawns one dicemesh object from a single vectordata object
+	spawnDice(vectordata, reset = false) {
+		const {pos, axis, angle, velocity} = vectordata
+		let dicemesh
+		
+		if(!reset) {
+			dicemesh = this.DiceFactory.create(vectordata.type, this.colorData);
+			if(!dicemesh) return;
+			dicemesh.notation = vectordata;
+			dicemesh.result = [];
+			dicemesh.stopped = 0;
+			dicemesh.castShadow = this.shadows;
+			this.scene.add(dicemesh);
+			this.diceList.push(dicemesh);
+		} else {
+			dicemesh = reset
+			// dicemesh.result = [];
+			dicemesh.stopped = 0;
+			this.world.removeBody(dicemesh.body);
+		}
+
+		dicemesh.body = new CANNON.Body({allowSleep: true, sleepSpeedLimit: 75, sleepTimeLimit:0.9, mass: dicemesh.mass, shape: dicemesh.geometry.cannon_shape, material: this.dice_body_material});
+		dicemesh.body.type = CANNON.Body.DYNAMIC;
+		dicemesh.body.position.set(pos.x, pos.y, pos.z);
+		dicemesh.body.quaternion.setFromAxisAngle(new CANNON.Vec3(axis.x, axis.y, axis.z), axis.a * Math.PI * 2);
+		dicemesh.body.angularVelocity.set(angle.x, angle.y, angle.z);
+		dicemesh.body.velocity.set(velocity.x, velocity.y, velocity.z);
+		dicemesh.body.linearDamping = 0.1;
+		dicemesh.body.angularDamping = 0.1;
+		dicemesh.body.diceShape = dicemesh.shape;
+		// 这颗骰子撞击/落地该播哪种材质的音效：优先取这个形状的专属设置，没有就用整体兜底材质
+		dicemesh.body.soundMaterial = (this.shapeSoundMaterials && this.shapeSoundMaterials[dicemesh.shape]) || this.fallbackSoundMaterial || 'plastic';
+		dicemesh.body.sleepState = 0;
+
+		dicemesh.body.addEventListener('collide', this.eventCollide.bind(this));
+
+		this.world.addBody(dicemesh.body);
+	}
+
+	eventCollide({body, target}) {
+
+		// collision events happen simultaneously for both colliding bodies
+		// all this sanity checking helps limits sounds being played
+
+		// don't play sounds if we're simulating
+		if (this.animstate == 'simulate') return;
+		if (!this.sounds || !body) return;
+
+		// let volume = parseInt(window.DiceFavorites.settings.volume.value) || 0;
+		if (this.volume <= 0) return;
+
+		let now = Date.now();
+		let currentSoundType = (body.mass > 0) ? 'dice' : 'table';
+
+		// the idea here is that a dice clack should never be skipped in favor of a table sound
+		// if ((don't play sounds if we played one this world step, or there hasn't been enough delay) AND 'this sound IS NOT a dice clack') then 'skip it'
+		if ((this.lastSoundStep == body.world.stepnumber || this.lastSound > now) && currentSoundType != 'dice') return;
+
+		// also skip if it's too early and both last sound and this sound are the same
+		if ((this.lastSoundStep == body.world.stepnumber || this.lastSound > now) && currentSoundType == 'dice' && this.lastSoundType == 'dice') return;
+
+		// 同时在播的音效数太多的话直接跳过这次，避免多个骰子同时落地时叠出一堆刺耳的声音
+		if (this.playSoundHelpers.countActive() >= this.maxConcurrentSounds) return;
+
+		if (body.mass > 0) { // dice to dice collision
+
+			let speed = body.velocity.length();
+			// also don't bother playing at low speeds
+			if (speed < 250) return;
+
+			let sound;
+			// 用碰撞的这颗骰子自己的材质（骰子撞骰子时以body为准），d2硬币始终用专属的coin音效
+			const soundMaterial = body.diceShape === "d2" ? 'coin' : (body.soundMaterial || this.fallbackSoundMaterial || 'plastic');
+			const soundlist = this.sounds_dice[soundMaterial];
+			if (soundlist && soundlist.length) {
+				sound = soundlist[Math.floor(Math.random() * soundlist.length)];
+			}
+			if(sound){
+				sound.volume = Math.min(speed / 8000, this.volume/100)
+				this.playSoundHelpers.play(sound)
+			}
+			this.lastSoundType = 'dice';
+
+
+		} else { // dice to table collision
+			let speed = target.velocity.length();
+			// also don't bother playing at low speeds
+			if (speed < 250) return;
+
+			let surface = this.surface;
+
+			let soundlist = this.sounds_table[surface];
+			let sound = soundlist[Math.floor(Math.random() * soundlist.length)];
+			if(sound){
+				sound.volume = Math.min(speed / 8000, this.volume/100)
+				this.playSoundHelpers.play(sound)
+			}
+			this.lastSoundType = 'table';
+		}
+
+		this.lastSoundStep = body.world.stepnumber;
+		this.lastSound = now + this.soundDelay;
+	}
+
+	checkForRethrow(dicemesh) {
+		// all dice in a set/dice group will have the same function and arguments due to sorting beforehand
+		// this means the list passed in is the set of dice that need to be affected by this function
+		let diceFunc = (dicemesh.notation.func) ? dicemesh.notation.func.toLowerCase() : '';
+		// let funcdata = this.DiceFunctions.rethrowFunctions[diceFunc];
+		let funcdata
+
+		let reroll = false;
+			
+		if (diceFunc != '' && funcdata && funcdata.method) {
+			diceFunc = dicemesh.notation.func.toLowerCase();
+			let diceFuncArgs = dicemesh.notation.args || '';
+			reroll = funcdata.method(dicemesh, diceFuncArgs);
+		}
+
+		return reroll;
+	}
+
+	throwFinished() {
+		const forcedFinish = this.iteration > this.iterationLimit
+
+		// cycle through diceList and if any dice are still awake then return false
+		for (let i=0, len=this.diceList.length; i < len; ++i) {
+			const dicemesh = this.diceList[i];
+			const sleepState = CANNON.Body.SLEEPING
+
+			if (dicemesh.body.sleepState < sleepState && !forcedFinish) {
+				return false;
+			}
+
+			if (dicemesh.body.sleepState == sleepState || forcedFinish) {
+				if(dicemesh.body.type === CANNON.Body.KINEMATIC){
+					continue
+				}
+
+				let rethrow = false;
+
+				//check for forced roll
+				if (dicemesh.result.length == 0) {
+					dicemesh.storeRolledValue(dicemesh.resultReason);
+					rethrow = this.checkForRethrow(dicemesh);
+				} else if (dicemesh.result.length > 0 && dicemesh.rerolling) {
+					dicemesh.rerolling = false;
+					dicemesh.storeRolledValue('reroll');
+					rethrow = this.checkForRethrow(dicemesh);
+				}
+
+				if (rethrow) {
+					dicemesh.rerolls += 1;
+					dicemesh.rerolling = true;
+					dicemesh.body.wakeUp();
+					dicemesh.body.type = CANNON.Body.DYNAMIC;
+					dicemesh.body.angularVelocity = new CANNON.Vec3(25, 25, 25);
+					dicemesh.body.velocity = new CANNON.Vec3(0, 0, 3000);
+					return false;
+				}
+
+				dicemesh.rerolling = false;
+				dicemesh.body.type = CANNON.Body.KINEMATIC;
+				
+			}
+		}
+		return true;
+	}
+
+	simulateThrow() {
+		this.animstate = 'simulate';
+		this.iteration = 0;
+		this.rolling = true;
+		while (!this.throwFinished(true)) {
+			++this.iteration;
+			this.world.step(this.framerate);
+		}
+	}
+
+	animateThrow(threadid, callback){
+		this.animstate = 'throw';
+		let time = Date.now();
+		this.last_time = this.last_time || time - (this.framerate*1000);
+		let time_diff = (time - this.last_time) / 1000;
+		++this.iteration;
+		let neededSteps = Math.floor(time_diff / this.framerate);
+
+		// this.container.style.opacity = '1';
+
+		for(let i = 0; i < neededSteps; i++) {
+			this.world.step(this.framerate);
+			// this.cannonDebugger.update()
+			++this.steps;
+		}
+
+		// update physics interactions visually
+		for (let i in this.scene.children) {
+			let interact = this.scene.children[i];
+			if (interact.body != undefined) {
+				interact.position.copy(interact.body.position);
+				interact.quaternion.copy(interact.body.quaternion);
+			}
+		}
+
+		this.renderer.render(this.scene, this.camera);
+		this.last_time = this.last_time + neededSteps*this.framerate*1000;
+
+
+		// roll finished
+		if (this.running == threadid && this.throwFinished()) {
+			this.running = false;
+			this.rolling = false;
+			if(callback) callback.call(this, this.notationVectors);
+			
+			this.running = Date.now();
+			this.animateAfterThrow(this.running);
+			return;
+		}
+
+		// roll not finished, keep animating
+		if (this.running == threadid) {
+			((animateCallback, tid, at, aftercall, vecs) => {
+				if (!at && time_diff < this.framerate) {
+					setTimeout(() => { requestAnimationFrame(() => { animateCallback.call(this, tid, aftercall, vecs); }) }, (this.framerate - time_diff) * 1000);
+				} else {
+					requestAnimationFrame(() => { animateCallback.call(this, tid, aftercall, vecs); });
+				}
+			}).bind(this)(this.animateThrow, threadid, this.adaptive_timestep, callback);
+		}
+	}
+
+	animateAfterThrow(threadid) {
+		this.animstate = 'afterthrow';
+		let time = Date.now();
+		let time_diff = (time - this.last_time) / 1000;
+		if (time_diff > 3) time_diff = this.framerate;
+
+		this.running = false;
+		this.last_time = time;
+		this.renderer.render(this.scene, this.camera);
+		if (this.running == threadid) {
+			((animateCallback, tid, at) => {
+				if (!at && time_diff < this.framerate) {
+					setTimeout(() => { requestAnimationFrame(() => { animateCallback.call(this, tid); }) }, (this.framerate - time_diff) * 1000);
+				} else {
+					requestAnimationFrame(() => { animateCallback.call(this, tid); });
+				}
+			}).bind(this)(this.animateAfterThrow, threadid, this.adaptive_timestep);
+		}
+	}
+
+	startClickThrow(notation) {
+		// if (this.rolling) return;
+		if(this.rolling) {
+			this.clearDice();
+			this.rolling = false
+		}
+
+		let vector = { x: (Math.random() * 2 - 0.5) * this.display.currentWidth, y: -(Math.random() * 2 - 0.5) * this.display.currentHeight };
+		let dist = Math.sqrt(vector.x * vector.x + vector.y * vector.y) + 100;
+		let boost = (Math.random() + 3) * dist * this.strength;
+
+		const notationVectors = this.getNotationVectors(notation, vector, boost, dist);
+
+		return notationVectors
+	}
+
+	clearDice() {
+		this.running = false;
+		this.clearHighlights();
+		let dice;
+		while (dice = this.diceList.pop()) {
+			this.scene.remove(dice); 
+			if (dice.body) this.world.removeBody(dice.body);
+		}
+		this.renderer.render(this.scene, this.camera);
+
+		setTimeout(() => { this.renderer.render(this.scene, this.camera); }, 100);
+	}
+
+	// 清掉上一轮投掷留下的高亮特效（发光贴花），每次新投掷/清空骰子前调用
+	clearHighlights(){
+		for (const h of this.highlightMeshes) {
+			if (h.parent) h.parent.remove(h);
+		}
+		this.highlightMeshes = [];
+	}
+
+	// 生成一张"中心亮、边缘透明渐隐"的圆形辉光贴图，只生成一次缓存复用（给所有高亮贴花共用）
+	getGlowTexture(){
+		if (this._glowTexture) return this._glowTexture;
+		const size = 128;
+		const canvas = document.createElement('canvas');
+		canvas.width = size; canvas.height = size;
+		const ctx = canvas.getContext('2d');
+		const gradient = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+		gradient.addColorStop(0, 'rgba(255,255,255,1)');
+		gradient.addColorStop(0.4, 'rgba(255,255,255,0.7)');
+		gradient.addColorStop(1, 'rgba(255,255,255,0)');
+		ctx.fillStyle = gradient;
+		ctx.fillRect(0, 0, size, size);
+		this._glowTexture = new THREE.CanvasTexture(canvas);
+		return this._glowTexture;
+	}
+
+	// 给"取高/取低"筛选后被保留的骰子加一层简单发光：kh(取高)=金色，kl(取低)=红色。
+	// highlights: [{id: 骰子在diceList里的索引, color: 'gold'|'red'}]
+	// 用一个始终面朝摄像机的半透明辉光贴花(Sprite+叠加混合)罩在骰子外面，不依赖光照计算——
+	// 之前用点光源放在骰子几何体中心，等于把灯泡塞进骰子肚子里：骰子朝外表面的法线和"指向光源"的
+	// 方向正好相反，按标准光照模型算出来的光照贡献几乎是零，所以完全看不出发光效果。
+	// 贴花不参与光照运算，直接叠加渲染在骰子外面，效果稳定可见。
+	applyHighlights(highlights){
+		this.clearHighlights();
+		if (!highlights || highlights.length === 0) return;
+
+		const colorMap = { gold: 0xffd700, red: 0xff3b30 };
+		const glowTexture = this.getGlowTexture();
+
+		for (const h of highlights) {
+			const dicemesh = this.diceList[h.id];
+			if (!dicemesh) continue;
+			const hexColor = colorMap[h.color] || colorMap.gold;
+
+			const spriteMat = new THREE.SpriteMaterial({
+				map: glowTexture,
+				color: hexColor,
+				transparent: true,
+				opacity: 0.9,
+				blending: THREE.AdditiveBlending,
+				depthWrite: false,
+			});
+			const sprite = new THREE.Sprite(spriteMat);
+			// 贴花比骰子本身大一圈，才能在骰子轮廓外面露出可见的光晕
+			const glowSize = this.baseScale * 2.6;
+			sprite.scale.set(glowSize, glowSize, 1);
+			dicemesh.add(sprite);
+			this.highlightMeshes.push(sprite);
+		}
+
+		this.renderer.render(this.scene, this.camera);
+	}
+
+	getDiceResults(id){
+		if(id !== undefined){
+			return {
+				type: this.diceList[id].shape,
+				sides: parseInt(this.diceList[id].shape.substring(1)),
+				id,
+				...this.diceList[id].result.at(-1)
+			}
+		}
+		let counter = 0
+		const modifier = this.notationVectors.constant ? parseInt(`${this.notationVectors.op}${this.notationVectors.constant}`) : 0
+		let rollTotal = modifier
+		const result = {
+			notation: this.notationVectors.notation,
+			sets: this.notationVectors.set.map(set => {
+				const endCount = counter + set.num - 1
+				let setTotal = 0
+				const rolls = []
+				for (let index = counter; index <= endCount; index++) {
+					if(this.diceList[counter].result.at(-1).reason === "remove") {
+						counter++
+						continue
+					}
+					rolls.push({
+						type: set.type,
+						sides: parseInt(set.type.substring(1)),
+						id: counter,
+						...this.diceList[counter].result.at(-1)
+					})
+					setTotal += this.diceList[counter].result.at(-1).value
+					counter++
+				}
+				const returnSet = {
+					num: set.num,
+					type: set.type,
+					sides: parseInt(set.type.substring(1)),
+					rolls,
+					total: setTotal,
+				}
+				rollTotal += setTotal
+				return returnSet
+			}),
+			modifier,
+			total: rollTotal
+		}
+		return result
+	}
+
+	async roll(notationSting){
+		this.notationVectors = this.startClickThrow(notationSting)
+		if(this.notationVectors){
+			// const DL = this.diceList
+			return new Promise((resolve,reject) => {
+				this.rollDice(() => {
+					const results = this.getDiceResults()
+	
+					// setting up a couple of ways to consume the final results
+					// call onRollComplete 
+					this.onRollComplete(results)
+	
+					// dispatch an event with the results object for other UI elements to listen for
+					const event = new CustomEvent('rollComplete', {detail: results})
+					document.dispatchEvent(event)
+	
+					resolve(results)
+				})
+			})
+		}
+	}
+
+	async reroll(diceIdArray) {
+		this.rolling = true;
+		this.running = Date.now();
+		this.iteration = 0
+		// 关键修复：必须把last_time清零，跟rollDice()里的做法一致。
+		// 不重置的话，animateThrow()里第一帧算出的time_diff会是"距离上一轮投掷结束已经过去的真实时间"
+		// (可能是好几秒，因为用户看完结果、点确认框都要花时间)，物理引擎会把这几秒对应的几百个物理步骤
+		// 全部压缩到第一帧里同步跑完——骰子瞬间就落地定型，动画完全看不出来，这就是"重投没有动画"的根源。
+		this.last_time = 0;
+		return new Promise((resolve,reject) => {
+			diceIdArray.forEach(dieId => {
+				const dicemesh = this.diceList[dieId]
+				dicemesh.rerolls += 1;
+				dicemesh.rerolling = true;
+				dicemesh.body.wakeUp();
+				dicemesh.body.type = CANNON.Body.DYNAMIC;
+				dicemesh.body.angularVelocity = new CANNON.Vec3(25, 25, 25);
+				dicemesh.body.velocity = new CANNON.Vec3(0, 0, 3000);
+			})
+			this.animateThrow(this.running, () => {
+				const results = diceIdArray.map(dieId => this.getDiceResults(dieId))
+
+				this.onRerollComplete(results)
+				
+				// dispatch an event with the results object for other UI elements to listen for
+				const event = new CustomEvent('rerollComplete', {detail: results})
+				document.dispatchEvent(event)
+
+				resolve(results)
+			})
+		})
+	}
+
+	async add(notationSting){
+		let dieCount = this.diceList.length
+		if(!dieCount) return this.roll(notationSting)
+
+		let addNotationVectors = this.startClickThrow(notationSting)
+		let diceIdArray = []
+
+		for (let i=0, len=addNotationVectors.vectors.length; i < len; ++i) {
+			this.spawnDice(addNotationVectors.vectors[i]);
+		}
+
+		this.simulateThrow();
+		this.steps = 0;
+		this.iteration = 0;
+
+		//reset dice vectors - for just the dice added
+		for (let i=0, len=addNotationVectors.vectors.length; i < len; ++i) {
+			const index = dieCount + i
+			if (!this.diceList[index]) continue;
+
+			//reset dice vectors
+			this.spawnDice(addNotationVectors.vectors[i], this.diceList[index]);
+			diceIdArray.push(index)
+		}
+
+		//check forced results, fix dice faces if necessary
+		if (addNotationVectors.result && addNotationVectors.result.length > 0) {
+			for (let i=0;i<addNotationVectors.result.length;i++) {
+				const index = dieCount + i
+				let dicemesh = this.diceList[index];
+				if (!dicemesh) continue;
+				if (dicemesh.getLastValue().value == addNotationVectors.result[i]) continue;
+				this.swapDiceFace(dicemesh, addNotationVectors.result[i]);
+			}
+		}
+		
+
+
+		// let our vectors combine
+		this.notationVectors = DiceNotation.mergeNotation(this.notationVectors, addNotationVectors)
+
+		return new Promise((resolve,reject) => {
+			const callback = () => {
+				const results = diceIdArray.map(dieId => this.getDiceResults(dieId))
+	
+				// setting up a couple of ways to consume the dice added results
+				// call onAddDiceComplete 
+				this.onAddDiceComplete(results)
+	
+				// dispatch an event with the results object for other UI elements to listen for
+				const event = new CustomEvent('addDiceComplete', {detail: results})
+				document.dispatchEvent(event)
+	
+				resolve(results)
+			}
+
+			// animate the previously simulated roll
+			this.rolling = true;
+			this.running = Date.now();
+			this.last_time = 0;
+			this.animateThrow(this.running, callback);
+		})
+	}
+
+	async remove(diceIdArray){
+		
+		return new Promise((resolve,reject) => {
+			const results = []
+			diceIdArray.forEach(dieId => {
+				const mesh = this.diceList[dieId]
+				if (mesh.body) this.world.removeBody(mesh.body);
+				this.scene.remove(mesh);
+				mesh.storeRolledValue('remove');
+				results.push(this.getDiceResults(dieId))
+			})
+
+			this.renderer.render(this.scene, this.camera);
+
+			this.onRemoveDiceComplete(results)
+
+			// dispatch an event with the results object for other UI elements to listen for
+			const event = new CustomEvent('removeDiceComplete', {detail: results})
+			document.dispatchEvent(event)
+
+			resolve(results)
+
+		})
+	}
+
+	rollDice(callback){
+
+		if (this.notationVectors.error) {
+			callback.call(this);
+			return;
+		}
+
+		// this.camera.position.z = this.cameraHeight.far;
+		this.clearDice();
+
+		for (let i=0, len=this.notationVectors.vectors.length; i < len; ++i) {
+			this.spawnDice(this.notationVectors.vectors[i]);
+		}
+		this.simulateThrow();
+		this.steps = 0;
+		this.iteration = 0;
+
+		for (let i=0, len=this.diceList.length; i < len; ++i) {
+			if (!this.diceList[i]) continue;
+			
+			//reset dice vectors
+			this.spawnDice(this.notationVectors.vectors[i],this.diceList[i]);
+		}
+		
+		//check forced results, fix dice faces if necessary
+		if (this.notationVectors.result && this.notationVectors.result.length > 0) {
+			for (let i=0;i<this.notationVectors.result.length;i++) {
+				let dicemesh = this.diceList[i];
+				if (!dicemesh) continue;
+				if (dicemesh.getLastValue().value == this.notationVectors.result[i]) continue;
+				this.swapDiceFace(dicemesh, this.notationVectors.result[i]);
+			}
+		}
+
+		// animate the previously simulated roll
+		this.rolling = true;
+		this.running = Date.now();
+		this.last_time = 0;
+		this.animateThrow(this.running, callback);
+
+	}
+}
+
+export { DiceBox }

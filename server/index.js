@@ -342,6 +342,73 @@ wss.on('connection', (ws) => {
           break;
         }
 
+        case 'DICE_ROLL': {
+          // 遥控器发起一次掷骰请求：只做转发广播，不存进房间状态里
+          // （掷骰是一次性事件，不是需要持久化的房间数据，房间重连/刷新时不需要重放上一次的投骰动画）。
+          // 广播给房间内所有客户端（包括主屏幕和其他遥控器），主屏幕收到后播放3D动画，
+          // 遥控器收到后进入"等待结果"状态。
+          // shapeTextures 是按形状(d4/d6/d8/d10/d12/d20)单独指定的纹理，一并转发给主屏幕决定3D骰子的样式。
+          // 不再需要颜色方案(colorset)——纹理图本身盖住骰子表面，颜色对最终视觉没有影响。
+          // recipe 是可选的"自定义表达式配方"(骰子分组+kh/kl取高取低+符号，不含完整语法树)，
+          // 只有遥控器"自定义掷骰"标签页用表达式发起投掷时才会带上；服务器只管转发，不解析内容，
+          // 主屏幕拿到后据此重新计算kh/kl明细，决定给哪几颗骰子加发光描边。
+          const { roomId, id, notation, shapeTextures, recipe } = payload;
+          if (!rooms.has(roomId)) {
+            ws.send(JSON.stringify({ type: 'ERROR', payload: { message: '房间已失效，请重新连接' } }));
+            return;
+          }
+          rooms.get(roomId).lastActivity = Date.now();
+          console.log(`🎲 掷骰请求: ${roomId} ${notation}`);
+          broadcastToRoom(roomId, { type: 'DICE_ROLL', payload: { id, notation, shapeTextures, recipe } });
+          break;
+        }
+
+        case 'DICE_ROLL_RESULT': {
+          // 主屏幕算完3D骰子动画的结果后，把结构化结果广播回房间内所有客户端，
+          // 遥控器据此展示每组小计+总和的文字结果。
+          const { roomId, id, notation, result } = payload;
+          if (!rooms.has(roomId)) return;
+          rooms.get(roomId).lastActivity = Date.now();
+          broadcastToRoom(roomId, { type: 'DICE_ROLL_RESULT', payload: { id, notation, result } });
+          break;
+        }
+
+        case 'DICE_DIE_REROLL': {
+          // 遥控器点了某一颗骰子的"重投"：只做转发广播，不在服务器这一层做"是否已经重投过"的校验——
+          // 那份"这颗骰子是否已经用过重投机会"的状态由主屏幕维护（跟当前这次投掷绑定，
+          // 新的DICE_ROLL一来就清空），服务器只管把请求转发给房间内所有客户端。
+          const { roomId, rollId, requestId, dieId } = payload;
+          if (!rooms.has(roomId)) {
+            ws.send(JSON.stringify({ type: 'ERROR', payload: { message: '房间已失效，请重新连接' } }));
+            return;
+          }
+          rooms.get(roomId).lastActivity = Date.now();
+          console.log(`🎲 重投请求: ${roomId} 骰子#${dieId}`);
+          broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL', payload: { rollId, requestId, dieId } });
+          break;
+        }
+
+        case 'DICE_DIE_REROLL_RESULT': {
+          // 主屏幕算完这一颗骰子的重投动画后，把更新后的完整结果 + "已经用过重投机会的骰子id列表"
+          // 广播给房间内所有客户端，遥控器和主屏幕自己都据此刷新展示(哪颗新点数、哪颗不能再点)。
+          const { roomId, id, notation, result, rerolledDieIds } = payload;
+          if (!rooms.has(roomId)) return;
+          rooms.get(roomId).lastActivity = Date.now();
+          broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL_RESULT', payload: { id, notation, result, rerolledDieIds } });
+          break;
+        }
+
+        case 'DICE_ROLL_DISMISS': {
+          // 任意一端（通常是遥控器点"收起"）主动关闭结果展示：转发给房间内所有客户端，
+          // 主屏幕收到后立刻收起全屏遮罩，不用等倒计时自然结束；
+          // 其他遥控器收到后也同步清掉自己本地展示的结果横幅，保持所有端一致。
+          const { roomId, id } = payload;
+          if (!rooms.has(roomId)) return;
+          rooms.get(roomId).lastActivity = Date.now();
+          broadcastToRoom(roomId, { type: 'DICE_ROLL_DISMISS', payload: { id } });
+          break;
+        }
+
         case 'PING': {
           // 心跳也算"活动"：只要客户端还连着、还在正常发心跳，就不该被当成"空闲房间"清理掉。
           // 没有这一行的话，一个打开了很久但角色/回合数一直没变化的房间，光靠心跳是保不住的，

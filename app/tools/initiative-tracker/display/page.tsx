@@ -1,12 +1,20 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useWebSocket, getWsUrl } from '@/lib/useWebSocket';
 // 状态效果（buff/debuff/濒死）：主屏幕只做只读展示，复用和遥控器同一份类型/常量/动效映射
 import { CharacterStatusInstance, STATUS_LIBRARY, getAllCardEffects } from '@/lib/statusEffects';
 // 状态环绕动效：每种buff/debuff一个专属的粒子/光效组件，围绕在卡片周围渲染
 import StatusAura from '@/components/dnd/StatusAura';
+// 3D骰子：主屏幕当骰盘用，铺满全屏播放投掷动画，摇完后展示结果再自动收起
+import DiceRoller, { DiceRollRequest, DiceRollResult, DiceRerollRequest } from '@/components/dnd/DiceRoller';
+// 骰子形状图标：结果面板里每颗骰子用形状轮廓(能看出D几)+数字+文字标识展示，
+// 主屏幕这边只做展示(用idle/used/rerolling三态标识重投状态)，不需要可点击(重投只能从遥控器发起)
+import DiceShapeIcon from '@/components/dnd/DiceShapeIcon';
+// 自定义表达式的kh/kl取高取低：主屏幕拿到遥控器发来的"配方"+引擎摇出的原始点数，
+// 自己重新算一遍明细，决定哪几颗骰子该被丢弃、该给哪几颗骰子加发光描边（不需要认识完整表达式语法）
+import { FlattenedRecipe, EvaluatedExpression, EngineResultSet, evaluateRecipe, computeHighlights, DiceHighlight } from '@/lib/diceExpression';
 
 // 角色类型
 interface Character {
@@ -45,10 +53,12 @@ interface RoomState {
   currentTurn: number;
   roundNumber: number;
   dimIntensity?: number; // 非当前回合角色的压暗强度(0~1)，由遥控器上的滑块控制，0=不灰，1=特别灰
+  resultPanelOpacity?: number; // "骰子计算总和"结果面板的不透明度(0~1)，由遥控器上的滑块控制，0=全透明，1=完全不透明
 }
 
 // 与遥控器一致的默认值：房间刚创建、遥控器还没推送过滑块值时使用
 const DEFAULT_DIM_INTENSITY = 0.55;
+const DEFAULT_RESULT_PANEL_OPACITY = 1;
 
 // 背景飘动余烬火星的固定参数（避免每次渲染重新随机导致动效跳动）
 const EMBER_PARTICLES = [
@@ -372,6 +382,43 @@ function InitiativeDisplayPageInner() {
   const [leavingCharIds, setLeavingCharIds] = useState<Set<string>>(new Set());
   const [prevCharacterIds, setPrevCharacterIds] = useState<Set<string>>(new Set());
 
+  // ===== 3D掷骰：主屏幕当骰盘用，铺满全屏播放投掷动画，结果出来后停留几秒再自动收起 =====
+  const [diceRollRequest, setDiceRollRequest] = useState<DiceRollRequest | null>(null);
+  const [diceOverlayVisible, setDiceOverlayVisible] = useState(false); // 控制淡入淡出的全屏遮罩
+  const [diceLastResult, setDiceLastResult] = useState<DiceRollResult | null>(null);
+  // 这一轮投掷如果带了自定义表达式配方(kh/kl等)，摇完后按配方+原始点数重新算出的明细结果，
+  // 用于结果面板展示"哪颗被丢弃"，以及算出该给3D场景里哪几颗骰子加发光描边(highlights)
+  const [diceCustomEval, setDiceCustomEval] = useState<EvaluatedExpression | null>(null);
+  const [diceHighlights, setDiceHighlights] = useState<DiceHighlight[]>([]);
+  // 记住这一轮投掷请求带的配方，摇完拿到结果后才用得上；发起新一轮投掷/收起时清空
+  const pendingRecipeRef = useRef<FlattenedRecipe | null>(null);
+  // 上一轮投掷留下的"隐藏遮罩"/"卸载3D场景"定时器：如果在这两个定时器触发之前又发起了新的一次投掷，
+  // 必须先清掉，否则旧定时器会在新一轮结果展示到一半时把它提前隐藏/卸载掉（这就是之前"倒计时不准"的bug根源）。
+  const diceHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const diceUnmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 单颗骰子重投："这一次投掷里，哪些骰子(全局id)已经用过唯一一次重投机会"——
+  // 绑定当前这次投掷(diceRollRequest.id)，新的一次DICE_ROLL一来就清空，不会跨投掷保留。
+  // 主屏幕是这份状态真正的权威来源：算完新点数后通过DICE_DIE_REROLL_RESULT广播出去，
+  // 所有遥控器都跟着这份广播刷新，不会因为两台遥控器各自维护状态而互相不一致。
+  const [rerolledDieIds, setRerolledDieIds] = useState<Set<number>>(new Set());
+  const [diceRerollRequest, setDiceRerollRequest] = useState<DiceRerollRequest | null>(null);
+  // 引擎的原始摇骰结果需要留一份最新快照，重投单颗骰子后要用"全部骰子的最新点数"重新跑一遍
+  // evaluateRecipe——不能只改被重投的这一颗的显示值，否则kh/kl的总和和高亮会跟实际不一致。
+  const diceEngineResultRef = useRef<DiceRollResult | null>(null);
+
+  // 房间号复制按钮：点击后短暂显示"✓"反馈，1.5秒后恢复成复制图标
+  const [roomIdCopied, setRoomIdCopied] = useState(false);
+  const handleCopyRoomId = useCallback(() => {
+    if (!roomId) return;
+    navigator.clipboard.writeText(roomId).then(() => {
+      setRoomIdCopied(true);
+      setTimeout(() => setRoomIdCopied(false), 1500);
+    }).catch(() => {
+      // 极少数浏览器/环境下clipboard API不可用，静默失败即可，不影响主屏幕主要功能
+    });
+  }, [roomId]);
+
   // 房间选择器：只有URL里没带房间号时才会用到（比如断线/设备没电后重新打开主屏幕，
   // 没有记录房间号在URL里，就展示"还在跑的房间"列表，可以选择回到原来的房间，或者新建一个）。
   // null=还没决定要不要展示（等/api/rooms请求结果），true=展示选择器，false=已经决定好房间号了
@@ -442,6 +489,46 @@ function InitiativeDisplayPageInner() {
       if (message.type === 'ROOM_STATE') {
         console.log('✅ 更新房间状态:', message.payload);
         setRoomState(message.payload);
+      } else if (message.type === 'DICE_ROLL') {
+        // 遥控器发起了一次掷骰：铺满全屏，触发3D动画。
+        // rollRequest.id变化时DiceRoller组件才会真正触发新的一次投掷（见DiceRoller内部判重逻辑）。
+        // 先清掉上一轮投掷留下的"隐藏/卸载"定时器，避免它们在这一轮结果展示期间意外触发。
+        if (diceHideTimerRef.current) clearTimeout(diceHideTimerRef.current);
+        if (diceUnmountTimerRef.current) clearTimeout(diceUnmountTimerRef.current);
+        setDiceLastResult(null);
+        setDiceCustomEval(null);
+        setDiceHighlights([]);
+        setRerolledDieIds(new Set()); // 新一轮投掷，"已用过重投机会"的记录清空重来
+        setDiceRerollRequest(null);
+        diceEngineResultRef.current = null;
+        pendingRecipeRef.current = message.payload.recipe || null;
+        setDiceOverlayVisible(true);
+        setDiceRollRequest({
+          id: message.payload.id,
+          notation: message.payload.notation,
+          shapeTextures: message.payload.shapeTextures,
+          recipe: message.payload.recipe,
+        });
+      } else if (message.type === 'DICE_DIE_REROLL') {
+        // 遥控器请求重投某一颗骰子。边界情况处理：
+        // 1) 这次重投请求对应的投掷(rollId)已经不是当前展示的这一轮了(场景可能已经卸载/收起)，忽略；
+        // 2) 这颗骰子已经用过重投机会了(两台遥控器几乎同时点了同一颗，按到达顺序，第二个直接忽略)。
+        const { rollId, requestId, dieId } = message.payload;
+        if (!diceRollRequest || diceRollRequest.id !== rollId) return;
+        if (rerolledDieIds.has(dieId)) return;
+        setDiceRerollRequest({ requestId, dieId });
+      } else if (message.type === 'DICE_ROLL_DISMISS') {
+        // 遥控器点了"收起"：立刻收起遮罩，不用等倒计时。
+        // 清掉原定的两个定时器，改成马上淡出+短暂延迟后卸载（等css过渡播完，避免场景生硬消失）。
+        if (diceHideTimerRef.current) clearTimeout(diceHideTimerRef.current);
+        if (diceUnmountTimerRef.current) clearTimeout(diceUnmountTimerRef.current);
+        setDiceOverlayVisible(false);
+        diceUnmountTimerRef.current = setTimeout(() => {
+          setDiceRollRequest(null);
+          setDiceLastResult(null);
+          setDiceCustomEval(null);
+          setDiceHighlights([]);
+        }, 700);
       } else if (message.type === 'ERROR') {
         console.error('❌ 服务器错误:', message.payload.message);
       }
@@ -469,6 +556,108 @@ function InitiativeDisplayPageInner() {
   const handleReconnect = () => {
     window.location.reload();
   };
+
+  // 3D骰子动画播放完毕：把结构化结果广播回房间（遥控器据此展示文字结果），
+  // 并在这块屏幕上也停留展示几秒结果，然后自动收起遮罩，露出下面的战斗区
+  const handleDiceRollComplete = useCallback((result: DiceRollResult) => {
+    if (!diceRollRequest) return;
+    setDiceLastResult(result);
+    diceEngineResultRef.current = result; // 留一份快照，重投单颗骰子后要用最新的全部点数重新计算
+
+    // 如果这次投掷带了自定义表达式配方(kh/kl等)，用摇出的原始点数(sets[].rolls)重新算一遍明细，
+    // 算出哪些骰子被丢弃、真正的总和，并据此决定该给哪几颗骰子加发光描边(kh=金边，kl=红边)
+    if (pendingRecipeRef.current) {
+      const engineSets: EngineResultSet[] = result.sets.map((s) => ({ sides: s.sides, rolls: s.rolls || [] }));
+      const evaluated = evaluateRecipe(pendingRecipeRef.current, engineSets);
+      setDiceCustomEval(evaluated);
+      setDiceHighlights(computeHighlights(evaluated));
+    } else {
+      setDiceCustomEval(null);
+      setDiceHighlights([]);
+    }
+
+    if (roomId) {
+      sendMessage({
+        type: 'DICE_ROLL_RESULT',
+        payload: { roomId, id: diceRollRequest.id, notation: diceRollRequest.notation, result },
+      });
+    }
+
+    // 停留120秒展示结果，然后淡出收起遮罩，露出下面的角色卡战斗区。
+    // 保险起见先清掉可能残留的旧定时器，再记录这一轮新建的定时器引用，供下一次投掷发起时清理。
+    if (diceHideTimerRef.current) clearTimeout(diceHideTimerRef.current);
+    if (diceUnmountTimerRef.current) clearTimeout(diceUnmountTimerRef.current);
+
+    diceHideTimerRef.current = setTimeout(() => {
+      setDiceOverlayVisible(false);
+    }, 120000);
+    // 淡出动画(见下方JSX的transition duration-700)播完后才彻底卸载3D场景，避免卡顿的收尾动画。
+    // 必须跟上面的隐藏定时器保持"120000 + 700"的关系——这里之前遗留着旧版10秒逻辑的尾巴(10700)，
+    // 导致3D场景在隐藏遮罩真正淡出之前就被提前卸载掉了，是个bug，现在跟隐藏时长对齐。
+    diceUnmountTimerRef.current = setTimeout(() => {
+      setDiceRollRequest(null);
+      setDiceLastResult(null);
+      setDiceCustomEval(null);
+      setDiceHighlights([]);
+    }, 120700);
+  }, [diceRollRequest, roomId, sendMessage]);
+
+  // 单颗骰子重投动画播完：拿新点数更新那一颗骰子的显示值，用"全部骰子的最新点数"重新跑一遍
+  // evaluateRecipe(如果这次投掷带kh/kl配方)，因为重投可能改变取高/取低的筛选结果(比如把原本
+  // 该丢弃的那颗换成了更大的点数，它就该变成被保留的那颗)。算完把新结果+"已用过"列表广播出去，
+  // 所有客户端(包括发起重投的遥控器和主屏幕自己)都据此同步刷新。
+  const handleDieRerollComplete = useCallback((requestId: string, dieId: number, newValue: number) => {
+    if (!diceRollRequest || !diceEngineResultRef.current) return;
+    const prevResult = diceEngineResultRef.current;
+
+    // 更新引擎结果快照里这一颗骰子的点数(sets[].rolls[]里按id定位)，
+    // 每组的小计(set.total)和整体总和(total)都直接用最新的rolls重新求和算出来，
+    // 不用维护"差值"这种容易出错的中间状态。
+    const newSets = prevResult.sets.map((set) => {
+      const rolls = set.rolls?.map((r) => (r.id === dieId ? { ...r, value: newValue } : r));
+      const total = rolls ? rolls.reduce((sum, r) => sum + r.value, 0) : set.total;
+      return { ...set, rolls, total };
+    });
+    const newTotal = newSets.reduce((sum, s) => sum + s.total, 0) + prevResult.modifier;
+    const newResult: DiceRollResult = { ...prevResult, sets: newSets, total: newTotal };
+
+    diceEngineResultRef.current = newResult;
+    setDiceLastResult(newResult);
+
+    const nextRerolledIds = new Set(rerolledDieIds);
+    nextRerolledIds.add(dieId);
+    setRerolledDieIds(nextRerolledIds);
+
+    // 如果这次投掷带kh/kl配方，重投可能改变取高/取低的筛选结果(比如原本该丢弃的那颗换成了更大的点数，
+    // 它就该变成被保留的那颗)，所以要用全部骰子的最新点数重新跑一遍配方计算，不能只改这一颗的显示值。
+    if (pendingRecipeRef.current) {
+      const engineSets: EngineResultSet[] = newResult.sets.map((s) => ({ sides: s.sides, rolls: s.rolls || [] }));
+      const evaluated = evaluateRecipe(pendingRecipeRef.current, engineSets);
+      setDiceCustomEval(evaluated);
+      setDiceHighlights(computeHighlights(evaluated));
+    }
+
+    if (roomId) {
+      sendMessage({
+        type: 'DICE_DIE_REROLL_RESULT',
+        payload: {
+          roomId,
+          id: diceRollRequest.id,
+          notation: diceRollRequest.notation,
+          result: newResult,
+          rerolledDieIds: Array.from(nextRerolledIds),
+        },
+      });
+    }
+  }, [diceRollRequest, roomId, sendMessage, rerolledDieIds]);
+
+  // 组件卸载时清理掷骰相关的定时器，避免卸载后还触发setState
+  useEffect(() => {
+    return () => {
+      if (diceHideTimerRef.current) clearTimeout(diceHideTimerRef.current);
+      if (diceUnmountTimerRef.current) clearTimeout(diceUnmountTimerRef.current);
+    };
+  }, []);
 
   // 检测角色进出场
   useEffect(() => {
@@ -686,13 +875,30 @@ function InitiativeDisplayPageInner() {
       
       {/* 房间ID和回合数显示 */}
       {sortedCharacters.length === 0 ? (
-        /* 无角色时：大显示房间号 */
+        /* 无角色时：大显示房间号（唯一一处显示，之前"等待玩家加入战斗"文案下面还重复显示了一次，
+           已经删掉，避免同一个房间号在屏幕上出现两次）。右上角加一个复制按钮，点击直接拷贝房间号。 */
         <div className="absolute top-8 left-8 z-50">
-          <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl px-6 py-4 border border-slate-700/50 shadow-2xl">
+          <div className="relative bg-slate-900/60 backdrop-blur-xl rounded-xl px-6 py-4 pr-14 border border-slate-700/50 shadow-2xl">
             <div className="text-slate-400 text-xs mb-1.5 font-medium tracking-wider uppercase">房间号</div>
             <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 tracking-wider font-mono">
               {roomId || '---'}
             </div>
+            {roomId && (
+              <button
+                onClick={handleCopyRoomId}
+                title="复制房间号"
+                className="absolute top-2.5 right-2.5 w-8 h-8 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-600/50 flex items-center justify-center text-slate-300 hover:text-amber-400 transition-colors"
+              >
+                {roomIdCopied ? (
+                  <span className="text-emerald-400 text-sm">✓</span>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="9" y="9" width="12" height="12" rx="2" />
+                    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                  </svg>
+                )}
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -729,17 +935,11 @@ function InitiativeDisplayPageInner() {
             <div className="text-xl text-slate-500 mb-8 font-medium">
               请使用遥控器连接房间号
             </div>
+            {/* 房间号已经在左上角显示（带复制按钮），这里不再重复渲染一遍，只保留提示文案 */}
             {roomId && (
-              <>
-                <div className="inline-block bg-slate-900/60 backdrop-blur-xl px-8 py-4 rounded-xl border border-amber-600/30 shadow-2xl">
-                  <div className="text-6xl font-mono font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 tracking-wider">
-                    {roomId}
-                  </div>
-                </div>
-                <div className="mt-8 text-slate-400 text-base font-medium">
-                  💡 打开遥控器页面，输入房间号即可连接
-                </div>
-              </>
+              <div className="mt-2 text-slate-400 text-base font-medium">
+                💡 打开遥控器页面，输入房间号即可连接
+              </div>
             )}
           </div>
         ) : (
@@ -774,6 +974,109 @@ function InitiativeDisplayPageInner() {
 
       {/* 底部装饰 */}
       <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-slate-800/50 to-transparent" />
+
+      {/* 3D掷骰全屏遮罩：铺满全屏暂时盖住角色卡战斗区，投掷动画结束后停留展示结果，再自动淡出收起。
+          rollRequest不为null才挂载3D场景，避免场景一直闲置在DOM里浪费GPU资源。 */}
+      {diceRollRequest && (
+        <div
+          className={`fixed inset-0 z-[60] bg-slate-950/70 backdrop-blur-[2px] transition-opacity duration-700 ${
+            diceOverlayVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        >
+          <DiceRoller
+            rollRequest={diceRollRequest}
+            onRollComplete={handleDiceRollComplete}
+            highlights={diceHighlights}
+            rerollRequest={diceRerollRequest}
+            onRerollComplete={handleDieRerollComplete}
+          />
+        </div>
+      )}
+
+      {/* 主屏幕独立结果层：不属于骰子遮罩、骰子画布或3D场景。
+          该层直接挂在主屏幕页面根节点，固定在浏览器视口顶部正中；骰子滚动位置、画布尺寸及动画
+          坐标均不会影响它。外层负责屏幕定位，动画仅作用于内部内容，避免覆盖横向居中 transform。 */}
+      {diceRollRequest && diceLastResult && (
+        <div
+          className="fixed top-16 left-1/2 z-[70] -translate-x-1/2 pointer-events-none transition-opacity duration-700"
+          style={{ opacity: diceOverlayVisible ? (roomState?.resultPanelOpacity ?? DEFAULT_RESULT_PANEL_OPACITY) : 0 }}
+        >
+          <div className="animate-slideInUp">
+            {diceCustomEval ? (
+              // 自定义表达式(带kh/kl)投掷：展示明细——每颗骰子换成形状图标(能看出D几)+数字，
+              // 被丢弃的用DiceShapeIcon的'used'态变灰(视觉上跟"已重投过"共用同一套灰态，
+              // 因为都表示"这颗骰子的点数不算/已经用掉机会"，不会互相混淆，两者不会同时出现在同一颗骰子上：
+              // 一颗骰子如果被kh/kl丢弃了，它仍然可以被重投；重投完会重新计算kh/kl归属)。
+              // 一眼看出"取最高/取最低"实际发生了什么，跟遥控器上的展示方式保持一致，只是字号更大更醒目。
+              <div className="flex items-stretch bg-slate-900/95 border-2 border-purple-500/60 rounded-md shadow-2xl overflow-hidden divide-x divide-purple-500/30">
+                {diceCustomEval.groups.map((g, i) => (
+                  <div key={i} className="flex flex-col items-center gap-1.5 px-4 py-3 min-w-[5.5rem]">
+                    <div className="text-slate-400 text-xs font-mono whitespace-nowrap">
+                      {i > 0 && (g.sign === -1 ? '− ' : '+ ')}
+                      {g.count}D{g.sides}{g.keep ? `(${g.keep.mode === 'kh' ? '取高' : '取低'}${g.keep.amount})` : ''}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-1">
+                      {g.rolls.map((r) => (
+                        <DiceShapeIcon
+                          key={r.id}
+                          sides={g.sides}
+                          value={r.value}
+                          size={40}
+                          state={r.discarded ? 'used' : rerolledDieIds.has(r.id) ? 'used' : 'idle'}
+                        />
+                      ))}
+                    </div>
+                    <div className="text-2xl font-black text-purple-200">{g.sign === -1 ? '−' : ''}{g.total}</div>
+                  </div>
+                ))}
+                {diceCustomEval.modifier !== 0 && (
+                  <div className="flex items-center px-4 py-3">
+                    <span className="text-2xl font-black text-purple-200">
+                      {diceCustomEval.modifier > 0 ? '+' : ''}{diceCustomEval.modifier}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 px-5 py-3 bg-amber-500/10">
+                  <span className="text-purple-400 text-xl font-bold">=</span>
+                  <span className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500">
+                    {diceCustomEval.total}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              // 普通投掷(不涉及kh/kl)：同样把每颗骰子换成形状图标展示，用不用来区分是D几一眼可见，
+              // 已重投过的骰子按DiceShapeIcon的'used'态变灰标出来。
+              <div className="flex items-stretch bg-slate-900/95 border-2 border-purple-500/60 rounded-md shadow-2xl overflow-hidden divide-x divide-purple-500/30">
+                {diceLastResult.sets.map((set, i) => (
+                  <div key={i} className="flex flex-col items-center gap-1.5 px-4 py-3">
+                    <div className="text-slate-400 text-xs font-mono whitespace-nowrap">
+                      {i > 0 && '+ '}{set.num}D{set.sides}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-1">
+                      {(set.rolls || []).map((r) => (
+                        <DiceShapeIcon
+                          key={r.id}
+                          sides={set.sides}
+                          value={r.value}
+                          size={40}
+                          state={rerolledDieIds.has(r.id) ? 'used' : 'idle'}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-2xl font-black text-purple-200">{set.total}</span>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 px-5 py-3 bg-amber-500/10">
+                  <span className="text-purple-400 text-xl font-bold">=</span>
+                  <span className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500">
+                    {diceLastResult.total}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,6 +21,50 @@ import {
   recordDeathSave,
   tickStatusesForTurnStart,
 } from '@/lib/statusEffects';
+// 3D掷骰结果类型：遥控器和主屏幕共用同一份结构（每组小计 + 总和），只有类型定义，不含3D渲染逻辑
+import type { DiceRollResult } from '@/components/dnd/DiceRoller';
+// 骰子形状图标：结果面板里每颗骰子用形状轮廓(能看出D几)+数字+文字标识展示，
+// 遥控器这边可点击(未重投过的骰子)，点击后弹确认框，确认了才发送重投请求
+import DiceShapeIcon from '@/components/dnd/DiceShapeIcon';
+// 掷骰预设：localStorage持久化的掷骰表达式(支持完整语法：NdS+kh/kl+括号+加减常数)，
+// 最多10个，支持新建/改名/编辑/删除
+import {
+  DicePreset,
+  loadDicePresets,
+  saveDicePresets,
+  genPresetId,
+  MAX_PRESETS,
+} from '@/lib/dicePresets';
+// 自定义掷骰表达式：支持 NdS + kh/kl取高取低 + 括号 + 加减常数，词法分析+递归下降解析校验。
+// "自定义掷骰"标签页整个换成表达式输入框(可打字，也可用下方按钮面板拼)，不再是"加一组几D几"的表单。
+import {
+  ExprNode,
+  EvaluatedExpression,
+  FlattenedRecipe,
+  parseDiceExpression,
+  toEngineNotation,
+  describeExpression,
+  flattenToRecipe,
+  evaluateRecipe,
+} from '@/lib/diceExpression';
+// 骰子外观预设：每个预设固定给D4/D6/D8/D10/D12/D20各自绑定一张纹理图（同一预设内同一形状统一用一张图），
+// 不涉及颜色方案。内置6套 + 用户自建的自定义预设并列展示，随投掷请求一起发给主屏幕决定3D骰子的样式。
+import {
+  DiceAppearancePreset,
+  DiceShape,
+  ShapeTextureMap,
+  DICE_SHAPES,
+  DICE_SHAPE_LABELS,
+  DICE_TEXTURE_OPTIONS,
+  getTextureOption,
+  DEFAULT_APPEARANCE_PRESET_ID,
+  loadCustomAppearancePresets,
+  saveCustomAppearancePresets,
+  getAllAppearancePresets,
+  getAppearancePreset,
+  genAppearancePresetId,
+  MAX_CUSTOM_APPEARANCE_PRESETS,
+} from '@/lib/diceAppearance';
 
 // 种族和职业数据
 const RACES = [
@@ -61,11 +105,19 @@ interface RoomState {
   currentTurn: number;
   roundNumber: number;
   dimIntensity?: number; // 非当前回合角色的压暗强度(0~1)：0=完全不灰，1=特别灰，主屏幕据此渲染
+  resultPanelOpacity?: number; // 主屏幕"骰子计算总和"结果面板的不透明度(0~1)：0=全透明，1=完全不透明
 }
 
 // 非当前回合压暗强度的localStorage key + 默认值
 const DIM_INTENSITY_KEY = 'dnd-initiative-dim-intensity';
 const DEFAULT_DIM_INTENSITY = 0.55;
+
+// 主屏幕骰子结果面板不透明度的localStorage key + 默认值(默认完全不透明，跟改动前的视觉效果一致)
+const RESULT_PANEL_OPACITY_KEY = 'dnd-dice-result-panel-opacity';
+const DEFAULT_RESULT_PANEL_OPACITY = 1;
+
+// 当前选中的骰子外观预设ID，存本地
+const DICE_APPEARANCE_KEY = 'dnd-dice-appearance-preset';
 
 // 预设 token
 const TOKEN_PRESETS = {
@@ -227,6 +279,240 @@ const CharacterCard = ({
   );
 };
 
+// 自定义掷骰表达式输入面板：一个文本框(支持系统键盘直接打字) + 一套按钮拼字面板(数字/D几/kh/kl/+-()/删除/清空)，
+// 两种输入方式效果等价——按钮只是往输入框里插入对应文本，输入框本身仍然是唯一的数据源。
+const ExpressionKeypad = ({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) => {
+  const insert = (text: string) => onChange(value + text);
+  const backspace = () => onChange(value.slice(0, -1));
+
+  return (
+    <div className="space-y-1.5">
+      {/* 数字键：1~9,0 */}
+      <div className="grid grid-cols-5 gap-1.5">
+        {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => insert(n)}
+            className="py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm transition-colors"
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      {/* 骰子面数快捷键：直接插入"d几" */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {[4, 6, 8, 10, 12, 20, 100, 2].map((sides) => (
+          <button
+            key={sides}
+            type="button"
+            onClick={() => insert(`d${sides}`)}
+            className="py-2 rounded-lg bg-purple-900/50 hover:bg-purple-800/60 text-purple-200 font-bold text-xs transition-colors"
+          >
+            D{sides}
+          </button>
+        ))}
+      </div>
+      {/* 功能键：kh/kl取高取低 + 加减括号 + 删除/清空 */}
+      <div className="grid grid-cols-4 gap-1.5">
+        <button type="button" onClick={() => insert('kh')} className="py-2 rounded-lg bg-emerald-900/50 hover:bg-emerald-800/60 text-emerald-200 font-bold text-xs transition-colors">kh 取高</button>
+        <button type="button" onClick={() => insert('kl')} className="py-2 rounded-lg bg-amber-900/50 hover:bg-amber-800/60 text-amber-200 font-bold text-xs transition-colors">kl 取低</button>
+        <button type="button" onClick={() => insert('(')} className="py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm transition-colors">(</button>
+        <button type="button" onClick={() => insert(')')} className="py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm transition-colors">)</button>
+        <button type="button" onClick={() => insert('+')} className="py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm transition-colors">+</button>
+        <button type="button" onClick={() => insert('-')} className="py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm transition-colors">−</button>
+        <button type="button" onClick={backspace} className="py-2 rounded-lg bg-slate-700 hover:bg-red-700 text-white font-bold text-xs transition-colors">⌫ 删除</button>
+        <button type="button" onClick={() => onChange('')} className="py-2 rounded-lg bg-slate-700 hover:bg-red-700 text-white font-bold text-xs transition-colors">清空</button>
+      </div>
+    </div>
+  );
+};
+
+// 纹理选择下拉框：原生<select>没法在选项里塞图片，所以自己实现一个下拉——
+// 触发按钮和每个选项都带缩略图（纹理贴图本身）+ 文字名称，点击选项后收起。
+const TextureSelect = ({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (key: string) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const current = getTextureOption(value);
+
+  return (
+    <div className="relative flex-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-900 border border-purple-500/30 text-white text-xs"
+      >
+        {current.thumbnail ? (
+          <span
+            className="w-5 h-5 rounded flex-shrink-0 bg-cover bg-center border border-white/10"
+            style={{ backgroundImage: `url(${current.thumbnail})` }}
+          />
+        ) : (
+          <span className="w-5 h-5 rounded flex-shrink-0 bg-white border border-white/20" />
+        )}
+        <span className="flex-1 text-left truncate">{current.name}</span>
+        <span className="text-slate-500">▾</span>
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-56 overflow-y-auto rounded-lg bg-slate-900 border border-purple-500/40 shadow-2xl">
+            {DICE_TEXTURE_OPTIONS.map((tex) => (
+              <button
+                key={tex.key}
+                type="button"
+                onClick={() => { onChange(tex.key); setOpen(false); }}
+                className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left transition-colors ${
+                  tex.key === value ? 'bg-purple-600/30 text-white' : 'text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {tex.thumbnail ? (
+                  <span
+                    className="w-5 h-5 rounded flex-shrink-0 bg-cover bg-center border border-white/10"
+                    style={{ backgroundImage: `url(${tex.thumbnail})` }}
+                  />
+                ) : (
+                  <span className="w-5 h-5 rounded flex-shrink-0 bg-white border border-white/20" />
+                )}
+                <span className="truncate">{tex.name}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// 骰子外观预设编辑器：新建/编辑一套"每种形状固定绑定一张纹理图"的外观预设（改名 + 6个形状纹理选择 + 保存/取消）
+const AppearanceEditor = ({
+  name,
+  textures,
+  onNameChange,
+  onTexturesChange,
+  onSave,
+  onCancel,
+}: {
+  name: string;
+  textures: ShapeTextureMap;
+  onNameChange: (name: string) => void;
+  onTexturesChange: (textures: ShapeTextureMap) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) => (
+  <div className="p-3 space-y-2">
+    <input
+      type="text"
+      value={name}
+      onChange={(e) => onNameChange(e.target.value)}
+      placeholder="样式名称"
+      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-purple-500/30 text-white text-sm placeholder:text-slate-500"
+    />
+    <div className="space-y-2">
+      {DICE_SHAPES.map((shape) => (
+        <div key={shape} className="flex items-center gap-2">
+          <span className="w-20 flex-shrink-0 text-xs font-bold text-slate-300">{DICE_SHAPE_LABELS[shape]}</span>
+          <TextureSelect
+            value={textures[shape] || ''}
+            onChange={(key) => onTexturesChange({ ...textures, [shape]: key })}
+          />
+        </div>
+      ))}
+    </div>
+    <div className="flex gap-2 pt-1">
+      <button
+        onClick={onCancel}
+        className="flex-1 py-2 rounded-lg text-sm font-bold text-slate-400 bg-slate-900/60 hover:bg-slate-900 transition-colors"
+      >
+        取消
+      </button>
+      <button
+        onClick={onSave}
+        className="flex-1 py-2 rounded-lg text-sm font-bold text-white bg-purple-600 hover:bg-purple-500 transition-colors"
+      >
+        保存
+      </button>
+    </div>
+  </div>
+);
+
+// 预设编辑器：新建/编辑一个预设时展开的内联表单（改名 + 表达式输入框+拼字面板 + 保存/取消）。
+// 表达式支持完整语法(NdS/kh·kl取高取低/括号/加减常数)，跟"自定义掷骰"标签页是同一套解析校验逻辑，
+// 输错了保存按钮直接禁用+标红提示，不会存进一条摇不出来的坏预设。
+const PresetEditor = ({
+  name,
+  expr,
+  onNameChange,
+  onExprChange,
+  onSave,
+  onCancel,
+}: {
+  name: string;
+  expr: string;
+  onNameChange: (name: string) => void;
+  onExprChange: (expr: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) => {
+  const parseResult = useMemo(() => parseDiceExpression(expr), [expr]);
+  return (
+    <div className="p-3 space-y-2">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => onNameChange(e.target.value)}
+        placeholder="预设名称（留空则用骰子表达式当名字）"
+        className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-purple-500/30 text-white text-sm placeholder:text-slate-500"
+      />
+      <input
+        type="text"
+        value={expr}
+        onChange={(e) => onExprChange(e.target.value)}
+        placeholder="例如：2d20kh1+1d4"
+        spellCheck={false}
+        className={`w-full px-3 py-2 rounded-lg bg-slate-950 border-2 text-white font-mono text-center text-sm tracking-wide focus:outline-none transition-colors ${
+          parseResult.ok ? 'border-purple-500/30 focus:border-purple-500' : 'border-red-500/60 focus:border-red-500'
+        }`}
+      />
+      <div className="text-center min-h-[1.25rem]">
+        {parseResult.ok ? (
+          <span className="text-purple-300 font-mono text-xs">{describeExpression(parseResult.node).toUpperCase()}</span>
+        ) : (
+          <span className="text-red-400 text-xs font-medium">⚠ {parseResult.error}</span>
+        )}
+      </div>
+      <ExpressionKeypad value={expr} onChange={onExprChange} />
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-2 rounded-lg text-sm font-bold text-slate-400 bg-slate-900/60 hover:bg-slate-900 transition-colors"
+        >
+          取消
+        </button>
+        <button
+          onClick={onSave}
+          disabled={!parseResult.ok}
+          className="flex-1 py-2 rounded-lg text-sm font-bold text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          保存
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function InitiativeTrackerPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [currentTurn, setCurrentTurn] = useState(0);
@@ -288,6 +574,54 @@ export default function InitiativeTrackerPage() {
   // 主屏幕上"非当前回合角色压暗强度"滑块：0=不灰，1=特别灰，默认0.55。
   // 初次渲染先用默认值占位（避免SSR/CSR不一致），挂载后立即从localStorage读取真实值。
   const [dimIntensity, setDimIntensity] = useState(DEFAULT_DIM_INTENSITY);
+  // 主屏幕"骰子计算总和"结果面板的不透明度滑块：0=全透明，1=完全不透明，默认1(跟改动前视觉一致)
+  const [resultPanelOpacity, setResultPanelOpacity] = useState(DEFAULT_RESULT_PANEL_OPACITY);
+
+  // 骰子板块 / 先攻板块不再是同屏上下堆叠，改成两个独立的sheet页(同一时刻只显示一个)，
+  // 切换用的tab按钮固定在屏幕最下面。默认进"先攻"页，跟房间连上后原本的主视觉保持一致。
+  const [activeSheet, setActiveSheet] = useState<'initiative' | 'dice'>('initiative');
+
+  // ===== 3D掷骰：遥控器只负责"发起投掷请求+展示结果文字"，3D动画只在主屏幕上播放 =====
+  // 骰子板块现在是摊开常驻的独立区块(不再是按钮唤起的弹窗)，所以不再需要"是否显示弹窗"这个状态
+  const [diceModalTab, setDiceModalTab] = useState<'presets' | 'custom' | 'settings'>('presets'); // 板块里"常用掷骰"/"自定义掷骰"/"骰子设置"三个标签页
+  const [diceRolling, setDiceRolling] = useState(false);
+  const [diceResult, setDiceResult] = useState<DiceRollResult | null>(null);
+  const lastRollIdRef = useRef<string | null>(null);
+  // 单颗骰子重投："这一次投掷里，哪些骰子(全局id)已经用过唯一一次重投机会"——完全信任主屏幕
+  // 广播回来的DICE_DIE_REROLL_RESULT，不在本地自己维护判断逻辑，保证多台遥控器之间显示一致。
+  const [rerolledDieIds, setRerolledDieIds] = useState<Set<number>>(new Set());
+  // 正在等待重投结果的骰子id：点击后立刻标"等待中"，避免手抖连点两次同一颗骰子；
+  // 结果广播回来(或者结果被收起)后清空。
+  const [pendingRerollDieId, setPendingRerollDieId] = useState<number | null>(null);
+  const [rerollConfirmTarget, setRerollConfirmTarget] = useState<{ dieId: number; sides: number; value: number } | null>(null);
+  // "自定义掷骰"标签页：整个换成表达式输入框(支持kh/kl取高取低+括号+加减常数)，不再是"加一组几D几"表单。
+  // 表达式文本存本地记住，下次打开面板还在；实时解析成表达式树，非法输入直接标红+具体报错，投掷按钮禁用。
+  const CUSTOM_EXPR_KEY = 'dnd-dice-custom-expr';
+  const [customExprText, setCustomExprText] = useState('');
+  // 记录"当前正在等待结果的这次投掷，对应的是哪份kh/kl配方"：只有自定义表达式投掷出去后，
+  // 结果面板才需要按配方重新计算展示(哪颗骰子被丢弃)；掷预设时这里必须是null，走原来的通用展示。
+  // 配方(而不是完整表达式树)会随DICE_ROLL一起发给主屏幕，让主屏幕也能展示同样细致的kh/kl明细+高亮特效。
+  const pendingRecipeRef = useRef<FlattenedRecipe | null>(null);
+  const [customEvalResult, setCustomEvalResult] = useState<EvaluatedExpression | null>(null);
+
+  // 掷骰预设：最多10个，存在localStorage（只在这台设备生效，不同步到房间/其他遥控器）
+  const [dicePresets, setDicePresets] = useState<DicePreset[]>([]);
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null); // 正在编辑/新建的预设ID，null=非编辑态
+  const [editingPresetName, setEditingPresetName] = useState('');
+  const [editingPresetExpr, setEditingPresetExpr] = useState('1d20');
+
+  // 当前选中要使用的骰子外观预设ID（内置或自定义），跟随这台遥控器，存本地，
+  // 会随DICE_ROLL一起发给主屏幕，决定这一次投掷用哪套纹理外观
+  const [appearancePresetId, setAppearancePresetId] = useState(DEFAULT_APPEARANCE_PRESET_ID);
+  // 用户自建的骰子外观预设（内置的6套写死在代码里，不进这个state），最多10个，存本地
+  const [customAppearancePresets, setCustomAppearancePresets] = useState<DiceAppearancePreset[]>([]);
+  // "骰子设置"标签页里的模式：使用预设(从列表里选一个)，还是自定义骰子材质(新建/编辑预设)，二选一用radio切换
+  const [diceStyleMode, setDiceStyleMode] = useState<'preset' | 'custom'>('preset');
+  // 正在新建/编辑的自定义预设：null=非编辑态，'__new__'=新建，否则是正在编辑的预设ID
+  const [editingAppearanceId, setEditingAppearanceId] = useState<string | null>(null);
+  const [editingAppearanceName, setEditingAppearanceName] = useState('');
+  const [editingAppearanceTextures, setEditingAppearanceTextures] = useState<ShapeTextureMap>({});
+
   const combatZoneRef = useRef<HTMLDivElement>(null);
   // 保存effect的首次执行必须跳过：挂载时"加载"和"保存"两个effect会在同一轮依次触发，
   // 加载effect里的 setCharacters 只是排队更新、不会立刻生效，如果保存effect紧接着用
@@ -317,6 +651,15 @@ export default function InitiativeTrackerPage() {
     if (saved !== null) {
       const parsed = parseFloat(saved);
       if (!Number.isNaN(parsed)) setDimIntensity(parsed);
+    }
+  }, []);
+
+  // 从 localStorage 加载"结果面板不透明度"滑块的记忆值（初始化时，只执行一次）
+  useEffect(() => {
+    const saved = localStorage.getItem(RESULT_PANEL_OPACITY_KEY);
+    if (saved !== null) {
+      const parsed = parseFloat(saved);
+      if (!Number.isNaN(parsed)) setResultPanelOpacity(parsed);
     }
   }, []);
 
@@ -350,6 +693,51 @@ export default function InitiativeTrackerPage() {
       } else if (message.type === 'DISPLAY_STATUS') {
         // 主屏幕连接状态变化通知
         setDisplayConnected(message.payload.connected);
+      } else if (message.type === 'DICE_ROLL') {
+        // 房间内任何客户端（可能是自己，也可能是别的遥控器）发起了一次掷骰，
+        // 进入"投掷中"状态等待主屏幕算完动画返回结果。新一轮投掷，"已用过重投机会"记录清空重来。
+        // recipe直接从广播payload里取(不管这次投掷是不是自己发起的)，保证即使是别的遥控器发起的
+        // 带kh/kl的投掷，自己这边后续重投时也能正确重新计算明细，不会因为"不是自己发起的"而缺失配方。
+        setDiceRolling(true);
+        setDiceResult(null);
+        setRerolledDieIds(new Set());
+        setPendingRerollDieId(null);
+        pendingRecipeRef.current = message.payload.recipe || null;
+      } else if (message.type === 'DICE_ROLL_RESULT') {
+        // 主屏幕播放完3D动画后广播回来的结构化结果：每组小计 + 总和
+        setDiceRolling(false);
+        setDiceResult(message.payload.result);
+        // 如果这次投掷是"自定义表达式"发起的(带kh/kl等)，用原始点数(sets[].rolls)按配方重新计算，
+        // 算出哪些骰子被丢弃、真正的最终总和——引擎自己给的result.total是"全部加总"，不认识kh/kl。
+        if (pendingRecipeRef.current) {
+          const sets = (message.payload.result.sets || []) as { sides: number; rolls?: { value: number; id: number }[] }[];
+          const engineSets = sets.map((s) => ({ sides: s.sides, rolls: s.rolls || [] }));
+          setCustomEvalResult(evaluateRecipe(pendingRecipeRef.current, engineSets));
+          // 注意：这里不清空pendingRecipeRef——这份配方要留到这一轮投掷结束(DICE_ROLL_DISMISS)
+          // 或下一轮投掷开始(DICE_ROLL)才清空，因为后续单颗骰子重投(DICE_DIE_REROLL_RESULT)
+          // 还需要用它重新计算kh/kl明细，不能在第一次用完就丢掉。
+        } else {
+          setCustomEvalResult(null);
+        }
+      } else if (message.type === 'DICE_DIE_REROLL_RESULT') {
+        // 某台遥控器请求的重投，主屏幕已经算完新结果广播回来：所有客户端(包括发起重投的那台自己)
+        // 都据此同步刷新——不管这次重投是不是自己发起的，都完全信任这份广播数据，不做本地乐观更新。
+        setDiceResult(message.payload.result);
+        setRerolledDieIds(new Set(message.payload.rerolledDieIds || []));
+        setPendingRerollDieId(null);
+        // 带kh/kl配方的投掷，重投后主屏幕已经用最新点数重新算过明细，这里同样重算一遍保持展示一致
+        if (pendingRecipeRef.current) {
+          const sets = (message.payload.result.sets || []) as { sides: number; rolls?: { value: number; id: number }[] }[];
+          const engineSets = sets.map((s) => ({ sides: s.sides, rolls: s.rolls || [] }));
+          setCustomEvalResult(evaluateRecipe(pendingRecipeRef.current, engineSets));
+        }
+      } else if (message.type === 'DICE_ROLL_DISMISS') {
+        // 任意一端点了"收起"（可能是自己，也可能是别的遥控器）：同步清掉本地展示的结果横幅
+        setDiceRolling(false);
+        setDiceResult(null);
+        setCustomEvalResult(null);
+        setRerolledDieIds(new Set());
+        setPendingRerollDieId(null);
       } else if (message.type === 'ERROR') {
         alert(message.payload.message);
         setIsConnected(false);
@@ -406,6 +794,187 @@ export default function InitiativeTrackerPage() {
     });
   }, [isConnected, roomId, sendMessage]);
 
+  // 从localStorage加载掷骰预设 + 上次的自定义表达式文本（初始化时执行一次）
+  useEffect(() => {
+    setDicePresets(loadDicePresets());
+    const savedAppearanceId = localStorage.getItem(DICE_APPEARANCE_KEY);
+    if (savedAppearanceId) setAppearancePresetId(savedAppearanceId);
+    setCustomAppearancePresets(loadCustomAppearancePresets());
+    const savedExpr = localStorage.getItem(CUSTOM_EXPR_KEY);
+    if (savedExpr) setCustomExprText(savedExpr);
+  }, []);
+
+  // 表达式文本变化就存本地，下次打开面板还在原来的输入
+  useEffect(() => {
+    localStorage.setItem(CUSTOM_EXPR_KEY, customExprText);
+  }, [customExprText]);
+
+  // 实时解析当前表达式文本：成功则得到表达式树+预览文案，失败则得到具体报错原因
+  const customExprParse = useMemo(() => parseDiceExpression(customExprText), [customExprText]);
+
+  // 发起一次掷骰：生成唯一ID，通过WebSocket广播给房间（主屏幕收到后播放3D动画，用当前选中的外观预设的按形状纹理）。
+  // recipe可选：只有自定义表达式(带kh/kl)投掷才会传，随消息一起发给主屏幕，让主屏幕自己也能算出
+  // 同样细致的kh/kl明细并高亮对应骰子，不需要主屏幕认识表达式语法。
+  const rollNotation = useCallback((notation: string, recipe?: FlattenedRecipe) => {
+    if (!notation || !isConnected || !roomId) return;
+    const preset = getAppearancePreset(appearancePresetId, customAppearancePresets);
+
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    lastRollIdRef.current = id;
+    setDiceRolling(true);
+    setDiceResult(null);
+    setCustomEvalResult(null);
+
+    sendMessage({
+      type: 'DICE_ROLL',
+      payload: { roomId, id, notation, shapeTextures: preset.shapeTextures, recipe },
+    });
+  }, [isConnected, roomId, sendMessage, appearancePresetId, customAppearancePresets]);
+
+  // 掷一个预设：预设现在也是完整表达式(可能带kh/kl)，所以跟"自定义掷骰"走同一条路——
+  // 解析成表达式树，拆成配方，记住配方等结果回来后重新计算展示+决定高亮哪些骰子。
+  // 万一存量数据里有解析失败的坏预设(理论上保存时已经校验过，不会发生)，直接忽略这次点击。
+  const handleRollPreset = useCallback((preset: DicePreset) => {
+    const parsed = parseDiceExpression(preset.expr);
+    if (!parsed.ok) return;
+    const recipe = flattenToRecipe(parsed.node);
+    pendingRecipeRef.current = recipe;
+    rollNotation(toEngineNotation(parsed.node), recipe);
+  }, [rollNotation]);
+
+  // 点击结果面板里某一颗骰子(还没重投过的)：先弹确认框，确认后才真正发出重投请求。
+  // 边界情况：这个交互只在主屏幕场景还存活的这段时间内有效(结果展示中、还没被收起)——
+  // diceResult存在就意味着场景大概率还活着，如果场景已经卸载，主屏幕那边的DICE_DIE_REROLL
+  // 处理器会因为rollId不匹配当前投掷而静默忽略，不会报错，遥控器这边不需要额外判断。
+  const handleRequestReroll = useCallback((dieId: number, sides: number, value: number) => {
+    if (rerolledDieIds.has(dieId) || pendingRerollDieId !== null) return;
+    setRerollConfirmTarget({ dieId, sides, value });
+  }, [rerolledDieIds, pendingRerollDieId]);
+
+  // 确认框点了"确认重投"：真正发出请求，立刻标记这颗骰子"等待中"防止手抖连点
+  const confirmReroll = useCallback(() => {
+    if (!rerollConfirmTarget || !isConnected || !roomId || !lastRollIdRef.current) {
+      setRerollConfirmTarget(null);
+      return;
+    }
+    const { dieId } = rerollConfirmTarget;
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setPendingRerollDieId(dieId);
+    sendMessage({
+      type: 'DICE_DIE_REROLL',
+      payload: { roomId, rollId: lastRollIdRef.current, requestId, dieId },
+    });
+    setRerollConfirmTarget(null);
+  }, [rerollConfirmTarget, isConnected, roomId, sendMessage]);
+
+  // 掷"自定义掷骰"标签页里当前输入框解析出的表达式：拆成配方(骰子分组+kh/kl+符号，不含语法树)，
+  // 记住这次投掷对应的配方，等结果回来后据此重新计算展示；配方也随DICE_ROLL一起发给主屏幕，
+  // 让主屏幕自己也能算出同样的明细，进而知道该给哪几颗骰子加发光描边。
+  // 真正发给引擎摇的是"摊平后不含kh/kl"的普通NdS表达式。
+  const handleRollCustomExpression = useCallback((node: ExprNode) => {
+    const recipe = flattenToRecipe(node);
+    pendingRecipeRef.current = recipe;
+    rollNotation(toEngineNotation(node), recipe);
+  }, [rollNotation]);
+
+  // 选中一个外观预设（内置或自定义）：立即生效并记住在本地
+  const handleSelectAppearancePreset = useCallback((id: string) => {
+    setAppearancePresetId(id);
+    localStorage.setItem(DICE_APPEARANCE_KEY, id);
+  }, []);
+
+  // 开始新建一个自定义外观预设：6种形状默认都是"纯白无纹理"，等用户逐个指定
+  const handleStartNewAppearance = useCallback(() => {
+    if (customAppearancePresets.length >= MAX_CUSTOM_APPEARANCE_PRESETS) return;
+    setEditingAppearanceId('__new__');
+    setEditingAppearanceName('');
+    setEditingAppearanceTextures({});
+  }, [customAppearancePresets.length]);
+
+  // 开始编辑一个已有的自定义外观预设（内置预设不可编辑，只能新建时参考它的配置手动重现）
+  const handleStartEditAppearance = useCallback((preset: DiceAppearancePreset) => {
+    setEditingAppearanceId(preset.id);
+    setEditingAppearanceName(preset.name);
+    setEditingAppearanceTextures({ ...preset.shapeTextures });
+  }, []);
+
+  // 保存正在编辑/新建的外观预设：保存后立刻把它设为当前生效的预设，
+  // 不然用户编辑完还得自己切到"使用预设"标签页手动点一下才算数，体验上像是"没应用上"。
+  const handleSaveAppearance = useCallback(() => {
+    const name = editingAppearanceName.trim() || '未命名样式';
+    const isNew = editingAppearanceId === '__new__';
+    const savedId = isNew ? genAppearancePresetId() : (editingAppearanceId as string);
+
+    setCustomAppearancePresets((prev) => {
+      let next: DiceAppearancePreset[];
+      if (isNew) {
+        next = [...prev, { id: savedId, name, shapeTextures: editingAppearanceTextures }];
+      } else {
+        next = prev.map((p) => (p.id === editingAppearanceId ? { ...p, name, shapeTextures: editingAppearanceTextures } : p));
+      }
+      saveCustomAppearancePresets(next);
+      return next;
+    });
+    setEditingAppearanceId(null);
+    handleSelectAppearancePreset(savedId);
+  }, [editingAppearanceId, editingAppearanceName, editingAppearanceTextures, handleSelectAppearancePreset]);
+
+  // 删除一个自定义外观预设；如果删的正好是当前选中的预设，退回内置默认预设
+  const handleDeleteAppearance = useCallback((id: string) => {
+    setCustomAppearancePresets((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      saveCustomAppearancePresets(next);
+      return next;
+    });
+    if (editingAppearanceId === id) setEditingAppearanceId(null);
+    if (appearancePresetId === id) handleSelectAppearancePreset(DEFAULT_APPEARANCE_PRESET_ID);
+  }, [editingAppearanceId, appearancePresetId, handleSelectAppearancePreset]);
+
+  // 开始新建一个预设：默认名字留空、表达式默认1d20当起点，减少空白感
+  const handleStartNewPreset = useCallback(() => {
+    if (dicePresets.length >= MAX_PRESETS) return;
+    setEditingPresetId('__new__');
+    setEditingPresetName('');
+    setEditingPresetExpr('1d20');
+  }, [dicePresets.length]);
+
+  // 开始编辑一个已有预设
+  const handleStartEditPreset = useCallback((preset: DicePreset) => {
+    setEditingPresetId(preset.id);
+    setEditingPresetName(preset.name);
+    setEditingPresetExpr(preset.expr);
+  }, []);
+
+  // 保存正在编辑/新建的预设：表达式必须先解析通过才能保存(编辑器里保存按钮本身也禁用了非法状态)
+  const handleSavePreset = useCallback(() => {
+    const parsed = parseDiceExpression(editingPresetExpr);
+    if (!parsed.ok) return;
+    const name = editingPresetName.trim() || describeExpression(parsed.node).toUpperCase() || '未命名';
+    const expr = editingPresetExpr.trim();
+
+    setDicePresets((prev) => {
+      let next: DicePreset[];
+      if (editingPresetId === '__new__') {
+        next = [...prev, { id: genPresetId(), name, expr }];
+      } else {
+        next = prev.map((p) => (p.id === editingPresetId ? { ...p, name, expr } : p));
+      }
+      saveDicePresets(next);
+      return next;
+    });
+    setEditingPresetId(null);
+  }, [editingPresetId, editingPresetName, editingPresetExpr]);
+
+  // 删除一个预设
+  const handleDeletePreset = useCallback((id: string) => {
+    setDicePresets((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      saveDicePresets(next);
+      return next;
+    });
+    if (editingPresetId === id) setEditingPresetId(null);
+  }, [editingPresetId]);
+
   // 滑块拖动：更新压暗强度，写入localStorage记住位置，并同步给主屏幕实时生效
   const handleDimIntensityChange = useCallback((value: number) => {
     setDimIntensity(value);
@@ -413,13 +982,20 @@ export default function InitiativeTrackerPage() {
     updateRoom({ dimIntensity: value });
   }, [updateRoom]);
 
-  // 连接成功后（或重连后），把本地记住的压暗强度推给房间，让主屏幕立即生效一次
+  // 滑块拖动：更新结果面板不透明度，写入localStorage记住位置，并同步给主屏幕实时生效
+  const handleResultPanelOpacityChange = useCallback((value: number) => {
+    setResultPanelOpacity(value);
+    localStorage.setItem(RESULT_PANEL_OPACITY_KEY, String(value));
+    updateRoom({ resultPanelOpacity: value });
+  }, [updateRoom]);
+
+  // 连接成功后（或重连后），把本地记住的压暗强度+结果面板不透明度推给房间，让主屏幕立即生效一次
   // （不依赖首次挂载时的连接状态，wsConnected变为true时才有意义推送）
   useEffect(() => {
     if (wsConnected && isConnected && roomId) {
-      updateRoom({ dimIntensity });
+      updateRoom({ dimIntensity, resultPanelOpacity });
     }
-    // 只在"刚连上"这一刻推送一次，dimIntensity变化已经由handleDimIntensityChange自己同步，这里不需要重复依赖它
+    // 只在"刚连上"这一刻推送一次，两个值变化已经由各自的handle...Change自己同步，这里不需要重复依赖它们
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsConnected, isConnected, roomId]);
 
@@ -883,14 +1459,483 @@ export default function InitiativeTrackerPage() {
   const reserveCharacters = characters.filter(c => !c.inCombat);
 
   return (
-    <div className="min-h-screen rc-chassis flex flex-col items-center py-6 px-3 sm:px-6">
+    <div className="min-h-screen rc-chassis flex flex-col items-center py-6 px-3 sm:px-6 pb-24">
       <ToolHeader
         className="!bg-transparent !border-none !static !w-full !max-w-5xl"
         textClassName="!text-slate-400 hover:!text-slate-200"
         showBackButton
       />
 
-      {/* ========== 遥控器机身 ========== */}
+      {/* ========== 共同信息面板：房间号 / 信号状态 / 断开连接，放在遥控器画面最上面，
+          不属于任何一个CONSOLE，是跨越DICE CONSOLE和INITIATIVE CONSOLE的全局状态展示。 ========== */}
+      {isConnected && roomId && (
+        <div className="w-full max-w-5xl rc-screen rounded-xl px-4 sm:px-5 py-3 mb-3 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
+            <div className="flex items-baseline gap-2">
+              <span className="rc-label">房间号</span>
+              <span className="text-xl sm:text-2xl font-black font-mono text-amber-400 tracking-wider">
+                {roomId}
+              </span>
+            </div>
+
+            {/* WebSocket连接状态指示灯 */}
+            {!wsConnected && (
+              <div className="flex items-center gap-2">
+                <div className="rc-led bg-red-500 animate-pulse" />
+                <span className="rc-label text-red-400">连接断开</span>
+              </div>
+            )}
+            {wsConnected && !displayConnected && (
+              <div className="flex items-center gap-2">
+                <div className="rc-led bg-amber-500 animate-pulse" />
+                <span className="rc-label text-amber-400">主屏幕掉线</span>
+              </div>
+            )}
+            {wsConnected && displayConnected && (
+              <div className="flex items-center gap-2">
+                <div className="rc-led bg-emerald-500" />
+                <span className="rc-label text-emerald-400">信号正常</span>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleDisconnect}
+            className="rc-btn px-3 py-1.5 rounded-lg font-bold text-xs text-red-400 bg-red-950/60"
+          >
+            断开连接
+          </button>
+        </div>
+      )}
+
+      {/* 主屏幕掉线警告横幅：跟共同信息面板放一起，同样是跨CONSOLE的全局状态 */}
+      {isConnected && wsConnected && !displayConnected && (
+        <div className="w-full max-w-5xl rc-screen rounded-xl px-4 py-2 mb-3 text-center border border-amber-600/30">
+          <span className="text-amber-300 text-sm font-semibold">
+            ⚠️ 主屏幕已断开连接，房间数据已保留，等待主屏幕重连中...
+          </span>
+        </div>
+      )}
+
+      {/* ========== 骰子sheet页：跟INITIATIVE CONSOLE是同级的两个独立页面，同一时刻只显示一个，
+          用底部tab切换。不再是"按钮唤起弹窗"的交互，常用掷骰/自定义掷骰/骰子设置三个标签页的内容
+          直接摊开展示，房间连上就能用（跟之前悬浮按钮的可用条件一致）。样式跟INITIATIVE CONSOLE统一：
+          同样的四角螺丝钉 + 顶部品牌铭牌条(LED+标题+副标题+右侧散热孔装饰)。 ========== */}
+      {isConnected && activeSheet === 'dice' && (
+        <div className="w-full max-w-5xl rc-chassis-edge rounded-[28px] p-3 sm:p-5 relative mb-4">
+          {/* 四角装饰螺丝钉 */}
+          <div className="absolute top-4 left-4 rc-screw" />
+          <div className="absolute top-4 right-4 rc-screw" />
+          <div className="absolute bottom-4 left-4 rc-screw" />
+          <div className="absolute bottom-4 right-4 rc-screw" />
+
+          {/* 顶部品牌铭牌条 */}
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="rc-led bg-purple-400" style={{ boxShadow: '0 0 6px #a855f7' }} />
+              <div>
+                <div className="text-purple-100 font-black text-sm sm:text-base tracking-widest">
+                  DICE CONSOLE
+                </div>
+                <div className="rc-label">骰子板块 · 常用 / 自定义 / 设置</div>
+              </div>
+            </div>
+            <div className="h-4 w-20 sm:w-32 rc-vents rounded opacity-60" />
+          </div>
+
+          <div className="rc-screen rounded-2xl p-4 sm:p-5">
+            {/* 结果面板透明度滑块：控制主屏幕"骰子计算总和"结果面板的不透明度，放在DICE CONSOLE里 */}
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <span className="rc-label whitespace-nowrap">结果面板透明度</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={resultPanelOpacity}
+                onChange={(e) => handleResultPanelOpacityChange(parseFloat(e.target.value))}
+                className="flex-1 accent-purple-500"
+                title="主屏幕上骰子计算总和面板的不透明度"
+              />
+              <span className="text-xs text-slate-400 font-mono w-8 text-right">{resultPanelOpacity.toFixed(2)}</span>
+            </div>
+
+            {/* 投掷结果：不再用弹窗/悬浮横幅展示，直接摊在DICE CONSOLE面板里，投掷中/有结果时都显示在这里 */}
+            {(diceRolling || diceResult) && (
+              <div className="mb-4 rounded-xl bg-slate-950/60 border border-purple-500/30 p-3">
+                {diceRolling ? (
+                  <div className="text-center text-purple-300 font-bold py-2">🎲 骰子在主屏幕上滚动中...</div>
+                ) : diceResult && customEvalResult ? (
+                  <>
+                    <div className="flex flex-wrap justify-center gap-2 mb-2">
+                      {customEvalResult.groups.map((g, i) => (
+                        <div key={i} className="px-3 py-1.5 rounded-lg bg-slate-800 border border-purple-500/30 text-center">
+                          <div className="text-[10px] text-slate-400">
+                            {i > 0 && (g.sign === -1 ? '− ' : '+ ')}
+                            {g.count}D{g.sides}{g.keep ? `(${g.keep.mode}${g.keep.amount})` : ''}
+                          </div>
+                          <div className="flex items-center justify-center gap-1 mt-1">
+                            {g.rolls.map((r) => (
+                              <DiceShapeIcon
+                                key={r.id}
+                                sides={g.sides}
+                                value={r.value}
+                                size={36}
+                                state={
+                                  pendingRerollDieId === r.id ? 'rerolling' :
+                                  (r.discarded || rerolledDieIds.has(r.id)) ? 'used' : 'idle'
+                                }
+                                onClick={() => handleRequestReroll(r.id, g.sides, r.value)}
+                              />
+                            ))}
+                          </div>
+                          <div className="text-lg font-black text-purple-300">{g.sign === -1 ? '−' : ''}{g.total}</div>
+                        </div>
+                      ))}
+                      {customEvalResult.modifier !== 0 && (
+                        <div className="px-3 py-1.5 rounded-lg bg-slate-800 border border-purple-500/30 text-center self-center">
+                          <div className="text-lg font-black text-purple-300">
+                            {customEvalResult.modifier > 0 ? '+' : ''}{customEvalResult.modifier}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-center pt-2 border-t border-purple-500/20">
+                      <span className="text-slate-400 text-sm mr-2">总和</span>
+                      <span className="text-3xl font-black text-amber-400">{customEvalResult.total}</span>
+                    </div>
+                  </>
+                ) : diceResult ? (
+                  // 掷预设/常规组合(不涉及kh/kl)：每颗骰子换成形状图标，可点击(未重投过的)发起重投请求
+                  <>
+                    <div className="flex flex-wrap justify-center gap-2 mb-2">
+                      {diceResult.sets.map((set, i) => (
+                        <div key={i} className="px-3 py-1.5 rounded-lg bg-slate-800 border border-purple-500/30 text-center">
+                          <div className="text-[10px] text-slate-400">{set.num}D{set.sides}</div>
+                          <div className="flex items-center justify-center gap-1 mt-1">
+                            {(set.rolls || []).map((r) => (
+                              <DiceShapeIcon
+                                key={r.id}
+                                sides={set.sides}
+                                value={r.value}
+                                size={36}
+                                state={
+                                  pendingRerollDieId === r.id ? 'rerolling' :
+                                  rerolledDieIds.has(r.id) ? 'used' : 'idle'
+                                }
+                                onClick={() => handleRequestReroll(r.id, set.sides, r.value)}
+                              />
+                            ))}
+                          </div>
+                          <div className="text-lg font-black text-purple-300 mt-1">{set.total}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-center pt-2 border-t border-purple-500/20">
+                      <span className="text-slate-400 text-sm mr-2">总和</span>
+                      <span className="text-3xl font-black text-amber-400">{diceResult.total}</span>
+                    </div>
+                  </>
+                ) : null}
+                {diceResult && (
+                  <button
+                    onClick={() => {
+                      setDiceResult(null);
+                      setCustomEvalResult(null);
+                      setRerolledDieIds(new Set());
+                      setPendingRerollDieId(null);
+                      // 通知主屏幕（和其他遥控器）也立刻收起结果展示，不用等倒计时自然结束
+                      if (isConnected && roomId) {
+                        sendMessage({
+                          type: 'DICE_ROLL_DISMISS',
+                          payload: { roomId, id: lastRollIdRef.current },
+                        });
+                      }
+                    }}
+                    className="w-full mt-3 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-400 bg-slate-800 hover:bg-slate-700 transition-colors"
+                  >
+                    收起
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* 标签切换：常用掷骰 / 自定义掷骰 / 骰子设置 */}
+            <div className="flex gap-1 mb-4 p-1 rounded-lg bg-slate-800/60">
+              <button
+                onClick={() => setDiceModalTab('presets')}
+                className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${
+                  diceModalTab === 'presets' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                常用掷骰
+              </button>
+              <button
+                onClick={() => setDiceModalTab('custom')}
+                className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${
+                  diceModalTab === 'custom' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                自定义掷骰
+              </button>
+              <button
+                onClick={() => setDiceModalTab('settings')}
+                className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${
+                  diceModalTab === 'settings' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                骰子设置
+              </button>
+            </div>
+
+            {/* ===== 预设标签页：两栏网格展示，正在编辑的那一项单独占满整行(表单内容多，两栏挤不下) ===== */}
+            {diceModalTab === 'presets' && (
+              <div className="grid grid-cols-2 gap-2">
+                {dicePresets.map((preset) => (
+                  <div
+                    key={preset.id}
+                    className={`rounded-lg bg-slate-800/60 overflow-hidden ${editingPresetId === preset.id ? 'col-span-2' : ''}`}
+                  >
+                    {editingPresetId === preset.id ? (
+                      <PresetEditor
+                        name={editingPresetName}
+                        expr={editingPresetExpr}
+                        onNameChange={setEditingPresetName}
+                        onExprChange={setEditingPresetExpr}
+                        onSave={handleSavePreset}
+                        onCancel={() => setEditingPresetId(null)}
+                      />
+                    ) : (
+                      <div className="flex items-center gap-1.5 p-2.5">
+                        <button
+                          onClick={() => handleRollPreset(preset)}
+                          disabled={diceRolling}
+                          className="flex-1 min-w-0 text-left disabled:opacity-50"
+                        >
+                          <div className="text-sm font-bold text-white truncate">{preset.name}</div>
+                          <div className="text-xs text-purple-400 font-mono mt-0.5 truncate">
+                            {preset.expr.toUpperCase()}
+                          </div>
+                        </button>
+                        {/* 修改/删除图标：跟名字同一行，靠右侧，缩小成小方块，不再单独占一整行 */}
+                        <button
+                          onClick={() => handleStartEditPreset(preset)}
+                          className="w-6 h-6 flex-shrink-0 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-300 text-[10px] transition-colors"
+                          title="编辑"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          onClick={() => handleDeletePreset(preset.id)}
+                          className="w-6 h-6 flex-shrink-0 rounded-md bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white text-[10px] transition-colors"
+                          title="删除"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {editingPresetId === '__new__' && (
+                  <div className="col-span-2 rounded-lg bg-slate-800/60 overflow-hidden">
+                    <PresetEditor
+                      name={editingPresetName}
+                      expr={editingPresetExpr}
+                      onNameChange={setEditingPresetName}
+                      onExprChange={setEditingPresetExpr}
+                      onSave={handleSavePreset}
+                      onCancel={() => setEditingPresetId(null)}
+                    />
+                  </div>
+                )}
+
+                {editingPresetId === null && dicePresets.length < MAX_PRESETS && (
+                  <button
+                    onClick={handleStartNewPreset}
+                    className="col-span-2 py-2.5 rounded-lg text-sm font-bold text-purple-300 bg-slate-800/40 hover:bg-slate-800 border border-dashed border-purple-500/30 transition-colors"
+                  >
+                    + 新建预设（{dicePresets.length}/{MAX_PRESETS}）
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ===== 自定义掷骰标签页：表达式输入框(可打字/可用按钮面板拼) + 实时校验预览 + 投掷 ===== */}
+            {diceModalTab === 'custom' && (
+              <div>
+                {/* 表达式输入框：系统键盘直接打字，也可以配合下方按钮面板拼接，两者等价操作同一份文本 */}
+                <input
+                  type="text"
+                  value={customExprText}
+                  onChange={(e) => setCustomExprText(e.target.value)}
+                  placeholder="例如：2d20kh1+1d4"
+                  spellCheck={false}
+                  className={`w-full px-3 py-2.5 rounded-lg bg-slate-950 border-2 text-white font-mono text-center text-lg tracking-wide focus:outline-none transition-colors ${
+                    customExprParse.ok ? 'border-purple-500/40 focus:border-purple-500' : 'border-red-500/60 focus:border-red-500'
+                  }`}
+                />
+
+                {/* 实时预览：解析成功显示可读展开式，失败显示具体错误原因（标红） */}
+                <div className="text-center my-2 min-h-[1.5rem]">
+                  {customExprParse.ok ? (
+                    <span className="text-purple-300 font-mono text-sm">
+                      {describeExpression(customExprParse.node).toUpperCase()}
+                    </span>
+                  ) : (
+                    <span className="text-red-400 text-xs font-medium">⚠ {customExprParse.error}</span>
+                  )}
+                </div>
+
+                {/* 拼字按钮面板：数字/骰子面数/kh·kl/加减括号/删除清空，点击即插入到上面的输入框 */}
+                <div className="mb-3">
+                  <ExpressionKeypad value={customExprText} onChange={setCustomExprText} />
+                </div>
+
+                <button
+                  onClick={() => customExprParse.ok && handleRollCustomExpression(customExprParse.node)}
+                  disabled={diceRolling || !customExprParse.ok}
+                  className="w-full px-6 py-3 rounded-xl font-black shadow-lg hover:scale-[1.02] transition-all text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: 'linear-gradient(135deg, #a855f7, #7e22ce)' }}
+                >
+                  投掷
+                </button>
+              </div>
+            )}
+
+            {/* ===== 骰子设置标签页：使用预设(从列表选) / 自定义骰子材质(新建改删预设)，二选一 ===== */}
+            {diceModalTab === 'settings' && (
+              <div>
+                {/* 模式切换：radio二选一，未选中的那个模式标签变灰弱化，不隐藏 */}
+                <div className="flex gap-4 mb-4 px-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="diceStyleMode"
+                      checked={diceStyleMode === 'preset'}
+                      onChange={() => setDiceStyleMode('preset')}
+                      className="accent-purple-500"
+                    />
+                    <span className={`text-sm font-bold transition-colors ${diceStyleMode === 'preset' ? 'text-white' : 'text-slate-500'}`}>
+                      使用预设
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="diceStyleMode"
+                      checked={diceStyleMode === 'custom'}
+                      onChange={() => setDiceStyleMode('custom')}
+                      className="accent-purple-500"
+                    />
+                    <span className={`text-sm font-bold transition-colors ${diceStyleMode === 'custom' ? 'text-white' : 'text-slate-500'}`}>
+                      自定义骰子材质
+                    </span>
+                  </label>
+                </div>
+
+                {/* ---- 使用预设：内置6套 + 自建的自定义预设，并列展示，点哪个就整体应用哪个 ---- */}
+                {diceStyleMode === 'preset' && (
+                  <div className="space-y-2">
+                    {getAllAppearancePresets(customAppearancePresets).map((preset) => (
+                      <button
+                        key={preset.id}
+                        onClick={() => handleSelectAppearancePreset(preset.id)}
+                        className={`w-full flex items-center gap-2 p-2.5 rounded-lg text-left transition-all ${
+                          appearancePresetId === preset.id ? 'bg-slate-700 ring-1 ring-purple-400' : 'bg-slate-800/60 hover:bg-slate-800'
+                        }`}
+                      >
+                        {/* 用D6和D20两张纹理缩略图拼一下，让预设列表也能一眼看出大概质感 */}
+                        <div className="flex -space-x-1.5 flex-shrink-0">
+                          {(['d6', 'd20'] as DiceShape[]).map((shape) => {
+                            const tex = getTextureOption(preset.shapeTextures[shape] || '');
+                            return tex.thumbnail ? (
+                              <span
+                                key={shape}
+                                className="w-7 h-7 rounded-md bg-cover bg-center border-2 border-slate-900"
+                                style={{ backgroundImage: `url(${tex.thumbnail})` }}
+                              />
+                            ) : (
+                              <span key={shape} className="w-7 h-7 rounded-md bg-white border-2 border-slate-900" />
+                            );
+                          })}
+                        </div>
+                        <span className={`flex-1 text-sm font-bold ${appearancePresetId === preset.id ? 'text-white' : 'text-slate-300'}`}>
+                          {preset.name}
+                        </span>
+                        {preset.builtin && <span className="text-[10px] text-slate-500">内置</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* ---- 自定义骰子材质：新建/编辑/删除自定义预设，每种形状固定绑定一张纹理 ---- */}
+                {diceStyleMode === 'custom' && (
+                  <div className="space-y-2">
+                    {customAppearancePresets.map((preset) => (
+                      <div key={preset.id} className="rounded-lg bg-slate-800/60 overflow-hidden">
+                        {editingAppearanceId === preset.id ? (
+                          <AppearanceEditor
+                            name={editingAppearanceName}
+                            textures={editingAppearanceTextures}
+                            onNameChange={setEditingAppearanceName}
+                            onTexturesChange={setEditingAppearanceTextures}
+                            onSave={handleSaveAppearance}
+                            onCancel={() => setEditingAppearanceId(null)}
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2 p-3">
+                            <span className="flex-1 text-sm font-bold text-white">{preset.name}</span>
+                            <button
+                              onClick={() => handleStartEditAppearance(preset)}
+                              className="w-8 h-8 flex-shrink-0 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs transition-colors"
+                              title="编辑"
+                            >
+                              ✎
+                            </button>
+                            <button
+                              onClick={() => handleDeleteAppearance(preset.id)}
+                              className="w-8 h-8 flex-shrink-0 rounded-lg bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white text-xs transition-colors"
+                              title="删除"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {editingAppearanceId === '__new__' && (
+                      <div className="rounded-lg bg-slate-800/60 overflow-hidden">
+                        <AppearanceEditor
+                          name={editingAppearanceName}
+                          textures={editingAppearanceTextures}
+                          onNameChange={setEditingAppearanceName}
+                          onTexturesChange={setEditingAppearanceTextures}
+                          onSave={handleSaveAppearance}
+                          onCancel={() => setEditingAppearanceId(null)}
+                        />
+                      </div>
+                    )}
+
+                    {editingAppearanceId === null && customAppearancePresets.length < MAX_CUSTOM_APPEARANCE_PRESETS && (
+                      <button
+                        onClick={handleStartNewAppearance}
+                        className="w-full py-2.5 rounded-lg text-sm font-bold text-purple-300 bg-slate-800/40 hover:bg-slate-800 border border-dashed border-purple-500/30 transition-colors"
+                      >
+                        + 新建样式（{customAppearancePresets.length}/{MAX_CUSTOM_APPEARANCE_PRESETS}）
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========== 先攻sheet页：未连接房间时始终显示(承载连接房间的界面)；
+          已连接房间时只在activeSheet==='initiative'才显示，跟骰子sheet页二选一。 ========== */}
+      {(!isConnected || activeSheet === 'initiative') && (
       <div className="w-full max-w-5xl rc-chassis-edge rounded-[28px] p-3 sm:p-5 relative">
         {/* 四角装饰螺丝钉 */}
         <div className="absolute top-4 left-4 rc-screw" />
@@ -911,6 +1956,32 @@ export default function InitiativeTrackerPage() {
           </div>
           <div className="h-4 w-20 sm:w-32 rc-vents rounded opacity-60" />
         </div>
+
+        {/* 状态条：回合数 + 压暗强度滑块，房间连上后显示在INITIATIVE CONSOLE内部
+            （房间号/信号状态/断开连接已经拆到页面最上面的共同信息面板，这里只留跟先攻/主屏渲染相关的东西） */}
+        {isConnected && roomId && (
+          <div className="rc-screen rounded-xl px-4 sm:px-5 py-3 mb-3 flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-baseline gap-2">
+              <span className="rc-label">回合</span>
+              <span className="text-lg font-bold text-purple-300">{roundNumber}</span>
+            </div>
+            {/* 主屏幕非当前回合角色压暗强度滑块：0=不灰，1=特别灰，实时同步给主屏幕并记住在本机 */}
+            <div className="flex items-center gap-2">
+              <span className="rc-label whitespace-nowrap">压暗强度</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={dimIntensity}
+                onChange={(e) => handleDimIntensityChange(parseFloat(e.target.value))}
+                className="w-24 sm:w-32 accent-amber-500"
+                title="主屏幕上非当前回合角色的压暗程度"
+              />
+              <span className="text-xs text-slate-400 font-mono w-8 text-right">{dimIntensity.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
 
         {/* 连接房间界面（嵌入屏幕面板样式） */}
         {!isConnected ? (
@@ -973,76 +2044,6 @@ export default function InitiativeTrackerPage() {
         ) : (
           /* 主界面 */
           <>
-            {/* 状态显示条：房间号 / 回合数 / 连接指示灯，做成仪表盘样式 */}
-            {isConnected && roomId && (
-              <div className="rc-screen rounded-xl px-4 sm:px-5 py-3 mb-3 flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
-                  <div className="flex items-baseline gap-2">
-                    <span className="rc-label">房间号</span>
-                    <span className="text-xl sm:text-2xl font-black font-mono text-amber-400 tracking-wider">
-                      {roomId}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline gap-2">
-                    <span className="rc-label">回合</span>
-                    <span className="text-lg font-bold text-purple-300">{roundNumber}</span>
-                  </div>
-                  
-                  {/* WebSocket连接状态指示灯 */}
-                  {!wsConnected && (
-                    <div className="flex items-center gap-2">
-                      <div className="rc-led bg-red-500 animate-pulse" />
-                      <span className="rc-label text-red-400">连接断开</span>
-                    </div>
-                  )}
-                  {wsConnected && !displayConnected && (
-                    <div className="flex items-center gap-2">
-                      <div className="rc-led bg-amber-500 animate-pulse" />
-                      <span className="rc-label text-amber-400">主屏幕掉线</span>
-                    </div>
-                  )}
-                  {wsConnected && displayConnected && (
-                    <div className="flex items-center gap-2">
-                      <div className="rc-led bg-emerald-500" />
-                      <span className="rc-label text-emerald-400">信号正常</span>
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  {/* 主屏幕非当前回合角色压暗强度滑块：0=不灰，1=特别灰，实时同步给主屏幕并记住在本机 */}
-                  <div className="flex items-center gap-2">
-                    <span className="rc-label whitespace-nowrap">压暗强度</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={dimIntensity}
-                      onChange={(e) => handleDimIntensityChange(parseFloat(e.target.value))}
-                      className="w-24 sm:w-32 accent-amber-500"
-                      title="主屏幕上非当前回合角色的压暗程度"
-                    />
-                    <span className="text-xs text-slate-400 font-mono w-8 text-right">{dimIntensity.toFixed(2)}</span>
-                  </div>
-                  <button
-                    onClick={handleDisconnect}
-                    className="rc-btn px-3 py-1.5 rounded-lg font-bold text-xs text-red-400 bg-red-950/60"
-                  >
-                    断开连接
-                  </button>
-                </div>
-              </div>
-            )}
-            
-            {/* 主屏幕掉线警告横幅 */}
-            {isConnected && wsConnected && !displayConnected && (
-              <div className="rc-screen rounded-xl px-4 py-2 mb-3 text-center border border-amber-600/30">
-                <span className="text-amber-300 text-sm font-semibold">
-                  ⚠️ 主屏幕已断开连接，房间数据已保留，等待主屏幕重连中...
-                </span>
-              </div>
-            )}
-
             {/* ========== 1. 战斗主显示区（嵌入式屏幕面板） ========== */}
             <div
               ref={combatZoneRef}
@@ -1202,7 +2203,7 @@ export default function InitiativeTrackerPage() {
               )}
             </div>
 
-            {/* ========== 3. 控制台：角色创建 / 重置（物理按键区） ========== */}
+            {/* ========== 3. 控制台：角色创建 / 重置 / 回合切换（物理按键区）========== */}
             <div className="rc-screen relative p-4 pt-9 rounded-2xl">
               <div className="absolute top-3 left-4 rc-label z-10">
                 ⌘ 控制台
@@ -1225,11 +2226,32 @@ export default function InitiativeTrackerPage() {
                 >
                   🔄 完全重置
                 </button>
+                {/* 回合切换：原来是fixed悬浮在视口右侧，现在挪进控制台面板里，跟其他按键放一起 */}
+                {combatCharacters.length > 0 && (
+                  <>
+                    <button
+                      onClick={handlePrevTurn}
+                      className="rc-btn px-5 py-2.5 rounded-xl font-bold text-slate-100 bg-slate-800 text-sm"
+                      title="上一个"
+                    >
+                      ◀ 上一个
+                    </button>
+                    <button
+                      onClick={handleNextTurn}
+                      className="rc-btn px-5 py-2.5 rounded-xl font-bold text-white text-sm"
+                      style={{ background: 'linear-gradient(180deg, #f59e0b, #d97706)' }}
+                      title="下一个"
+                    >
+                      下一个 ▶
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </>
         )}
       </div>
+      )}
 
       {/* 机身底部品牌条 */}
       <div className="w-full max-w-5xl flex items-center justify-center gap-2 mt-3 opacity-40">
@@ -1237,6 +2259,36 @@ export default function InitiativeTrackerPage() {
         <span className="rc-label">RC-01 · DND SERIES</span>
         <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-500 to-transparent" />
       </div>
+
+      {/* 底部sheet切换tab：房间连上后才出现(未连接时只有先攻页承载连接界面，没有切换的意义)。
+          fixed固定在屏幕最下面，留出安全间距(pb-24给页面内容)避免被这个tab条挡住。 */}
+      {isConnected && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center px-3 pb-3 pt-2 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent">
+          <div className="w-full max-w-5xl rc-chassis-edge rounded-2xl p-1.5 flex gap-1.5">
+            <button
+              onClick={() => setActiveSheet('initiative')}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 rounded-xl font-bold transition-all ${
+                activeSheet === 'initiative' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-lg leading-none">⚔</span>
+              <span className="text-[11px] tracking-wide">先攻</span>
+            </button>
+            <button
+              onClick={() => setActiveSheet('dice')}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 rounded-xl font-bold transition-all ${
+                activeSheet === 'dice' ? 'bg-purple-500 text-white' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z" strokeLinejoin="round" />
+                <path d="M12 2 L12 22 M3 7 L12 12 L21 7 M3 17 L12 12" strokeLinejoin="round" strokeLinecap="round" opacity="0.5" />
+              </svg>
+              <span className="text-[11px] tracking-wide">骰子</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 角色创建弹窗 */}
       {isAddingCharacter && (
@@ -1887,29 +2939,6 @@ export default function InitiativeTrackerPage() {
         </div>
       )}
 
-      {/* 回合控制按钮：fixed定位悬浮在视口右侧，不随页面滚动消失（不再挂在战斗区域容器内） */}
-      {isConnected && combatCharacters.length > 0 && (
-        <div className="fixed right-4 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-3">
-          <button
-            onClick={handlePrevTurn}
-            className="rc-btn flex flex-col items-center gap-1 px-4 py-3 rounded-2xl font-bold text-slate-100 bg-slate-800 shadow-2xl ring-1 ring-white/10"
-            title="上一个"
-          >
-            <span className="text-xl leading-none">◀</span>
-            <span className="text-[10px] rc-label">上一个</span>
-          </button>
-          <button
-            onClick={handleNextTurn}
-            className="rc-btn flex flex-col items-center gap-1 px-4 py-3 rounded-2xl font-bold text-white shadow-2xl ring-1 ring-amber-400/40"
-            style={{ background: 'linear-gradient(180deg, #f59e0b, #d97706)' }}
-            title="下一个"
-          >
-            <span className="text-xl leading-none">▶</span>
-            <span className="text-[10px] font-semibold tracking-wide">下一个</span>
-          </button>
-        </div>
-      )}
-
       {/* 移出战斗区确认弹窗：替代浏览器原生confirm，风格和其他弹窗统一 */}
       {removeTarget && (
         <div
@@ -1943,6 +2972,44 @@ export default function InitiativeTrackerPage() {
                 style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}
               >
                 确认移出
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 重投单颗骰子确认弹窗：点击结果面板里某颗还没重投过的骰子触发，风格和其他确认弹窗统一 */}
+      {rerollConfirmTarget && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+          onClick={() => setRerollConfirmTarget(null)}
+        >
+          <div
+            className="bg-slate-900 rounded-2xl p-6 max-w-sm w-full border-2 border-amber-500/40 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col items-center text-center gap-3 mb-6">
+              <DiceShapeIcon sides={rerollConfirmTarget.sides} value={rerollConfirmTarget.value} size={64} state="idle" />
+              <h3 className="text-xl font-black text-amber-400">重投这颗骰子？</h3>
+              <p className="text-slate-300 text-sm">
+                D{rerollConfirmTarget.sides}，当前点数 <span className="font-bold text-white">{rerollConfirmTarget.value}</span>。
+                <br />每颗骰子只能重投一次，确认后不能取消。
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setRerollConfirmTarget(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl font-bold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmReroll}
+                className="flex-1 px-4 py-2.5 rounded-xl font-bold text-white shadow-lg hover:scale-105 transition-all"
+                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+              >
+                确认重投
               </button>
             </div>
           </div>
