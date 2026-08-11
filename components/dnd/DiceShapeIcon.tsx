@@ -6,7 +6,7 @@
 // 这也是桌游类App(Roll20等)常见的简化画法。轮廓中间叠数字，轮廓下方再加一个"D几"小字标，
 // 双重标识，不用只靠形状去猜。
 
-export type DiceShapeIconState = 'idle' | 'used' | 'rerolling';
+export type DiceShapeIconState = 'idle' | 'selected' | 'used' | 'rerolling';
 
 interface DiceShapeIconProps {
   sides: number;
@@ -36,6 +36,7 @@ function getShapePath(sides: number): string {
 
 const STATE_STYLES: Record<DiceShapeIconState, { stroke: string; fill: string; textColor: string; opacity: number }> = {
   idle: { stroke: '#a855f7', fill: 'rgba(168,85,247,0.12)', textColor: '#e9d5ff', opacity: 1 },
+  selected: { stroke: '#f59e0b', fill: 'rgba(245,158,11,0.2)', textColor: '#fef3c7', opacity: 1 },
   used: { stroke: '#475569', fill: 'rgba(71,85,105,0.15)', textColor: '#64748b', opacity: 0.6 },
   rerolling: { stroke: '#facc15', fill: 'rgba(250,204,21,0.15)', textColor: '#fde68a', opacity: 1 },
 };
@@ -49,7 +50,7 @@ export default function DiceShapeIcon({
   className = '',
 }: DiceShapeIconProps) {
   const style = STATE_STYLES[state];
-  const clickable = state === 'idle' && !!onClick;
+  const clickable = (state === 'idle' || state === 'selected') && !!onClick;
   const shapeLabel = sides === 100 ? 'D100' : `D${sides}`;
 
   return (
@@ -61,7 +62,7 @@ export default function DiceShapeIcon({
         clickable ? 'cursor-pointer hover:scale-110' : 'cursor-default'
       } ${state === 'rerolling' ? 'animate-pulse' : ''} ${className}`}
       style={{ opacity: style.opacity, width: size }}
-      title={clickable ? `点击重投这颗D${sides}（当前${value}点）` : undefined}
+      title={clickable ? (state === 'selected' ? `取消选择这颗D${sides}` : `选择这颗D${sides}重投（当前${value}点）`) : undefined}
     >
       <svg viewBox="0 0 100 100" width={size} height={size} className="drop-shadow-sm">
         <path

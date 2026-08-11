@@ -587,13 +587,11 @@ export default function InitiativeTrackerPage() {
   const [diceRolling, setDiceRolling] = useState(false);
   const [diceResult, setDiceResult] = useState<DiceRollResult | null>(null);
   const lastRollIdRef = useRef<string | null>(null);
-  // 单颗骰子重投："这一次投掷里，哪些骰子(全局id)已经用过唯一一次重投机会"——完全信任主屏幕
-  // 广播回来的DICE_DIE_REROLL_RESULT，不在本地自己维护判断逻辑，保证多台遥控器之间显示一致。
+  // 重投选择与等待状态都以骰子全局id为单位：可选择多颗，主屏幕返回结果前统一显示为等待中。
   const [rerolledDieIds, setRerolledDieIds] = useState<Set<number>>(new Set());
-  // 正在等待重投结果的骰子id：点击后立刻标"等待中"，避免手抖连点两次同一颗骰子；
-  // 结果广播回来(或者结果被收起)后清空。
-  const [pendingRerollDieId, setPendingRerollDieId] = useState<number | null>(null);
-  const [rerollConfirmTarget, setRerollConfirmTarget] = useState<{ dieId: number; sides: number; value: number } | null>(null);
+  const [selectedRerollDieIds, setSelectedRerollDieIds] = useState<Set<number>>(new Set());
+  const [pendingRerollDieIds, setPendingRerollDieIds] = useState<Set<number>>(new Set());
+  const [rerollConfirmTargets, setRerollConfirmTargets] = useState<{ dieId: number; sides: number; value: number }[] | null>(null);
   // "自定义掷骰"标签页：整个换成表达式输入框(支持kh/kl取高取低+括号+加减常数)，不再是"加一组几D几"表单。
   // 表达式文本存本地记住，下次打开面板还在；实时解析成表达式树，非法输入直接标红+具体报错，投掷按钮禁用。
   const CUSTOM_EXPR_KEY = 'dnd-dice-custom-expr';
@@ -699,9 +697,11 @@ export default function InitiativeTrackerPage() {
         // recipe直接从广播payload里取(不管这次投掷是不是自己发起的)，保证即使是别的遥控器发起的
         // 带kh/kl的投掷，自己这边后续重投时也能正确重新计算明细，不会因为"不是自己发起的"而缺失配方。
         setDiceRolling(true);
+        lastRollIdRef.current = message.payload.id;
         setDiceResult(null);
         setRerolledDieIds(new Set());
-        setPendingRerollDieId(null);
+        setSelectedRerollDieIds(new Set());
+        setPendingRerollDieIds(new Set());
         pendingRecipeRef.current = message.payload.recipe || null;
       } else if (message.type === 'DICE_ROLL_RESULT') {
         // 主屏幕播放完3D动画后广播回来的结构化结果：每组小计 + 总和
@@ -724,7 +724,8 @@ export default function InitiativeTrackerPage() {
         // 都据此同步刷新——不管这次重投是不是自己发起的，都完全信任这份广播数据，不做本地乐观更新。
         setDiceResult(message.payload.result);
         setRerolledDieIds(new Set(message.payload.rerolledDieIds || []));
-        setPendingRerollDieId(null);
+        setSelectedRerollDieIds(new Set());
+        setPendingRerollDieIds(new Set());
         // 带kh/kl配方的投掷，重投后主屏幕已经用最新点数重新算过明细，这里同样重算一遍保持展示一致
         if (pendingRecipeRef.current) {
           const sets = (message.payload.result.sets || []) as { sides: number; rolls?: { value: number; id: number }[] }[];
@@ -732,12 +733,14 @@ export default function InitiativeTrackerPage() {
           setCustomEvalResult(evaluateRecipe(pendingRecipeRef.current, engineSets));
         }
       } else if (message.type === 'DICE_ROLL_DISMISS') {
-        // 任意一端点了"收起"（可能是自己，也可能是别的遥控器）：同步清掉本地展示的结果横幅
+        // 只响应当前这一轮的收起消息，避免旧的网络消息清掉后来新掷出的结果。
+        if (message.payload.id !== lastRollIdRef.current) return;
         setDiceRolling(false);
         setDiceResult(null);
         setCustomEvalResult(null);
         setRerolledDieIds(new Set());
-        setPendingRerollDieId(null);
+        setSelectedRerollDieIds(new Set());
+        setPendingRerollDieIds(new Set());
       } else if (message.type === 'ERROR') {
         alert(message.payload.message);
         setIsConnected(false);
@@ -842,30 +845,41 @@ export default function InitiativeTrackerPage() {
     rollNotation(toEngineNotation(parsed.node), recipe);
   }, [rollNotation]);
 
-  // 点击结果面板里某一颗骰子(还没重投过的)：先弹确认框，确认后才真正发出重投请求。
-  // 边界情况：这个交互只在主屏幕场景还存活的这段时间内有效(结果展示中、还没被收起)——
-  // diceResult存在就意味着场景大概率还活着，如果场景已经卸载，主屏幕那边的DICE_DIE_REROLL
-  // 处理器会因为rollId不匹配当前投掷而静默忽略，不会报错，遥控器这边不需要额外判断。
-  const handleRequestReroll = useCallback((dieId: number, sides: number, value: number) => {
-    if (rerolledDieIds.has(dieId) || pendingRerollDieId !== null) return;
-    setRerollConfirmTarget({ dieId, sides, value });
-  }, [rerolledDieIds, pendingRerollDieId]);
+  // 点击未使用机会的骰子时，只切换选择状态；用户可选多颗后再统一确认。
+  const handleRequestReroll = useCallback((dieId: number) => {
+    if (rerolledDieIds.has(dieId) || pendingRerollDieIds.has(dieId)) return;
+    setSelectedRerollDieIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(dieId)) next.delete(dieId);
+      else next.add(dieId);
+      return next;
+    });
+  }, [rerolledDieIds, pendingRerollDieIds]);
 
-  // 确认框点了"确认重投"：真正发出请求，立刻标记这颗骰子"等待中"防止手抖连点
+  const openRerollConfirm = useCallback(() => {
+    if (!diceResult || selectedRerollDieIds.size === 0) return;
+    const targets = diceResult.sets.flatMap((set) => (set.rolls || [])
+      .filter((roll) => selectedRerollDieIds.has(roll.id))
+      .map((roll) => ({ dieId: roll.id, sides: set.sides, value: roll.value })));
+    if (targets.length) setRerollConfirmTargets(targets);
+  }, [diceResult, selectedRerollDieIds]);
+
+  // 确认后把本次选中的所有骰子作为一个原子请求发给主屏幕，保证它们同时播放重投动画。
   const confirmReroll = useCallback(() => {
-    if (!rerollConfirmTarget || !isConnected || !roomId || !lastRollIdRef.current) {
-      setRerollConfirmTarget(null);
+    if (!rerollConfirmTargets || !isConnected || !roomId || !lastRollIdRef.current) {
+      setRerollConfirmTargets(null);
       return;
     }
-    const { dieId } = rerollConfirmTarget;
+    const dieIds = rerollConfirmTargets.map((target) => target.dieId);
     const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    setPendingRerollDieId(dieId);
+    setPendingRerollDieIds(new Set(dieIds));
+    setSelectedRerollDieIds(new Set());
     sendMessage({
       type: 'DICE_DIE_REROLL',
-      payload: { roomId, rollId: lastRollIdRef.current, requestId, dieId },
+      payload: { roomId, rollId: lastRollIdRef.current, requestId, dieIds },
     });
-    setRerollConfirmTarget(null);
-  }, [rerollConfirmTarget, isConnected, roomId, sendMessage]);
+    setRerollConfirmTargets(null);
+  }, [rerollConfirmTargets, isConnected, roomId, sendMessage]);
 
   // 掷"自定义掷骰"标签页里当前输入框解析出的表达式：拆成配方(骰子分组+kh/kl+符号，不含语法树)，
   // 记住这次投掷对应的配方，等结果回来后据此重新计算展示；配方也随DICE_ROLL一起发给主屏幕，
@@ -1568,12 +1582,12 @@ export default function InitiativeTrackerPage() {
                   <>
                     <div className="flex flex-wrap justify-center gap-2 mb-2">
                       {customEvalResult.groups.map((g, i) => (
-                        <div key={i} className="px-3 py-1.5 rounded-lg bg-slate-800 border border-purple-500/30 text-center">
+                        <div key={i} className="w-full sm:w-auto min-w-0 px-3 py-1.5 rounded-lg bg-slate-800 border border-purple-500/30 text-center">
                           <div className="text-[10px] text-slate-400">
                             {i > 0 && (g.sign === -1 ? '− ' : '+ ')}
                             {g.count}D{g.sides}{g.keep ? `(${g.keep.mode}${g.keep.amount})` : ''}
                           </div>
-                          <div className="flex items-center justify-center gap-1 mt-1">
+                          <div className="flex flex-wrap items-center justify-center gap-1 mt-1">
                             {g.rolls.map((r) => (
                               <DiceShapeIcon
                                 key={r.id}
@@ -1581,10 +1595,11 @@ export default function InitiativeTrackerPage() {
                                 value={r.value}
                                 size={36}
                                 state={
-                                  pendingRerollDieId === r.id ? 'rerolling' :
-                                  (r.discarded || rerolledDieIds.has(r.id)) ? 'used' : 'idle'
+                                  pendingRerollDieIds.has(r.id) ? 'rerolling' :
+                                  (r.discarded || rerolledDieIds.has(r.id)) ? 'used' :
+                                  selectedRerollDieIds.has(r.id) ? 'selected' : 'idle'
                                 }
-                                onClick={() => handleRequestReroll(r.id, g.sides, r.value)}
+                                onClick={() => handleRequestReroll(r.id)}
                               />
                             ))}
                           </div>
@@ -1609,9 +1624,9 @@ export default function InitiativeTrackerPage() {
                   <>
                     <div className="flex flex-wrap justify-center gap-2 mb-2">
                       {diceResult.sets.map((set, i) => (
-                        <div key={i} className="px-3 py-1.5 rounded-lg bg-slate-800 border border-purple-500/30 text-center">
+                        <div key={i} className="w-full sm:w-auto min-w-0 px-3 py-1.5 rounded-lg bg-slate-800 border border-purple-500/30 text-center">
                           <div className="text-[10px] text-slate-400">{set.num}D{set.sides}</div>
-                          <div className="flex items-center justify-center gap-1 mt-1">
+                          <div className="flex flex-wrap items-center justify-center gap-1 mt-1">
                             {(set.rolls || []).map((r) => (
                               <DiceShapeIcon
                                 key={r.id}
@@ -1619,10 +1634,11 @@ export default function InitiativeTrackerPage() {
                                 value={r.value}
                                 size={36}
                                 state={
-                                  pendingRerollDieId === r.id ? 'rerolling' :
-                                  rerolledDieIds.has(r.id) ? 'used' : 'idle'
+                                  pendingRerollDieIds.has(r.id) ? 'rerolling' :
+                                  rerolledDieIds.has(r.id) ? 'used' :
+                                  selectedRerollDieIds.has(r.id) ? 'selected' : 'idle'
                                 }
-                                onClick={() => handleRequestReroll(r.id, set.sides, r.value)}
+                                onClick={() => handleRequestReroll(r.id)}
                               />
                             ))}
                           </div>
@@ -1636,13 +1652,22 @@ export default function InitiativeTrackerPage() {
                     </div>
                   </>
                 ) : null}
+                {diceResult && selectedRerollDieIds.size > 0 && (
+                  <button
+                    onClick={openRerollConfirm}
+                    className="w-full mt-3 px-3 py-2 rounded-lg text-sm font-black text-amber-100 border border-amber-400/50 bg-amber-500/15 hover:bg-amber-500/25 transition-colors"
+                  >
+                    重投已选 {selectedRerollDieIds.size} 颗骰子
+                  </button>
+                )}
                 {diceResult && (
                   <button
                     onClick={() => {
                       setDiceResult(null);
                       setCustomEvalResult(null);
                       setRerolledDieIds(new Set());
-                      setPendingRerollDieId(null);
+                      setSelectedRerollDieIds(new Set());
+                      setPendingRerollDieIds(new Set());
                       // 通知主屏幕（和其他遥控器）也立刻收起结果展示，不用等倒计时自然结束
                       if (isConnected && roomId) {
                         sendMessage({
@@ -2978,28 +3003,31 @@ export default function InitiativeTrackerPage() {
         </div>
       )}
 
-      {/* 重投单颗骰子确认弹窗：点击结果面板里某颗还没重投过的骰子触发，风格和其他确认弹窗统一 */}
-      {rerollConfirmTarget && (
+      {/* 批量重投确认：用户可先在结果中多选骰子，再用一次确认触发同一段物理动画。 */}
+      {rerollConfirmTargets && (
         <div
           className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-          onClick={() => setRerollConfirmTarget(null)}
+          onClick={() => setRerollConfirmTargets(null)}
         >
           <div
-            className="bg-slate-900 rounded-2xl p-6 max-w-sm w-full border-2 border-amber-500/40 shadow-2xl"
+            className="bg-slate-900 rounded-2xl p-5 sm:p-6 max-w-sm w-full border-2 border-amber-500/40 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex flex-col items-center text-center gap-3 mb-6">
-              <DiceShapeIcon sides={rerollConfirmTarget.sides} value={rerollConfirmTarget.value} size={64} state="idle" />
-              <h3 className="text-xl font-black text-amber-400">重投这颗骰子？</h3>
+              <div className="flex flex-wrap justify-center gap-2 max-h-40 overflow-y-auto">
+                {rerollConfirmTargets.map((target) => (
+                  <DiceShapeIcon key={target.dieId} sides={target.sides} value={target.value} size={48} state="selected" />
+                ))}
+              </div>
+              <h3 className="text-xl font-black text-amber-400">重投已选 {rerollConfirmTargets.length} 颗骰子？</h3>
               <p className="text-slate-300 text-sm">
-                D{rerollConfirmTarget.sides}，当前点数 <span className="font-bold text-white">{rerollConfirmTarget.value}</span>。
-                <br />每颗骰子只能重投一次，确认后不能取消。
+                它们会在主屏幕中同时重投；每颗骰子都只能重投一次，确认后不能取消。
               </p>
             </div>
 
             <div className="flex gap-3">
               <button
-                onClick={() => setRerollConfirmTarget(null)}
+                onClick={() => setRerollConfirmTargets(null)}
                 className="flex-1 px-4 py-2.5 rounded-xl font-bold text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
               >
                 取消

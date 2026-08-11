@@ -48,11 +48,10 @@ export interface DiceHighlightTarget {
   color: 'gold' | 'red';
 }
 
-// 单颗骰子重投请求：requestId变化就触发一次新的重投（跟rollRequest.id同样的"变化触发"模式），
-// dieId是要重投的这一颗骰子在引擎diceList里的全局索引（对应DiceRollResultSet.rolls[].id）。
+// 多颗骰子重投请求：requestId变化就触发一次批量重投，dieIds对应引擎diceList里的全局索引。
 export interface DiceRerollRequest {
   requestId: string;
-  dieId: number;
+  dieIds: number[];
 }
 
 interface DiceRollerProps {
@@ -64,8 +63,8 @@ interface DiceRollerProps {
   highlights?: DiceHighlightTarget[];
   // 单颗骰子重投请求：场景里其余骰子原地不动，只让这一颗重新物理抛掷
   rerollRequest?: DiceRerollRequest | null;
-  // 重投动画播完后回调，带上重投出的新点数，父组件据此重新计算kh/kl明细+广播新结果
-  onRerollComplete?: (requestId: string, dieId: number, newValue: number) => void;
+  // 重投动画播完后回调，结果数组顺序与请求dieIds一致，父组件据此重新计算kh/kl明细+广播新结果
+  onRerollComplete?: (requestId: string, results: { dieId: number; value: number }[]) => void;
 }
 
 export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, highlights, rerollRequest, onRerollComplete }: DiceRollerProps) {
@@ -170,22 +169,22 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
     boxRef.current.applyHighlights(highlights || []);
   }, [highlights]);
 
-  // 单颗骰子重投：requestId变化就触发引擎的reroll([dieId])，只让这一颗骰子重新物理抛掷，
-  // 其余骰子(body.type还是STATIC/已经落地)不受影响。动画播完拿到新点数后回调给父组件。
+  // 批量重投：同一请求中的骰子由3D引擎同时物理抛掷，其余骰子保持原位。
   useEffect(() => {
     if (!rerollRequest || rerollRequest.requestId === lastRerollRequestIdRef.current) return;
-    if (!readyRef.current || !boxRef.current || rerollingRef.current) return;
+    if (!readyRef.current || !boxRef.current || rerollingRef.current || rerollRequest.dieIds.length === 0) return;
 
     lastRerollRequestIdRef.current = rerollRequest.requestId;
     rerollingRef.current = true;
-    const { requestId, dieId } = rerollRequest;
+    const { requestId, dieIds } = rerollRequest;
 
-    boxRef.current.reroll([dieId]).then((results: { value: number }[]) => {
+    boxRef.current.reroll(dieIds).then((results: { value: number }[]) => {
       rerollingRef.current = false;
-      const newValue = results[0]?.value;
-      if (typeof newValue === 'number') {
-        onRerollComplete?.(requestId, dieId, newValue);
-      }
+      const completed = dieIds.flatMap((dieId, index) => {
+        const value = results[index]?.value;
+        return typeof value === 'number' ? [{ dieId, value }] : [];
+      });
+      if (completed.length) onRerollComplete?.(requestId, completed);
     }).catch(() => {
       rerollingRef.current = false;
     });

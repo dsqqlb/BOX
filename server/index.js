@@ -143,6 +143,7 @@ const MIME_TYPES = {
   '.ttf': 'font/ttf',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
+  '.mp3': 'audio/mpeg',
 };
 
 // 这些文本类型压缩收益明显（json-visualizer 打包后有250KB+），二进制/图片不压缩
@@ -153,7 +154,7 @@ function cacheControlFor(pathname, ext) {
   if (pathname.startsWith('/_next/static/')) return 'public, max-age=31536000, immutable';
   // HTML 不缓存，保证部署后用户刷新就能拿到新版本
   if (ext === '.html') return 'no-cache';
-  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.otf', '.ttf', '.woff', '.woff2'].includes(ext)) {
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.otf', '.ttf', '.woff', '.woff2', '.mp3'].includes(ext)) {
     return 'public, max-age=2592000'; // 图片/字体 30天
   }
   if (['.js', '.mjs', '.css'].includes(ext)) return 'public, max-age=604800'; // 7天
@@ -374,27 +375,24 @@ wss.on('connection', (ws) => {
         }
 
         case 'DICE_DIE_REROLL': {
-          // 遥控器点了某一颗骰子的"重投"：只做转发广播，不在服务器这一层做"是否已经重投过"的校验——
-          // 那份"这颗骰子是否已经用过重投机会"的状态由主屏幕维护（跟当前这次投掷绑定，
-          // 新的DICE_ROLL一来就清空），服务器只管把请求转发给房间内所有客户端。
-          const { roomId, rollId, requestId, dieId } = payload;
+          // 重投请求可包含多颗骰子；服务器只转发，主屏幕会校验本轮可用骰子并一次性播放动画。
+          const { roomId, rollId, requestId, dieIds } = payload;
           if (!rooms.has(roomId)) {
             ws.send(JSON.stringify({ type: 'ERROR', payload: { message: '房间已失效，请重新连接' } }));
             return;
           }
           rooms.get(roomId).lastActivity = Date.now();
-          console.log(`🎲 重投请求: ${roomId} 骰子#${dieId}`);
-          broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL', payload: { rollId, requestId, dieId } });
+          console.log(`🎲 重投请求: ${roomId} 骰子#${Array.isArray(dieIds) ? dieIds.join(', ') : ''}`);
+          broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL', payload: { rollId, requestId, dieIds } });
           break;
         }
 
         case 'DICE_DIE_REROLL_RESULT': {
-          // 主屏幕算完这一颗骰子的重投动画后，把更新后的完整结果 + "已经用过重投机会的骰子id列表"
-          // 广播给房间内所有客户端，遥控器和主屏幕自己都据此刷新展示(哪颗新点数、哪颗不能再点)。
-          const { roomId, id, notation, result, rerolledDieIds } = payload;
+          // 主屏幕广播一次批量重投后的完整结果和已使用重投机会的骰子列表。
+          const { roomId, id, requestId, notation, result, rerolledDieIds } = payload;
           if (!rooms.has(roomId)) return;
           rooms.get(roomId).lastActivity = Date.now();
-          broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL_RESULT', payload: { id, notation, result, rerolledDieIds } });
+          broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL_RESULT', payload: { id, requestId, notation, result, rerolledDieIds } });
           break;
         }
 

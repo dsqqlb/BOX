@@ -392,9 +392,7 @@ function InitiativeDisplayPageInner() {
   const [diceHighlights, setDiceHighlights] = useState<DiceHighlight[]>([]);
   // 记住这一轮投掷请求带的配方，摇完拿到结果后才用得上；发起新一轮投掷/收起时清空
   const pendingRecipeRef = useRef<FlattenedRecipe | null>(null);
-  // 上一轮投掷留下的"隐藏遮罩"/"卸载3D场景"定时器：如果在这两个定时器触发之前又发起了新的一次投掷，
-  // 必须先清掉，否则旧定时器会在新一轮结果展示到一半时把它提前隐藏/卸载掉（这就是之前"倒计时不准"的bug根源）。
-  const diceHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 只有手动收起后的700ms淡出卸载定时器；骰盘不再设置自动隐藏倒计时。
   const diceUnmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 单颗骰子重投："这一次投掷里，哪些骰子(全局id)已经用过唯一一次重投机会"——
@@ -492,8 +490,7 @@ function InitiativeDisplayPageInner() {
       } else if (message.type === 'DICE_ROLL') {
         // 遥控器发起了一次掷骰：铺满全屏，触发3D动画。
         // rollRequest.id变化时DiceRoller组件才会真正触发新的一次投掷（见DiceRoller内部判重逻辑）。
-        // 先清掉上一轮投掷留下的"隐藏/卸载"定时器，避免它们在这一轮结果展示期间意外触发。
-        if (diceHideTimerRef.current) clearTimeout(diceHideTimerRef.current);
+        // 新一轮投掷只需取消可能正在淡出的旧场景。
         if (diceUnmountTimerRef.current) clearTimeout(diceUnmountTimerRef.current);
         setDiceLastResult(null);
         setDiceCustomEval(null);
@@ -510,17 +507,19 @@ function InitiativeDisplayPageInner() {
           recipe: message.payload.recipe,
         });
       } else if (message.type === 'DICE_DIE_REROLL') {
-        // 遥控器请求重投某一颗骰子。边界情况处理：
-        // 1) 这次重投请求对应的投掷(rollId)已经不是当前展示的这一轮了(场景可能已经卸载/收起)，忽略；
-        // 2) 这颗骰子已经用过重投机会了(两台遥控器几乎同时点了同一颗，按到达顺序，第二个直接忽略)。
-        const { rollId, requestId, dieId } = message.payload;
-        if (!diceRollRequest || diceRollRequest.id !== rollId) return;
-        if (rerolledDieIds.has(dieId)) return;
-        setDiceRerollRequest({ requestId, dieId });
+        // 一个请求可以包含多颗骰子：主屏幕作为权威方，过滤掉无效、已重投或重复的id后一次性动画。
+        const { rollId, requestId, dieIds } = message.payload;
+        if (!diceRollRequest || diceRollRequest.id !== rollId || !diceEngineResultRef.current) return;
+        const validIds = new Set(
+          diceEngineResultRef.current.sets.flatMap((set) => (set.rolls || []).map((roll) => roll.id)),
+        );
+        const acceptedDieIds = [...new Set(Array.isArray(dieIds) ? dieIds : [])]
+          .filter((dieId) => validIds.has(dieId) && !rerolledDieIds.has(dieId));
+        if (!acceptedDieIds.length) return;
+        setDiceRerollRequest({ requestId, dieIds: acceptedDieIds });
       } else if (message.type === 'DICE_ROLL_DISMISS') {
-        // 遥控器点了"收起"：立刻收起遮罩，不用等倒计时。
-        // 清掉原定的两个定时器，改成马上淡出+短暂延迟后卸载（等css过渡播完，避免场景生硬消失）。
-        if (diceHideTimerRef.current) clearTimeout(diceHideTimerRef.current);
+        // 只有当前这一轮的明确收起操作才可以关闭骰盘，避免旧消息误关新一轮。
+        if (!diceRollRequest || message.payload.id !== diceRollRequest.id) return;
         if (diceUnmountTimerRef.current) clearTimeout(diceUnmountTimerRef.current);
         setDiceOverlayVisible(false);
         diceUnmountTimerRef.current = setTimeout(() => {
@@ -528,6 +527,10 @@ function InitiativeDisplayPageInner() {
           setDiceLastResult(null);
           setDiceCustomEval(null);
           setDiceHighlights([]);
+          setRerolledDieIds(new Set());
+          setDiceRerollRequest(null);
+          diceEngineResultRef.current = null;
+          pendingRecipeRef.current = null;
         }, 700);
       } else if (message.type === 'ERROR') {
         console.error('❌ 服务器错误:', message.payload.message);
@@ -583,55 +586,39 @@ function InitiativeDisplayPageInner() {
       });
     }
 
-    // 停留120秒展示结果，然后淡出收起遮罩，露出下面的角色卡战斗区。
-    // 保险起见先清掉可能残留的旧定时器，再记录这一轮新建的定时器引用，供下一次投掷发起时清理。
-    if (diceHideTimerRef.current) clearTimeout(diceHideTimerRef.current);
-    if (diceUnmountTimerRef.current) clearTimeout(diceUnmountTimerRef.current);
-
-    diceHideTimerRef.current = setTimeout(() => {
-      setDiceOverlayVisible(false);
-    }, 120000);
-    // 淡出动画(见下方JSX的transition duration-700)播完后才彻底卸载3D场景，避免卡顿的收尾动画。
-    // 必须跟上面的隐藏定时器保持"120000 + 700"的关系——这里之前遗留着旧版10秒逻辑的尾巴(10700)，
-    // 导致3D场景在隐藏遮罩真正淡出之前就被提前卸载掉了，是个bug，现在跟隐藏时长对齐。
-    diceUnmountTimerRef.current = setTimeout(() => {
-      setDiceRollRequest(null);
-      setDiceLastResult(null);
-      setDiceCustomEval(null);
-      setDiceHighlights([]);
-    }, 120700);
+    // 骰盘与结果会持续显示，直到遥控器发送 DICE_ROLL_DISMISS；不再建立自动收起倒计时。
   }, [diceRollRequest, roomId, sendMessage]);
 
-  // 单颗骰子重投动画播完：拿新点数更新那一颗骰子的显示值，用"全部骰子的最新点数"重新跑一遍
+  // 批量重投动画播完：用全部最新点数重新计算总和、kh/kl和高亮，再一次性广播给所有遥控器。
   // evaluateRecipe(如果这次投掷带kh/kl配方)，因为重投可能改变取高/取低的筛选结果(比如把原本
   // 该丢弃的那颗换成了更大的点数，它就该变成被保留的那颗)。算完把新结果+"已用过"列表广播出去，
   // 所有客户端(包括发起重投的遥控器和主屏幕自己)都据此同步刷新。
-  const handleDieRerollComplete = useCallback((requestId: string, dieId: number, newValue: number) => {
+  const handleDieRerollComplete = useCallback((requestId: string, completedDice: { dieId: number; value: number }[]) => {
     if (!diceRollRequest || !diceEngineResultRef.current) return;
     const prevResult = diceEngineResultRef.current;
+    const valueByDieId = new Map(completedDice.map(({ dieId, value }) => [dieId, value]));
 
-    // 更新引擎结果快照里这一颗骰子的点数(sets[].rolls[]里按id定位)，
-    // 每组的小计(set.total)和整体总和(total)都直接用最新的rolls重新求和算出来，
-    // 不用维护"差值"这种容易出错的中间状态。
     const newSets = prevResult.sets.map((set) => {
-      const rolls = set.rolls?.map((r) => (r.id === dieId ? { ...r, value: newValue } : r));
-      const total = rolls ? rolls.reduce((sum, r) => sum + r.value, 0) : set.total;
+      const rolls = set.rolls?.map((roll) => {
+        const value = valueByDieId.get(roll.id);
+        return value === undefined ? roll : { ...roll, value };
+      });
+      const total = rolls ? rolls.reduce((sum, roll) => sum + roll.value, 0) : set.total;
       return { ...set, rolls, total };
     });
-    const newTotal = newSets.reduce((sum, s) => sum + s.total, 0) + prevResult.modifier;
+    const newTotal = newSets.reduce((sum, set) => sum + set.total, 0) + prevResult.modifier;
     const newResult: DiceRollResult = { ...prevResult, sets: newSets, total: newTotal };
 
     diceEngineResultRef.current = newResult;
     setDiceLastResult(newResult);
 
     const nextRerolledIds = new Set(rerolledDieIds);
-    nextRerolledIds.add(dieId);
+    completedDice.forEach(({ dieId }) => nextRerolledIds.add(dieId));
     setRerolledDieIds(nextRerolledIds);
+    setDiceRerollRequest(null);
 
-    // 如果这次投掷带kh/kl配方，重投可能改变取高/取低的筛选结果(比如原本该丢弃的那颗换成了更大的点数，
-    // 它就该变成被保留的那颗)，所以要用全部骰子的最新点数重新跑一遍配方计算，不能只改这一颗的显示值。
     if (pendingRecipeRef.current) {
-      const engineSets: EngineResultSet[] = newResult.sets.map((s) => ({ sides: s.sides, rolls: s.rolls || [] }));
+      const engineSets: EngineResultSet[] = newResult.sets.map((set) => ({ sides: set.sides, rolls: set.rolls || [] }));
       const evaluated = evaluateRecipe(pendingRecipeRef.current, engineSets);
       setDiceCustomEval(evaluated);
       setDiceHighlights(computeHighlights(evaluated));
@@ -643,6 +630,7 @@ function InitiativeDisplayPageInner() {
         payload: {
           roomId,
           id: diceRollRequest.id,
+          requestId,
           notation: diceRollRequest.notation,
           result: newResult,
           rerolledDieIds: Array.from(nextRerolledIds),
@@ -654,7 +642,6 @@ function InitiativeDisplayPageInner() {
   // 组件卸载时清理掷骰相关的定时器，避免卸载后还触发setState
   useEffect(() => {
     return () => {
-      if (diceHideTimerRef.current) clearTimeout(diceHideTimerRef.current);
       if (diceUnmountTimerRef.current) clearTimeout(diceUnmountTimerRef.current);
     };
   }, []);

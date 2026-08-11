@@ -193,9 +193,13 @@ class DiceBox {
 		})
 		.catch(e=>{throw new Error("Unable to load theme")})
 
+		// 音效是可选的体验增强，不能让手机首次下载几十个 mp3 时阻塞骰盘可用。
+		// 先启动后台加载，主题/渲染初始化完成后立即允许投掷；加载期间的碰撞会静音，
+		// 后续音频就绪后自动开始播放。
 		if(this.sounds){
-			await this.loadSounds()
-			.catch(e=>{throw new Error("Unable to load sounds")})
+			void this.loadSounds().catch(error => {
+				console.warn('Unable to load dice sounds; continuing without sound', error)
+			})
 		}
 
 		// this.DiceFactory.setCubeMap(`./themes/${this.theme_surface}/`,THEMES[this.theme_surface].cubeMap)
@@ -768,8 +772,12 @@ class DiceBox {
 
 			let surface = this.surface;
 
+			// 音效现在后台加载：首次投掷可能发生在桌面碰撞音尚未就绪时，
+			// 此时安全地跳过本次声音，不能影响骰子物理动画。
 			let soundlist = this.sounds_table[surface];
-			let sound = soundlist[Math.floor(Math.random() * soundlist.length)];
+			let sound = soundlist?.length
+				? soundlist[Math.floor(Math.random() * soundlist.length)]
+				: null;
 			if(sound){
 				sound.volume = Math.min(speed / 8000, this.volume/100)
 				this.playSoundHelpers.play(sound)
