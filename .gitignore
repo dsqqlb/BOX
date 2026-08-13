@@ -82,3 +82,6 @@ temp/
 
 # User data files
 data/savings.json
+
+# CSS 层叠解释器：本地验证脚本产物
+scripts/shots/

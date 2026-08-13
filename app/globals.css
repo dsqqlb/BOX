@@ -1161,3 +1161,154 @@ img {
   background: rgba(39, 39, 42, 0.8);
   border-color: rgba(82, 82, 91, 0.5);
 }
+
+/* ============================================================
+   🌊 CSS 层叠解释器 — 深空霓虹风
+   ============================================================ */
+
+/* 深空渐变背景 + 星尘 */
+.cc-bg {
+  background:
+    radial-gradient(1200px 600px at 20% -10%, rgba(56, 89, 180, 0.22), transparent 60%),
+    radial-gradient(900px 500px at 85% 0%, rgba(124, 58, 237, 0.18), transparent 60%),
+    radial-gradient(800px 600px at 50% 110%, rgba(34, 211, 238, 0.10), transparent 55%),
+    #05060f;
+}
+.cc-bg::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1.5px 1.5px at 20px 30px, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 120px 80px, rgba(255,255,255,.35), transparent),
+    radial-gradient(1.5px 1.5px at 240px 160px, rgba(167,139,250,.4), transparent),
+    radial-gradient(1px 1px at 300px 40px, rgba(255,255,255,.3), transparent),
+    radial-gradient(2px 2px at 400px 200px, rgba(34,211,238,.35), transparent),
+    radial-gradient(1px 1px at 520px 120px, rgba(255,255,255,.4), transparent);
+  background-size: 600px 300px;
+  opacity: .6;
+  z-index: 0;
+}
+
+/* 标题霓虹发光 */
+.cc-title-glow {
+  text-shadow: 0 0 18px rgba(34, 211, 238, 0.55), 0 0 40px rgba(34, 211, 238, 0.25);
+}
+
+/* 玻璃面板 */
+.cc-panel {
+  position: relative;
+  z-index: 1;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: linear-gradient(160deg, rgba(13, 18, 40, 0.82), rgba(7, 9, 24, 0.92));
+  box-shadow: 0 0 0 1px rgba(0,0,0,.2), 0 12px 40px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04);
+  overflow: hidden;
+}
+
+/* ---- 编辑器 ---- */
+.cc-editor-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.cc-editor-scroll::-webkit-scrollbar-thumb { background: rgba(94, 234, 212, .18); border-radius: 8px; }
+.cc-editor-scroll::-webkit-scrollbar-track { background: transparent; }
+.cc-gutter-num { transition: color .15s; }
+.cc-tab-active { text-shadow: 0 0 12px rgba(34,211,238,.6); }
+
+/* prism 自定义霓虹 token 色 */
+.cc-prism .token.comment,
+.cc-prism .token.prolog,
+.cc-prism .token.doctype,
+.cc-prism .token.cdata { color: #5b6b8c; font-style: italic; }
+.cc-prism .token.punctuation { color: #8ea0c4; }
+.cc-prism .token.property,
+.cc-prism .token.tag { color: #7dd3fc; }
+.cc-prism .token.boolean,
+.cc-prism .token.number { color: #fbbf24; }
+.cc-prism .token.selector,
+.cc-prism .token.attr-name,
+.cc-prism .token.string { color: #a78bfa; }
+.cc-prism .token.operator,
+.cc-prism .token.entity,
+.cc-prism .token.url { color: #67e8f9; }
+.cc-prism .token.atrule,
+.cc-prism .token.attr-value,
+.cc-prism .token.keyword { color: #f472b6; }
+.cc-prism .token.function { color: #86efac; }
+.cc-prism .token.important { color: #fbbf24; }
+
+/* hover 高亮条动画 */
+@keyframes cc-hover-bar {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.cc-editor-hover-bar { animation: cc-hover-bar .12s ease-out; }
+
+/* ---- 瀑布管道 ---- */
+.cc-pipe-head {
+  border-bottom: 1px solid rgba(34, 211, 238, 0.25);
+  background: linear-gradient(180deg, rgba(34,211,238,.08), transparent);
+  border-radius: 10px 10px 0 0;
+}
+.cc-prop-glow { text-shadow: 0 0 12px rgba(34, 211, 238, 0.6); }
+.cc-pipe-body {
+  border-left: 1px solid rgba(148, 163, 184, 0.12);
+  border-right: 1px solid rgba(148, 163, 184, 0.12);
+  background: linear-gradient(180deg, rgba(148,163,184,.04), rgba(34,211,238,.03));
+}
+.cc-seg { border: 1px solid; cursor: pointer; }
+.cc-seg:hover { filter: brightness(1.15); }
+.cc-seg-hovered { filter: brightness(1.4); z-index: 2; }
+.cc-seg-winner { animation: cc-win-in .35s cubic-bezier(.2,.8,.2,1); }
+@keyframes cc-win-in {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.cc-win-flag { animation: cc-win-pulse 1.6s ease-in-out infinite; text-shadow: 0 0 10px rgba(34,211,238,.8); }
+@keyframes cc-win-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+.cc-spec-badge { white-space: nowrap; }
+.cc-gate {
+  position: absolute;
+  left: -4px; right: -4px; top: -3px;
+  height: 2px;
+  border-radius: 2px;
+  box-shadow: 0 0 10px rgba(251, 191, 36, .7);
+}
+.cc-drop { transition: all .15s; }
+.cc-drop-win { animation: cc-drop-pop .4s cubic-bezier(.2,.9,.3,1.4); }
+@keyframes cc-drop-pop {
+  from { transform: translateY(-50%) scale(0.4); }
+  to { transform: translateY(-50%) scale(1); }
+}
+.cc-inherit-seg { animation: cc-inherit-in .3s ease-out; }
+@keyframes cc-inherit-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cc-waterfall-scroll::-webkit-scrollbar { height: 10px; }
+.cc-waterfall-scroll::-webkit-scrollbar-thumb { background: rgba(94, 234, 212, .16); border-radius: 8px; }
+.cc-waterfall-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- 详情卡 ---- */
+.cc-detail-card {
+  border-radius: 18px;
+  border: 1px solid rgba(94, 234, 212, 0.22);
+  background: linear-gradient(165deg, #0d1330, #07091b);
+  box-shadow: 0 0 60px rgba(34, 211, 238, 0.18), 0 24px 60px rgba(0,0,0,.6);
+  animation: cc-card-in .25s cubic-bezier(.2,.8,.2,1);
+  z-index: 10;
+}
+@keyframes cc-card-in {
+  from { opacity: 0; transform: translateY(14px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cc-rule-selector { text-shadow: 0 0 12px rgba(148, 163, 184, .35); }
+
+/* 解析警告 */
+@keyframes cc-warn-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cc-parse-warn { animation: cc-warn-in .2s ease-out; }

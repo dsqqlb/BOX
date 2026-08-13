@@ -793,9 +793,10 @@ export default function InitiativeTrackerPage() {
         } else {
           setCustomEvalResult(null);
         }
-        if (currentRollHistoryRef.current?.id === message.payload.id) {
-          currentRollHistoryRef.current.result = message.payload.result;
-          currentRollHistoryRef.current.finalTotal = finalTotal;
+        const hist = currentRollHistoryRef.current;
+        if (hist && hist.id === message.payload.id) {
+          hist.result = message.payload.result;
+          hist.finalTotal = finalTotal;
         }
       } else if (message.type === 'DICE_DIE_REROLL_RESULT') {
         // 某台遥控器请求的重投，主屏幕已经算完新结果广播回来：所有客户端(包括发起重投的那台自己)
@@ -813,10 +814,11 @@ export default function InitiativeTrackerPage() {
           setCustomEvalResult(evaluated);
           finalTotal = evaluated.total;
         }
-        if (currentRollHistoryRef.current?.id === message.payload.id) {
-          currentRollHistoryRef.current.result = message.payload.result;
-          currentRollHistoryRef.current.finalTotal = finalTotal;
-          currentRollHistoryRef.current.rerolls = message.payload.rerolls || [];
+        const hist2 = currentRollHistoryRef.current;
+        if (hist2 && hist2.id === message.payload.id) {
+          hist2.result = message.payload.result;
+          hist2.finalTotal = finalTotal;
+          hist2.rerolls = message.payload.rerolls || [];
         }
       } else if (message.type === 'DICE_ROLL_DISMISS') {
         // 只响应当前这一轮的收起消息，避免旧的网络消息清掉后来新掷出的结果。

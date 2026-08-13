@@ -69,5 +69,15 @@
     "icon": "🐷",
     "featured": true,
     "createdAt": "2026-08-11"
+  },
+  {
+    "slug": "css-cascade",
+    "title": "CSS 层叠解释器",
+    "description": "用层叠瀑布揭示 CSS 为什么长这样：解析、特异性、!important、@media、继承，每一条规则都能单独应用预览",
+    "category": "visualization",
+    "tags": ["css", "cascade", "waterfall", "visualizer", "specificity"],
+    "icon": "🌊",
+    "featured": true,
+    "createdAt": "2026-08-13"
   }
 ]
