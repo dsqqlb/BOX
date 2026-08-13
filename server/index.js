@@ -306,6 +306,11 @@ wss.on('connection', (ws) => {
               characters: [],
               currentTurn: 0,
               roundNumber: 1,
+              diceHistory: [],
+              displayRoomInfoVisible: true,
+              displayDiceHistoryVisible: true,
+              characterScale: 1,
+              diceDisplayScale: 1,
               createdAt: now,
               lastActivity: now,
               displayConnected: true,
@@ -380,6 +385,36 @@ wss.on('connection', (ws) => {
           break;
         }
 
+        case 'DICE_HISTORY_APPEND': {
+          // 历史只由遥控器在“收起”时提交；服务器保存到房间内存并广播ROOM_STATE，供主屏幕展示。
+          const { roomId, entry } = payload;
+          if (!rooms.has(roomId) || !entry
+            || typeof entry.id !== 'string'
+            || typeof entry.recordedAt !== 'string'
+            || typeof entry.label !== 'string'
+            || typeof entry.expression !== 'string'
+            || typeof entry.finalTotal !== 'number'
+            || !Array.isArray(entry.rerolls)) return;
+          const room = rooms.get(roomId);
+          const history = Array.isArray(room.diceHistory) ? room.diceHistory : [];
+          if (!history.some((item) => item && item.id === entry.id)) {
+            room.diceHistory = [entry, ...history].slice(0, 50);
+          }
+          room.lastActivity = Date.now();
+          broadcastToRoom(roomId, { type: 'ROOM_STATE', payload: room });
+          break;
+        }
+
+        case 'DICE_HISTORY_CLEAR': {
+          const { roomId } = payload;
+          if (!rooms.has(roomId)) return;
+          const room = rooms.get(roomId);
+          room.diceHistory = [];
+          room.lastActivity = Date.now();
+          broadcastToRoom(roomId, { type: 'ROOM_STATE', payload: room });
+          break;
+        }
+
         case 'DICE_ROLL': {
           // 遥控器发起一次掷骰请求：只做转发广播，不存进房间状态里
           // （掷骰是一次性事件，不是需要持久化的房间数据，房间重连/刷新时不需要重放上一次的投骰动画）。
@@ -390,14 +425,14 @@ wss.on('connection', (ws) => {
           // recipe 是可选的"自定义表达式配方"(骰子分组+kh/kl取高取低+符号，不含完整语法树)，
           // 只有遥控器"自定义掷骰"标签页用表达式发起投掷时才会带上；服务器只管转发，不解析内容，
           // 主屏幕拿到后据此重新计算kh/kl明细，决定给哪几颗骰子加发光描边。
-          const { roomId, id, notation, shapeTextures, recipe } = payload;
+          const { roomId, id, notation, shapeTextures, recipe, label, expression } = payload;
           if (!rooms.has(roomId)) {
             ws.send(JSON.stringify({ type: 'ERROR', payload: { message: '房间已失效，请重新连接' } }));
             return;
           }
           rooms.get(roomId).lastActivity = Date.now();
           console.log(`🎲 掷骰请求: ${roomId} ${notation}`);
-          broadcastToRoom(roomId, { type: 'DICE_ROLL', payload: { id, notation, shapeTextures, recipe } });
+          broadcastToRoom(roomId, { type: 'DICE_ROLL', payload: { id, notation, shapeTextures, recipe, label, expression } });
           break;
         }
 
@@ -426,10 +461,10 @@ wss.on('connection', (ws) => {
 
         case 'DICE_DIE_REROLL_RESULT': {
           // 主屏幕广播一次批量重投后的完整结果和已使用重投机会的骰子列表。
-          const { roomId, id, requestId, notation, result, rerolledDieIds } = payload;
+          const { roomId, id, requestId, notation, result, rerolledDieIds, rerolls } = payload;
           if (!rooms.has(roomId)) return;
           rooms.get(roomId).lastActivity = Date.now();
-          broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL_RESULT', payload: { id, requestId, notation, result, rerolledDieIds } });
+          broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL_RESULT', payload: { id, requestId, notation, result, rerolledDieIds, rerolls } });
           break;
         }
 

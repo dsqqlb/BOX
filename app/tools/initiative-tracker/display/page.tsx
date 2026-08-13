@@ -9,6 +9,7 @@ import { CharacterStatusInstance, STATUS_LIBRARY, getAllCardEffects } from '@/li
 import StatusAura from '@/components/dnd/StatusAura';
 // 3D骰子：主屏幕当骰盘用，铺满全屏播放投掷动画，摇完后展示结果再自动收起
 import DiceRoller, { DiceRollRequest, DiceRollResult, DiceRerollRequest } from '@/components/dnd/DiceRoller';
+import type { DiceHistoryEntry, DiceRerollHistoryItem } from '@/lib/diceHistory';
 // 骰子形状图标：结果面板里每颗骰子用形状轮廓(能看出D几)+数字+文字标识展示，
 // 主屏幕这边只做展示(用idle/used/rerolling三态标识重投状态)，不需要可点击(重投只能从遥控器发起)
 import DiceShapeIcon from '@/components/dnd/DiceShapeIcon';
@@ -54,11 +55,44 @@ interface RoomState {
   roundNumber: number;
   dimIntensity?: number; // 非当前回合角色的压暗强度(0~1)，由遥控器上的滑块控制，0=不灰，1=特别灰
   resultPanelOpacity?: number; // "骰子计算总和"结果面板的不透明度(0~1)，由遥控器上的滑块控制，0=全透明，1=完全不透明
+  characterScale?: number;
+  diceDisplayScale?: number;
+  displayRoomInfoVisible?: boolean;
+  displayDiceHistoryVisible?: boolean;
+  diceHistory?: DiceHistoryEntry[];
 }
 
 // 与遥控器一致的默认值：房间刚创建、遥控器还没推送过滑块值时使用
 const DEFAULT_DIM_INTENSITY = 0.55;
 const DEFAULT_RESULT_PANEL_OPACITY = 1;
+const DEFAULT_CHARACTER_SCALE = 1;
+const DEFAULT_DICE_DISPLAY_SCALE = 1;
+
+type CriticalEffect = 'success' | 'failure';
+
+// 只有纯粹的D20检定才触发大成功/大失败：1D20、2D20kh1（优势）或2D20kl1（劣势）。
+// 配方中只要多一个骰子组、修正值、负号，或不是"取1颗"，就不会通过此严格判定。
+function classifyCriticalEffect(recipe: FlattenedRecipe | null, evaluated: EvaluatedExpression): CriticalEffect | null {
+  if (!recipe || recipe.modifierConstant !== 0 || recipe.recipes.length !== 1 || evaluated.groups.length !== 1) return null;
+
+  const rollRecipe = recipe.recipes[0];
+  const keep = rollRecipe.keep;
+  const isSingleD20 = rollRecipe.sides === 20 && rollRecipe.sign === 1 && rollRecipe.count === 1 && !keep;
+  const isAdvantageOrDisadvantage = rollRecipe.sides === 20
+    && rollRecipe.sign === 1
+    && rollRecipe.count === 2
+    && keep
+    && (keep.mode === 'kh' || keep.mode === 'kl')
+    && keep.amount === 1;
+
+  if (!isSingleD20 && !isAdvantageOrDisadvantage) return null;
+
+  // kh/kl时只读取没有discarded标记的最终保留骰；单D20自然也只有这唯一一颗。
+  const keptRoll = evaluated.groups[0].rolls.find((roll) => !roll.discarded);
+  if (keptRoll?.value === 20) return 'success';
+  if (keptRoll?.value === 1) return 'failure';
+  return null;
+}
 
 // 背景飘动余烬火星的固定参数（避免每次渲染重新随机导致动效跳动）
 const EMBER_PARTICLES = [
@@ -390,6 +424,8 @@ function InitiativeDisplayPageInner() {
   // 用于结果面板展示"哪颗被丢弃"，以及算出该给3D场景里哪几颗骰子加发光描边(highlights)
   const [diceCustomEval, setDiceCustomEval] = useState<EvaluatedExpression | null>(null);
   const [diceHighlights, setDiceHighlights] = useState<DiceHighlight[]>([]);
+  // 只由严格的纯D20判定产生：success=自然20，failure=自然1；会在新投掷、重投及收起时更新。
+  const [criticalEffect, setCriticalEffect] = useState<CriticalEffect | null>(null);
   // 记住这一轮投掷请求带的配方，摇完拿到结果后才用得上；发起新一轮投掷/收起时清空
   const pendingRecipeRef = useRef<FlattenedRecipe | null>(null);
   // 只有手动收起后的700ms淡出卸载定时器；骰盘不再设置自动隐藏倒计时。
@@ -404,6 +440,8 @@ function InitiativeDisplayPageInner() {
   // 引擎的原始摇骰结果需要留一份最新快照，重投单颗骰子后要用"全部骰子的最新点数"重新跑一遍
   // evaluateRecipe——不能只改被重投的这一颗的显示值，否则kh/kl的总和和高亮会跟实际不一致。
   const diceEngineResultRef = useRef<DiceRollResult | null>(null);
+  // 主屏是重投旧值/新值的权威来源，记录完整审计数组再广播给所有遥控器。
+  const diceRerollHistoryRef = useRef<DiceRerollHistoryItem[]>([]);
 
   // 房间号复制按钮：点击后短暂显示"✓"反馈，1.5秒后恢复成复制图标
   const [roomIdCopied, setRoomIdCopied] = useState(false);
@@ -417,7 +455,13 @@ function InitiativeDisplayPageInner() {
     });
   }, [roomId]);
 
-  // 房间选择器：只有URL里没带房间号时才会用到（比如断线/设备没电后重新打开主屏幕，
+  // 二维码固定使用正式遥控器地址；二维码中的 room 参数会让遥控器页面自动加入当前房间。
+  const remoteJoinUrl = roomId
+    ? `https://box.dsqqlb.top/tools/initiative-tracker?room=${encodeURIComponent(roomId)}`
+    : '';
+  const roomQrCodeUrl = remoteJoinUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=0&data=${encodeURIComponent(remoteJoinUrl)}`
+    : '';
   // 没有记录房间号在URL里，就展示"还在跑的房间"列表，可以选择回到原来的房间，或者新建一个）。
   // null=还没决定要不要展示（等/api/rooms请求结果），true=展示选择器，false=已经决定好房间号了
   const [showPicker, setShowPicker] = useState<boolean | null>(paramRoomId ? false : null);
@@ -495,9 +539,11 @@ function InitiativeDisplayPageInner() {
         setDiceLastResult(null);
         setDiceCustomEval(null);
         setDiceHighlights([]);
+        setCriticalEffect(null);
         setRerolledDieIds(new Set()); // 新一轮投掷，"已用过重投机会"的记录清空重来
         setDiceRerollRequest(null);
         diceEngineResultRef.current = null;
+        diceRerollHistoryRef.current = [];
         pendingRecipeRef.current = message.payload.recipe || null;
         setDiceOverlayVisible(true);
         setDiceRollRequest({
@@ -516,6 +562,8 @@ function InitiativeDisplayPageInner() {
         const acceptedDieIds = [...new Set(Array.isArray(dieIds) ? dieIds : [])]
           .filter((dieId) => validIds.has(dieId) && !rerolledDieIds.has(dieId));
         if (!acceptedDieIds.length) return;
+        // 新一段重投动画开始时先清除旧的临界结果；完成后按最新保留骰重新判定。
+        setCriticalEffect(null);
         setDiceRerollRequest({ requestId, dieIds: acceptedDieIds });
       } else if (message.type === 'DICE_ROLL_DISMISS') {
         // 只有当前这一轮的明确收起操作才可以关闭骰盘，避免旧消息误关新一轮。
@@ -527,6 +575,7 @@ function InitiativeDisplayPageInner() {
           setDiceLastResult(null);
           setDiceCustomEval(null);
           setDiceHighlights([]);
+          setCriticalEffect(null);
           setRerolledDieIds(new Set());
           setDiceRerollRequest(null);
           diceEngineResultRef.current = null;
@@ -574,9 +623,11 @@ function InitiativeDisplayPageInner() {
       const evaluated = evaluateRecipe(pendingRecipeRef.current, engineSets);
       setDiceCustomEval(evaluated);
       setDiceHighlights(computeHighlights(evaluated));
+      setCriticalEffect(classifyCriticalEffect(pendingRecipeRef.current, evaluated));
     } else {
       setDiceCustomEval(null);
       setDiceHighlights([]);
+      setCriticalEffect(null);
     }
 
     if (roomId) {
@@ -596,6 +647,14 @@ function InitiativeDisplayPageInner() {
   const handleDieRerollComplete = useCallback((requestId: string, completedDice: { dieId: number; value: number }[]) => {
     if (!diceRollRequest || !diceEngineResultRef.current) return;
     const prevResult = diceEngineResultRef.current;
+    const rerollBatch: DiceRerollHistoryItem[] = completedDice.flatMap(({ dieId, value: to }) => {
+      for (const set of prevResult.sets) {
+        const roll = set.rolls?.find((candidate) => candidate.id === dieId);
+        if (roll) return [{ dieId, sides: set.sides, from: roll.value, to }];
+      }
+      return [];
+    });
+    diceRerollHistoryRef.current = [...diceRerollHistoryRef.current, ...rerollBatch];
     const valueByDieId = new Map(completedDice.map(({ dieId, value }) => [dieId, value]));
 
     const newSets = prevResult.sets.map((set) => {
@@ -622,6 +681,9 @@ function InitiativeDisplayPageInner() {
       const evaluated = evaluateRecipe(pendingRecipeRef.current, engineSets);
       setDiceCustomEval(evaluated);
       setDiceHighlights(computeHighlights(evaluated));
+      setCriticalEffect(classifyCriticalEffect(pendingRecipeRef.current, evaluated));
+    } else {
+      setCriticalEffect(null);
     }
 
     if (roomId) {
@@ -634,6 +696,7 @@ function InitiativeDisplayPageInner() {
           notation: diceRollRequest.notation,
           result: newResult,
           rerolledDieIds: Array.from(nextRerolledIds),
+          rerolls: diceRerollHistoryRef.current,
         },
       });
     }
@@ -860,31 +923,33 @@ function InitiativeDisplayPageInner() {
         </div>
       )}
       
-      {/* 房间ID和回合数显示 */}
+      {/* 房间ID、二维码和回合数显示；二维码会直达带房间号的遥控器链接。 */}
+      {roomState.displayRoomInfoVisible !== false && (
+        <>
       {sortedCharacters.length === 0 ? (
         /* 无角色时：大显示房间号（唯一一处显示，之前"等待玩家加入战斗"文案下面还重复显示了一次，
            已经删掉，避免同一个房间号在屏幕上出现两次）。右上角加一个复制按钮，点击直接拷贝房间号。 */
         <div className="absolute top-8 left-8 z-50">
-          <div className="relative bg-slate-900/60 backdrop-blur-xl rounded-xl px-6 py-4 pr-14 border border-slate-700/50 shadow-2xl">
-            <div className="text-slate-400 text-xs mb-1.5 font-medium tracking-wider uppercase">房间号</div>
-            <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 tracking-wider font-mono">
-              {roomId || '---'}
+          <div className="relative bg-slate-900/60 backdrop-blur-xl rounded-xl px-6 py-4 pr-4 border border-slate-700/50 shadow-2xl flex items-center gap-5">
+            <div>
+              <div className="text-slate-400 text-xs mb-1.5 font-medium tracking-wider uppercase">房间号</div>
+              <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 tracking-wider font-mono">
+                {roomId || '---'}
+              </div>
+              {roomId && (
+                <button
+                  onClick={handleCopyRoomId}
+                  title="复制房间号"
+                  className="mt-2 w-8 h-8 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-600/50 flex items-center justify-center text-slate-300 hover:text-amber-400 transition-colors"
+                >
+                  {roomIdCopied ? <span className="text-emerald-400 text-sm">✓</span> : <span className="text-xs">复制</span>}
+                </button>
+              )}
             </div>
-            {roomId && (
-              <button
-                onClick={handleCopyRoomId}
-                title="复制房间号"
-                className="absolute top-2.5 right-2.5 w-8 h-8 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-600/50 flex items-center justify-center text-slate-300 hover:text-amber-400 transition-colors"
-              >
-                {roomIdCopied ? (
-                  <span className="text-emerald-400 text-sm">✓</span>
-                ) : (
-                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="9" y="9" width="12" height="12" rx="2" />
-                    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-                  </svg>
-                )}
-              </button>
+            {roomQrCodeUrl && (
+              <div className="rounded-lg bg-white p-1.5 shadow-lg">
+                <img src={roomQrCodeUrl} alt="扫描加入当前房间" width={96} height={96} className="w-24 h-24" />
+              </div>
             )}
           </div>
         </div>
@@ -892,11 +957,18 @@ function InitiativeDisplayPageInner() {
         <>
           {/* 有角色时：左上角小房间号 */}
           <div className="absolute top-6 left-6 z-50">
-            <div className="bg-slate-900/60 backdrop-blur-xl rounded-lg px-4 py-2.5 border border-slate-700/50 shadow-xl">
-              <div className="text-slate-500 text-[10px] mb-0.5 font-medium tracking-wider uppercase">Room</div>
-              <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 tracking-wider font-mono">
-                {roomId}
+            <div className="bg-slate-900/60 backdrop-blur-xl rounded-lg px-3 py-2 border border-slate-700/50 shadow-xl flex items-center gap-2">
+              <div>
+                <div className="text-slate-500 text-[10px] mb-0.5 font-medium tracking-wider uppercase">Room</div>
+                <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 tracking-wider font-mono">
+                  {roomId}
+                </div>
               </div>
+              {roomQrCodeUrl && (
+                <div className="rounded bg-white p-1">
+                  <img src={roomQrCodeUrl} alt="扫描加入当前房间" width={56} height={56} className="w-14 h-14" />
+                </div>
+              )}
             </div>
           </div>
           
@@ -908,6 +980,8 @@ function InitiativeDisplayPageInner() {
               </div>
             </div>
           </div>
+        </>
+      )}
         </>
       )}
 
@@ -933,7 +1007,10 @@ function InitiativeDisplayPageInner() {
           <>
             {/* BG3样式的横向卡片条：整体向下偏移一点，避免贴着顶部回合数/房间号显得太挤 */}
             <div className="w-full flex items-center justify-center translate-y-12">
-              <div className="relative max-w-[95vw]">
+              <div
+                className="relative max-w-[95vw] transition-transform duration-200"
+                style={{ transform: `scale(${roomState.characterScale ?? DEFAULT_CHARACTER_SCALE})`, transformOrigin: 'center center' }}
+              >
                 {/* 卡片容器 */}
                 <div className="flex items-center justify-center gap-6 px-4 py-8">
                   {sortedCharacters.map((char, index) => {
@@ -959,6 +1036,39 @@ function InitiativeDisplayPageInner() {
         )}
       </div>
 
+      {/* 主屏幕历史掷骰：来自房间共享状态，仅包含遥控器按“收起”确认的最终记录。 */}
+      {roomState.displayDiceHistoryVisible !== false && (roomState.diceHistory?.length || 0) > 0 && (
+        <aside className="absolute right-6 bottom-6 z-50 w-[min(22rem,calc(100vw-3rem))] overflow-hidden rounded-xl border border-purple-500/35 bg-slate-950/80 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-center justify-between border-b border-purple-500/20 px-3 py-2">
+            <span className="text-xs font-black tracking-widest text-purple-200">历史掷骰</span>
+            <span className="text-[10px] text-slate-500">最近 {Math.min(roomState.diceHistory?.length || 0, 50)} 条</span>
+          </div>
+          <div className="max-h-64 divide-y divide-slate-800/90 overflow-y-auto">
+            {(roomState.diceHistory || []).map((entry) => (
+              <div key={entry.id} className="px-3 py-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-black text-purple-100">{entry.label}</div>
+                    <div className="truncate font-mono text-[11px] text-slate-400">{entry.expression}</div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-lg font-black leading-none text-amber-400">{entry.finalTotal}</div>
+                    <time className="text-[10px] text-slate-500">{new Date(entry.recordedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</time>
+                  </div>
+                </div>
+                {entry.rerolls.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {entry.rerolls.map((reroll, index) => (
+                      <span key={`${reroll.dieId}-${index}`} className="rounded border border-amber-500/25 bg-amber-500/10 px-1 py-0.5 font-mono text-[9px] text-amber-200">D{reroll.sides} {reroll.from}→{reroll.to}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </aside>
+      )}
+
       {/* 底部装饰 */}
       <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-slate-800/50 to-transparent" />
 
@@ -970,13 +1080,59 @@ function InitiativeDisplayPageInner() {
             diceOverlayVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         >
-          <DiceRoller
-            rollRequest={diceRollRequest}
-            onRollComplete={handleDiceRollComplete}
-            highlights={diceHighlights}
-            rerollRequest={diceRerollRequest}
-            onRerollComplete={handleDieRerollComplete}
+          <div
+            className="absolute inset-0 transition-transform duration-200"
+            style={{ transform: `scale(${roomState.diceDisplayScale ?? DEFAULT_DICE_DISPLAY_SCALE})`, transformOrigin: 'center center' }}
+          >
+            <DiceRoller
+              rollRequest={diceRollRequest}
+              onRollComplete={handleDiceRollComplete}
+              highlights={diceHighlights}
+              rerollRequest={diceRerollRequest}
+              onRerollComplete={handleDieRerollComplete}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 大成功/大失败独立效果层：在3D骰盘上方、计算结果面板下方；仅严格匹配的纯D20检定会渲染。 */}
+      {criticalEffect && diceOverlayVisible && (
+        <div className="fixed inset-0 z-[65] pointer-events-none overflow-hidden">
+          <div
+            className={`absolute inset-0 transition-opacity duration-700 ${
+              criticalEffect === 'success'
+                ? 'bg-[radial-gradient(ellipse_at_center,rgba(251,191,36,0.35),rgba(245,158,11,0.12)_34%,transparent_70%)]'
+                : 'bg-[radial-gradient(ellipse_at_center,rgba(239,68,68,0.38),rgba(127,29,29,0.14)_36%,transparent_70%)]'
+            }`}
           />
+          <div
+            className={`absolute inset-0 blur-3xl animate-critical-aura ${
+              criticalEffect === 'success' ? 'bg-amber-400/20' : 'bg-red-600/25'
+            }`}
+          />
+          <div className="absolute inset-0 flex items-center justify-center pb-8">
+            <div
+              key={`${diceRollRequest?.id}-${criticalEffect}-${rerolledDieIds.size}`}
+              className={`animate-critical-impact text-center px-8 py-6 rounded-2xl border-2 shadow-2xl backdrop-blur-sm ${
+                criticalEffect === 'success'
+                  ? 'border-amber-300/80 bg-amber-500/15 shadow-amber-400/40'
+                  : 'border-red-400/80 bg-red-950/40 shadow-red-500/40'
+              }`}
+            >
+              <div className={`text-xs sm:text-sm font-black tracking-[0.35em] mb-2 ${
+                criticalEffect === 'success' ? 'text-amber-200' : 'text-red-200'
+              }`}>
+                NATURAL {criticalEffect === 'success' ? '20' : '1'}
+              </div>
+              <div className={`text-5xl sm:text-7xl font-black tracking-[0.12em] drop-shadow-2xl ${
+                criticalEffect === 'success'
+                  ? 'text-transparent bg-clip-text bg-gradient-to-b from-yellow-100 via-amber-300 to-amber-500'
+                  : 'text-transparent bg-clip-text bg-gradient-to-b from-red-100 via-red-400 to-red-600'
+              }`}>
+                {criticalEffect === 'success' ? '大成功' : '大失败'}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -988,7 +1144,10 @@ function InitiativeDisplayPageInner() {
           className="fixed top-16 left-1/2 z-[70] -translate-x-1/2 pointer-events-none transition-opacity duration-700"
           style={{ opacity: diceOverlayVisible ? (roomState?.resultPanelOpacity ?? DEFAULT_RESULT_PANEL_OPACITY) : 0 }}
         >
-          <div className="animate-slideInUp">
+          <div
+            className="animate-slideInUp"
+            style={{ transform: `scale(${roomState.diceDisplayScale ?? DEFAULT_DICE_DISPLAY_SCALE})`, transformOrigin: 'top center' }}
+          >
             {diceCustomEval ? (
               // 自定义表达式(带kh/kl)投掷：展示明细——每颗骰子换成形状图标(能看出D几)+数字，
               // 被丢弃的用DiceShapeIcon的'used'态变灰(视觉上跟"已重投过"共用同一套灰态，

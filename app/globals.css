@@ -192,6 +192,26 @@
   .animate-tension-pulse {
     animation: tension-pulse 4s ease-in-out infinite;
   }
+
+  /* D20大成功/大失败：短促冲击后保持缓慢呼吸，直到遥控器收起骰盘。 */
+  @keyframes critical-impact {
+    0% { opacity: 0; transform: scale(0.65); letter-spacing: 0.05em; }
+    55% { opacity: 1; transform: scale(1.08); letter-spacing: 0.16em; }
+    100% { opacity: 1; transform: scale(1); letter-spacing: 0.12em; }
+  }
+
+  .animate-critical-impact {
+    animation: critical-impact 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes critical-aura {
+    0%, 100% { opacity: 0.3; transform: scale(0.94); }
+    50% { opacity: 0.85; transform: scale(1.08); }
+  }
+
+  .animate-critical-aura {
+    animation: critical-aura 1.8s ease-in-out infinite;
+  }
   
   /* 战术网格缓慢平移 */
   @keyframes grid-drift {
