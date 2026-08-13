@@ -15,70 +15,59 @@ export interface CssRule {
   specificity: [number, number, number];
   declarations: CssDeclaration[];
   mediaQuery: string | null;
+  layer: string | null;
   ruleIndex: number;
+  locStart: { line: number; column: number };
+  locEnd: { line: number; column: number };
+}
+
+/** @keyframes 的单个帧（如 `0%` / `from, to`） */
+export interface CssAtRuleFrame {
+  key: string;
+  declarations: CssDeclaration[];
+}
+
+/** 特殊 at-rule：@keyframes / @font-face / @property / @page（不是「规则」，单独收集展示） */
+export interface CssAtRule {
+  name: string;
+  /** keyframes=动画名；property=--变量名；font-face/page 通常为空 */
+  prelude: string;
+  frames?: CssAtRuleFrame[];
+  declarations?: CssDeclaration[];
+  mediaQuery: string | null;
+  layer: string | null;
+  atRuleIndex: number;
   locStart: { line: number; column: number };
   locEnd: { line: number; column: number };
 }
 
 export interface ParseResult {
   rules: CssRule[];
+  atRules: CssAtRule[];
   error: string | null;
 }
 
-export interface CascadeHit {
-  rule: CssRule;
-  declaration: CssDeclaration;
-  specText: string;
-  origin: 'author' | 'inline';
-  /** 层叠排名：0 = 最输，越大越接近赢家（排序后按数组下标重算） */
-  rank: number;
-  wins: boolean;
-  /** 是否由内联 style 产生 */
-  isInline: boolean;
-}
-
-export interface CascadeProperty {
-  property: string;
-  hits: CascadeHit[];
-  winning: CascadeHit | null;
-  /** 该属性最终计算值（winning 的值，若无则 null） */
-  computed: string | null;
-  /** 可继承属性且无直接命中 → 标记继承 */
-  inherited: boolean;
-  inheritedSource: string | null;
-  /** 同时被非匹配规则覆盖的"可视警告"：比如被 !important 规则覆盖的普通规则 */
-}
-
-export interface CascadeResult {
-  selectedSelector: string;
-  tagName: string;
-  properties: CascadeProperty[];
-}
-
 // ============ 常量 ============
-
-/** 动态伪类：匹配结果不稳定，瀑布里忽略 */
-const DYNAMIC_PSEUDO = new Set([
-  'hover', 'active', 'focus', 'focus-visible', 'focus-within',
-  'visited', 'link', 'target',
-]);
 
 /** 特殊函数伪类：特异性取参数列表中最重 */
 const MAX_SPEC_PSEUDO = new Set(['is', 'not', 'has', 'matches', 'any', '-webkit-any', '-moz-any']);
 /** where 特异性恒 0 */
 const ZERO_SPEC_PSEUDO = new Set(['where', '-webkit-any-link']);
 
-/** 可继承 CSS 属性（用于继承链可视化） */
-const INHERITED_PROPS = new Set([
-  'azimuth', 'border-collapse', 'border-spacing', 'caption-side', 'color',
-  'cursor', 'direction', 'empty-cells', 'font', 'font-family', 'font-size',
-  'font-style', 'font-variant', 'font-weight', 'letter-spacing', 'line-height',
-  'list-style', 'list-style-image', 'list-style-position', 'list-style-type',
-  'orphans', 'quotes', 'text-align', 'text-indent', 'text-transform',
-  'visibility', 'white-space', 'widows', 'word-spacing', 'word-break',
-  'overflow-wrap', 'word-wrap', 'font-stretch', 'text-rendering',
-  'text-shadow', 'text-overflow', '-webkit-font-smoothing', 'writing-mode',
+/** @keyframes 的所有名称变体（帧块不能当选择器规则） */
+const KEYFRAME_NAMES = new Set([
+  'keyframes', '-webkit-keyframes', '-moz-keyframes', '-o-keyframes', '-ms-keyframes',
 ]);
+/** 单独收集展示的特殊 at-rule */
+const SPECIAL_ATRULES = new Set(['keyframes', 'font-face', 'property', 'page']);
+
+function isKeyframesName(name: string): boolean {
+  return KEYFRAME_NAMES.has(name.toLowerCase());
+}
+function isSpecialAtRule(name: string): boolean {
+  const n = name.toLowerCase();
+  return SPECIAL_ATRULES.has(n) || KEYFRAME_NAMES.has(n);
+}
 
 // ============ 特异性计算（自写，基于 css-tree AST） ============
 
@@ -172,59 +161,60 @@ export function specificityOfText(selectorText: string): Spec {
 
 // ============ 解析样式表 ============
 
-/** 从 AST 移除动态伪类节点（匹配阶段用，避免 :hover 等不稳定） */
-function stripDynamicPseudos(selector: csstree.Selector): csstree.Selector {
-  const children = (selector as any).children as csstree.List<csstree.CssNode>;
-  if (!children) return selector;
-  const filtered = children.filter((n: csstree.CssNode) => {
-    if (n.type === 'PseudoClassSelector' && DYNAMIC_PSEUDO.has((n.name || '').toLowerCase())) {
-      return false;
-    }
-    return true;
-  });
-  (selector as any).children = filtered;
-  return selector;
-}
-
 export function parseStylesheet(css: string): ParseResult {
   const rules: CssRule[] = [];
+  const atRules: CssAtRule[] = [];
   let error: string | null = null;
 
   let ast: csstree.CssNode;
   try {
     ast = csstree.parse(css, { positions: true });
   } catch (e: any) {
-    return { rules: [], error: `CSS 解析失败: ${e?.message || String(e)}` };
+    return { rules: [], atRules: [], error: `CSS 解析失败: ${e?.message || String(e)}` };
   }
 
-  // walk 时用栈跟踪 @media 上下文
+  // walk 时用栈跟踪 @media / @layer / @keyframes 上下文
   const mediaStack: string[] = [];
+  const layerStack: string[] = [];
+  const keyframesStack: string[] = [];
   let ruleIndex = 0;
+  let atRuleIndex = 0;
 
-  try {
-    csstree.walk(ast, {
-      enter(node) {
-        if (node.type === 'Atrule' && node.name === 'media' && node.prelude) {
-          mediaStack.push(csstree.generate(node.prelude));
+  const currentMedia = (): string | null =>
+    mediaStack.length > 0 ? mediaStack[mediaStack.length - 1] : null;
+  const currentLayer = (): string | null =>
+    layerStack.length > 0 ? layerStack[layerStack.length - 1] : null;
+
+  /** 从 block 提取声明列表 */
+  function buildDeclarations(block: any): CssDeclaration[] {
+    const out: CssDeclaration[] = [];
+    const children = block?.children as csstree.List<csstree.CssNode> | undefined;
+    if (!children) return out;
+    children.forEach((n: csstree.CssNode) => {
+      if (n.type === 'Declaration' && n.property && n.value) {
+        let valueStr = '';
+        try {
+          valueStr = csstree.generate(n.value);
+        } catch {
+          valueStr = '';
         }
-        if (node.type === 'Rule') {
-          processRule(node as csstree.Rule);
-        }
-      },
-      leave(node) {
-        if (node.type === 'Atrule' && node.name === 'media') {
-          mediaStack.pop();
-        }
-      },
+        out.push({
+          property: n.property.toLowerCase(),
+          value: valueStr,
+          important: n.important === true,
+          line: (n.loc as any)?.start?.line || 0,
+          column: (n.loc as any)?.start?.column || 0,
+        });
+      }
     });
-  } catch (e: any) {
-    error = `解析规则时出错: ${e?.message || String(e)}`;
+    return out;
   }
 
   function processRule(rule: csstree.Rule) {
     const prelude = rule.prelude as unknown as csstree.SelectorList;
     const selText = csstree.generate(prelude);
-    const mediaQuery = mediaStack.length > 0 ? mediaStack[mediaStack.length - 1] : null;
+    const mediaQuery = currentMedia();
+    const layer = currentLayer();
 
     let selectorList: csstree.SelectorList;
     try {
@@ -233,43 +223,20 @@ export function parseStylesheet(css: string): ParseResult {
       return; // 选择器解析失败跳过
     }
 
-    const blockChildren = (rule.block as any)?.children as csstree.List<csstree.CssNode> | undefined;
-
     const locStart = (rule.loc as any)?.start || { line: 0, column: 0 };
     const locEnd = (rule.loc as any)?.end || { line: 0, column: 0 };
 
     (selectorList.children as csstree.List<csstree.CssNode>).forEach((selNode) => {
       if (selNode.type !== 'Selector') return;
       const spec = specOfSelector(selNode as csstree.Selector);
-      const oneSelector = stripDynamicPseudos(selNode as csstree.Selector);
-      const oneText = csstree.generate(oneSelector).trim();
-
-      const declarations: CssDeclaration[] = [];
-      if (blockChildren) {
-        blockChildren.forEach((n) => {
-          if (n.type === 'Declaration' && n.property && n.value) {
-            let valueStr = '';
-            try {
-              valueStr = csstree.generate(n.value);
-            } catch {
-              valueStr = '';
-            }
-            declarations.push({
-              property: n.property.toLowerCase(),
-              value: valueStr,
-              important: n.important === true,
-              line: (n.loc as any)?.start?.line || 0,
-              column: (n.loc as any)?.start?.column || 0,
-            });
-          }
-        });
-      }
+      const oneText = csstree.generate(selNode).trim();
 
       rules.push({
         selectorText: oneText,
         specificity: spec,
-        declarations,
+        declarations: buildDeclarations(rule.block),
         mediaQuery,
+        layer,
         ruleIndex: ruleIndex++,
         locStart,
         locEnd,
@@ -277,181 +244,88 @@ export function parseStylesheet(css: string): ParseResult {
     });
   }
 
-  return { rules, error };
-}
-
-// ============ 层叠计算 ============
-
-/**
- * 层叠比较器（升序：输家在前，赢家在后）。
- * 优先级（主 → 次）：
- *  1. !important > 普通
- *  2. 内联 style > 规则（同一 importance 组内）
- *  3. 特异性 (a,b,c) 字典序
- *  4. 源码顺序（ruleIndex 大者赢）
- */
-function compareHits(a: CascadeHit, b: CascadeHit): number {
-  const impA = a.declaration.important ? 1 : 0;
-  const impB = b.declaration.important ? 1 : 0;
-  if (impA !== impB) return impA - impB;
-
-  const inlA = a.origin === 'inline' ? 1 : 0;
-  const inlB = b.origin === 'inline' ? 1 : 0;
-  if (inlA !== inlB) return inlA - inlB;
-
-  const c = compareSpec(a.rule.specificity, b.rule.specificity);
-  if (c !== 0) return c;
-
-  return a.rule.ruleIndex - b.rule.ruleIndex;
-}
-
-/**
- * 计算目标元素上的层叠结果。
- * @param rules 解析出的全部规则
- * @param el 目标 DOM 元素
- * @param win window 对象（matchMedia）
- */
-export function computeCascade(rules: CssRule[], el: Element, win: Window): CascadeResult {
-  const propMap = new Map<string, CascadeHit[]>();
-  const inlineProps = new Map<string, { value: string; important: boolean }>();
-
-  // 内联样式：读取 el.style（内联比 author 规则强，除 !important）
-  const elStyle = (el as HTMLElement).style;
-  if (elStyle) {
-    for (let i = 0; i < elStyle.length; i++) {
-      const prop = elStyle.item(i);
-      const val = elStyle.getPropertyValue(prop);
-      const imp = elStyle.getPropertyPriority(prop) === 'important';
-      inlineProps.set(prop.toLowerCase(), { value: val, important: imp });
-    }
-  }
-
-  // 收集命中规则
-  for (const rule of rules) {
-    if (rule.mediaQuery) {
-      let mediaOk = false;
-      try {
-        mediaOk = win.matchMedia(rule.mediaQuery).matches;
-      } catch {
-        mediaOk = true; // 解析失败默认算生效
-      }
-      if (!mediaOk) continue;
-    }
-
-    let matched = false;
+  function processAtRule(atrule: csstree.Atrule) {
+    const name = (atrule.name || '').toLowerCase();
+    const locStart = (atrule.loc as any)?.start || { line: 0, column: 0 };
+    const locEnd = (atrule.loc as any)?.end || { line: 0, column: 0 };
+    let prelude = '';
     try {
-      matched = el.matches(rule.selectorText);
+      prelude = atrule.prelude ? csstree.generate(atrule.prelude).trim() : '';
     } catch {
-      matched = false; // 选择器语法错误
+      prelude = '';
     }
-    if (!matched) continue;
 
-    for (const decl of rule.declarations) {
-      if (!decl.property) continue;
-      if (!propMap.has(decl.property)) propMap.set(decl.property, []);
-      propMap.get(decl.property)!.push({
-        rule,
-        declaration: decl,
-        specText: specText(rule.specificity),
-        origin: 'author',
-        rank: 0,
-        wins: false,
-        isInline: false,
-      });
-    }
-  }
-
-  // 注入内联 hit
-  for (const [prop, iv] of inlineProps) {
-    if (!propMap.has(prop)) propMap.set(prop, []);
-    propMap.get(prop)!.push({
-      rule: {
-        selectorText: 'inline style',
-        specificity: [1, 0, 0],
-        declarations: [{ property: prop, value: iv.value, important: iv.important, line: 0, column: 0 }],
-        mediaQuery: null,
-        ruleIndex: Number.MAX_SAFE_INTEGER,
-        locStart: { line: 0, column: 0 },
-        locEnd: { line: 0, column: 0 },
-      },
-      declaration: { property: prop, value: iv.value, important: iv.important, line: 0, column: 0 },
-      specText: 'inline',
-      origin: 'inline',
-      rank: 0,
-      wins: false,
-      isInline: true,
-    });
-  }
-
-  // 排序 + 标记胜出者
-  const properties: CascadeProperty[] = [];
-  for (const [property, hits] of propMap) {
-    hits.sort(compareHits);
-    hits.forEach((h, i) => { h.rank = i; h.wins = i === hits.length - 1; });
-    properties.push({
-      property,
-      hits,
-      winning: hits[hits.length - 1],
-      computed: hits[hits.length - 1].declaration.value,
-      inherited: false,
-      inheritedSource: null,
-    });
-  }
-
-  // 继承增强：可继承属性未被直接命中 → 向上找祖先
-  for (const prop of INHERITED_PROPS) {
-    if (propMap.has(prop)) continue;
-    let ancestor = el.parentElement;
-    let found: { source: string; value: string } | null = null;
-    let depth = 0;
-    while (ancestor && depth < 6) {
-      // 检查祖先是否被规则命中且声明了该属性
-      for (const rule of rules) {
-        if (rule.mediaQuery) {
-          let mediaOk = false;
-          try { mediaOk = win.matchMedia(rule.mediaQuery).matches; } catch { mediaOk = true; }
-          if (!mediaOk) continue;
+    if (isKeyframesName(name)) {
+      const frames: CssAtRuleFrame[] = [];
+      const children = (atrule.block as any)?.children as csstree.List<csstree.CssNode> | undefined;
+      children?.forEach((child: csstree.CssNode) => {
+        if (child.type !== 'Rule') return;
+        let key = '';
+        try {
+          key = csstree.generate((child as csstree.Rule).prelude).trim();
+        } catch {
+          key = '';
         }
-        let matched = false;
-        try { matched = ancestor.matches(rule.selectorText); } catch { matched = false; }
-        if (!matched) continue;
-        const d = rule.declarations.find((dd) => dd.property === prop);
-        if (d) { found = { source: `${rule.selectorText} (${specText(rule.specificity)})`, value: d.value }; break; }
-      }
-      if (found) break;
-      // 内联
-      const av = (ancestor as HTMLElement).style?.getPropertyValue(prop);
-      if (av) { found = { source: 'inline style', value: av }; break; }
-      ancestor = ancestor.parentElement;
-      depth++;
-    }
-    if (found) {
-      properties.push({
-        property: prop,
-        hits: [],
-        winning: null,
-        computed: found.value,
-        inherited: true,
-        inheritedSource: found.source,
+        frames.push({ key, declarations: buildDeclarations((child as csstree.Rule).block) });
+      });
+      atRules.push({
+        name,
+        prelude,
+        frames,
+        mediaQuery: currentMedia(),
+        layer: currentLayer(),
+        atRuleIndex: atRuleIndex++,
+        locStart,
+        locEnd,
+      });
+    } else {
+      atRules.push({
+        name,
+        prelude,
+        declarations: buildDeclarations(atrule.block),
+        mediaQuery: currentMedia(),
+        layer: currentLayer(),
+        atRuleIndex: atRuleIndex++,
+        locStart,
+        locEnd,
       });
     }
   }
 
-  // 属性排序：有竞争/胜出的优先，继承靠后
-  properties.sort((a, b) => {
-    const aScore = a.winning ? (a.hits.length > 1 ? 2 : 1) : 0;
-    const bScore = b.winning ? (b.hits.length > 1 ? 2 : 1) : 0;
-    if (aScore !== bScore) return bScore - aScore;
-    return a.property.localeCompare(b.property);
-  });
-
-  let selectedSelector = el.tagName.toLowerCase();
-  const id = el.id;
-  const cls = (el as HTMLElement).className;
-  if (id) selectedSelector = `#${id}`;
-  else if (typeof cls === 'string' && cls.trim()) {
-    selectedSelector = `${el.tagName.toLowerCase()}.${cls.trim().split(/\s+/)[0]}`;
+  try {
+    csstree.walk(ast, {
+      enter(node) {
+        if (node.type === 'Atrule') {
+          const name = (node.name || '').toLowerCase();
+          if (name === 'media' && node.prelude) {
+            mediaStack.push(csstree.generate(node.prelude));
+          } else if (name === 'layer' && node.block && node.prelude) {
+            // @layer utilities { ... } 块形式
+            layerStack.push(csstree.generate(node.prelude).trim());
+          } else if (isKeyframesName(name)) {
+            keyframesStack.push(node.prelude ? csstree.generate(node.prelude).trim() : '');
+          }
+          return;
+        }
+        if (node.type === 'Rule') {
+          // @keyframes 帧块（0%, from…）不是选择器规则，跳过
+          if (keyframesStack.length > 0) return;
+          processRule(node as csstree.Rule);
+        }
+      },
+      leave(node) {
+        if (node.type === 'Atrule') {
+          const name = (node.name || '').toLowerCase();
+          if (name === 'media') mediaStack.pop();
+          else if (name === 'layer' && node.block && node.prelude) layerStack.pop();
+          else if (isKeyframesName(name)) keyframesStack.pop();
+          if (isSpecialAtRule(name)) processAtRule(node as csstree.Atrule);
+        }
+      },
+    });
+  } catch (e: any) {
+    error = `解析规则时出错: ${e?.message || String(e)}`;
   }
 
-  return { selectedSelector, tagName: el.tagName.toLowerCase(), properties };
+  return { rules, atRules, error };
 }

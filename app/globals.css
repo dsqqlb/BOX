@@ -1258,11 +1258,7 @@ img {
 .cc-seg { border: 1px solid; cursor: pointer; }
 .cc-seg:hover { filter: brightness(1.15); }
 .cc-seg-hovered { filter: brightness(1.4); z-index: 2; }
-.cc-seg-winner { animation: cc-win-in .35s cubic-bezier(.2,.8,.2,1); }
-@keyframes cc-win-in {
-  from { transform: translateY(6px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
+.cc-seg-winner { position: relative; }
 .cc-win-flag { animation: cc-win-pulse 1.6s ease-in-out infinite; text-shadow: 0 0 10px rgba(34,211,238,.8); }
 @keyframes cc-win-pulse {
   0%, 100% { opacity: 1; }
@@ -1312,3 +1308,817 @@ img {
   to { opacity: 1; transform: translateY(0); }
 }
 .cc-parse-warn { animation: cc-warn-in .2s ease-out; }
+
+/* ============================================================
+   🌊 CSS 层叠解释器 — 动效增强（流动箭头 / 能量环 / 扫光 / 流星）
+   ============================================================ */
+
+/* ---- 背景流星 ---- */
+.cc-stars {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.cc-shoot {
+  position: absolute;
+  width: 150px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to left, transparent, rgba(255, 255, 255, .95) 55%, rgba(125, 211, 252, .9));
+  box-shadow: 0 0 10px rgba(125, 211, 252, .7);
+  transform: rotate(-24deg);
+  opacity: 0;
+  animation: cc-shoot linear infinite;
+}
+@keyframes cc-shoot {
+  0%   { transform: rotate(-24deg) translateX(0);      opacity: 0; }
+  3%   { opacity: 1; }
+  14%  { transform: rotate(-24deg) translateX(-340px); opacity: 0; }
+  100% { transform: rotate(-24deg) translateX(-340px); opacity: 0; }
+}
+
+/* ---- 标题呼吸光 ---- */
+.cc-title-glow {
+  animation: cc-title-breathe 5s ease-in-out infinite;
+}
+@keyframes cc-title-breathe {
+  0%, 100% { text-shadow: 0 0 18px rgba(34, 211, 238, .5), 0 0 40px rgba(34, 211, 238, .22); }
+  50%      { text-shadow: 0 0 26px rgba(34, 211, 238, .85), 0 0 60px rgba(34, 211, 238, .4); }
+}
+
+/* ---- 瀑布面板顶部能量边框 ---- */
+.cc-panel-hud { position: relative; }
+.cc-panel-hud::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, .7), rgba(167, 139, 250, .7), transparent);
+  background-size: 200% 100%;
+  animation: cc-hud-border 4s linear infinite;
+}
+@keyframes cc-hud-border {
+  from { background-position: 0% 0; }
+  to   { background-position: 200% 0; }
+}
+
+/* ---- 管道头扫光 ---- */
+.cc-pipe-head { position: relative; overflow: hidden; }
+.cc-pipe-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, .8), transparent);
+  transform: translateX(-100%);
+  animation: cc-head-scan 2.8s ease-in-out infinite;
+}
+@keyframes cc-head-scan {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ---- 概览条扫光 ---- */
+.cc-summary { position: relative; overflow: hidden; }
+.cc-summary::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -30%;
+  width: 22%;
+  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, .1), transparent);
+  animation: cc-summary-scan 4s ease-in-out infinite;
+}
+@keyframes cc-summary-scan {
+  0%, 100% { left: -30%; }
+  50%      { left: 110%; }
+}
+
+/* ---- 管道入场（从右滑入） ---- */
+.cc-pipe-in {
+  animation: cc-pipe-in .45s cubic-bezier(.2, .8, .2, 1) backwards;
+}
+@keyframes cc-pipe-in {
+  from { opacity: 0; transform: translateX(26px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ---- 规则水流入场（错峰） ---- */
+.cc-seg-in {
+  animation-name: cc-seg-in;
+  animation-duration: .32s;
+  animation-timing-function: cubic-bezier(.2, .8, .2, 1);
+  animation-fill-mode: backwards;
+}
+@keyframes cc-seg-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ---- ⭐ 流动箭头线：管道右侧下行能量流 ---- */
+.cc-flow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: 0 0 8px 8px;
+}
+.cc-flow-stream {
+  position: absolute;
+  right: 2px;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(180deg, transparent 0 5px, currentColor 5px 8px, transparent 8px 14px);
+  opacity: .4;
+  animation: cc-stream-flow 1.2s linear infinite;
+}
+@keyframes cc-stream-flow {
+  from { background-position: 0 0; }
+  to   { background-position: 0 14px; }
+}
+.cc-flow-arrow {
+  position: absolute;
+  right: 3px;
+  font-size: 8px;
+  line-height: 1;
+  color: currentColor;
+  text-shadow: 0 0 6px currentColor;
+  opacity: 0;
+  animation-name: cc-flow-arrow;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-duration: 3.2s;
+}
+@keyframes cc-flow-arrow {
+  0%   { transform: translateY(-14px); opacity: 0; }
+  10%  { opacity: .85; }
+  85%  { opacity: .85; }
+  100% { transform: translateY(430px); opacity: 0; }
+}
+
+/* ---- 胜出段能量环（雷达脉冲） ---- */
+.cc-seg-winner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--cc-color, #22d3ee);
+  opacity: 0;
+  pointer-events: none;
+  animation: cc-win-ring 2.4s ease-out infinite;
+}
+@keyframes cc-win-ring {
+  0%       { transform: scale(1, 1); opacity: .75; }
+  55%, 100% { transform: scale(1.08, 1.55); opacity: 0; }
+}
+
+/* ---- 悬停扫光 ---- */
+.cc-seg-hovered::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, .16) 45%, transparent 60%);
+  background-size: 250% 100%;
+  background-position: 140% 0;
+  animation: cc-seg-sheen .55s ease forwards;
+  pointer-events: none;
+}
+@keyframes cc-seg-sheen { to { background-position: -40% 0; } }
+
+/* ---- 空状态雷达 ---- */
+.cc-empty-ping {
+  border: 1px solid rgba(34, 211, 238, .55);
+  border-radius: 9999px;
+  animation: cc-empty-ping 2s ease-out infinite;
+}
+@keyframes cc-empty-ping {
+  0%        { transform: scale(.7); opacity: .8; }
+  70%, 100% { transform: scale(1.7); opacity: 0; }
+}
+
+/* ---- 降低动态偏好：关掉装饰性动效 ---- */
+@media (prefers-reduced-motion: reduce) {
+  .cc-shoot, .cc-flow-stream, .cc-flow-arrow, .cc-pipe-in, .cc-seg-in,
+  .cc-pipe-head::after, .cc-summary::after, .cc-empty-ping, .cc-title-glow,
+  .cc-seg-winner::after, .cc-seg-hovered::before, .cc-panel-hud::after,
+  .cc-rule-card {
+    animation: none !important;
+  }
+}
+
+/* ============================================================
+   🧱 CSS 层叠解释器 — 规则画廊
+   ============================================================ */
+
+/* ---- 工具栏 ---- */
+.cc-search {
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(148, 163, 184, .2);
+  color: #e4e4e7;
+  font-size: 12px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.cc-search::placeholder { color: #52525b; }
+.cc-search:focus {
+  border-color: rgba(34, 211, 238, .5);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, .12);
+}
+.cc-select {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(148, 163, 184, .2);
+  color: #e4e4e7;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+.cc-select option { background: #0d1330; }
+.cc-gallery-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.cc-gallery-scroll::-webkit-scrollbar-thumb { background: rgba(94, 234, 212, .16); border-radius: 8px; }
+.cc-gallery-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- 规则卡片 ---- */
+.cc-rule-card {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, .16);
+  background: linear-gradient(160deg, rgba(13, 18, 40, .82), rgba(7, 9, 24, .92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .03);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+  animation: cc-gallery-in .3s ease-out backwards;
+}
+.cc-rule-card:hover {
+  border-color: rgba(34, 211, 238, .35);
+  box-shadow: 0 0 18px rgba(34, 211, 238, .12), inset 0 1px 0 rgba(255, 255, 255, .03);
+}
+.cc-rule-card.cc-gallery-hovered {
+  border-color: rgba(34, 211, 238, .6);
+  box-shadow: 0 0 22px rgba(34, 211, 238, .22), inset 0 0 18px rgba(34, 211, 238, .05);
+  transform: translateY(-1px);
+}
+@keyframes cc-gallery-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- 选择器 token 分色 ---- */
+.cc-sel { color: #a1a1aa; }
+.cc-sel-el      { color: #7dd3fc; }
+.cc-sel-id      { color: #f472b6; }
+.cc-sel-cls     { color: #a78bfa; }
+.cc-sel-pseudo  { color: #fbbf24; }
+.cc-sel-pseudoEl{ color: #fb7185; }
+.cc-sel-attr    { color: #86efac; }
+.cc-sel-comb    { color: #64748b; }
+.cc-sel-ns      { color: #64748b; }
+.cc-sel-plain   { color: #a1a1aa; }
+
+/* ---- 特异性徽章：三位分色 ---- */
+.cc-spec-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(148, 163, 184, .18);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.cc-spec-a { color: #f472b6; }
+.cc-spec-b { color: #86efac; }
+.cc-spec-c { color: #7dd3fc; }
+
+/* ---- 标签徽章 ---- */
+.cc-tag {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-weight: 500;
+}
+.cc-tag-imp   { color: #fcd34d; background: rgba(251, 191, 36, .08); border-color: rgba(251, 191, 36, .25); }
+.cc-tag-media { color: #c4b5fd; background: rgba(167, 139, 250, .08); border-color: rgba(167, 139, 250, .25); }
+.cc-tag-layer { color: #7dd3fc; background: rgba(34, 211, 238, .08); border-color: rgba(34, 211, 238, .25); }
+.cc-tag-line  { color: #71717a; background: rgba(255, 255, 255, .04); border-color: rgba(255, 255, 255, .1); }
+
+/* ---- 特殊 at-rule 卡 ---- */
+.cc-atrule-card {
+  border-color: rgba(167, 139, 250, .22);
+  background: linear-gradient(160deg, rgba(30, 20, 56, .82), rgba(10, 9, 28, .92));
+}
+.cc-atrule-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #c4b5fd;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: rgba(167, 139, 250, .12);
+  border: 1px solid rgba(167, 139, 250, .3);
+}
+.cc-atrule-badge {
+  font-size: 10px;
+  color: #a78bfa;
+  background: rgba(167, 139, 250, .08);
+  border: 1px solid rgba(167, 139, 250, .2);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.cc-frame-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, .08);
+  border: 1px solid rgba(251, 191, 36, .2);
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+
+/* ============================================================
+   🌊 画廊 GUI 化：套用层叠模拟的视觉语言
+   ============================================================ */
+
+/* ---- 左侧能量轨：流动箭头线（流/箭头复用 cc-flow-stream / cc-flow-arrow） ---- */
+.cc-flow-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 15px;
+  z-index: 1;
+  pointer-events: none;
+  color: rgba(34, 211, 238, .55);
+  overflow: hidden;
+  border-right: 1px solid rgba(34, 211, 238, .1);
+  background: linear-gradient(180deg, rgba(34, 211, 238, .06), rgba(167, 139, 250, .05), transparent);
+}
+.cc-flow-rail .cc-flow-stream { right: auto; left: 3px; }
+.cc-flow-rail .cc-flow-arrow  { right: auto; left: 4px; }
+
+/* ---- 工具栏：概览条底色（cc-summary 提供扫光动画） ---- */
+.cc-gallery-toolbar {
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+  background: linear-gradient(180deg, rgba(13, 18, 40, .55), rgba(13, 18, 40, .2));
+}
+.cc-summary-stats b { font-weight: 700; }
+
+/* ---- 规则卡片：左缘能量条 + hover 扫光 ---- */
+.cc-rule-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12%;
+  bottom: 12%;
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg,
+    rgba(34, 211, 238, 0),
+    rgba(34, 211, 238, .3),
+    rgba(167, 139, 250, .3),
+    rgba(34, 211, 238, 0));
+  opacity: .35;
+  transition: opacity .2s, box-shadow .2s;
+}
+.cc-rule-card:hover::before {
+  opacity: 1;
+  box-shadow: 0 0 10px rgba(34, 211, 238, .55);
+}
+.cc-rule-card.cc-gallery-hovered::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, .12) 45%, transparent 60%);
+  background-size: 250% 100%;
+  background-position: 140% 0;
+  animation: cc-seg-sheen .5s ease forwards;
+  pointer-events: none;
+}
+
+/* ---- 🔮 解释按钮：能量玻璃钮 ---- */
+.cc-explain-btn {
+  position: relative;
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #082f42;
+  background: linear-gradient(135deg, #22d3ee, #67e8f9);
+  border: 1px solid rgba(34, 211, 238, .6);
+  box-shadow: 0 0 18px rgba(34, 211, 238, .45), inset 0 1px 0 rgba(255, 255, 255, .45);
+  transition: transform .12s, box-shadow .12s, filter .12s;
+  cursor: pointer;
+  overflow: hidden;
+}
+.cc-explain-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 0 28px rgba(34, 211, 238, .7), inset 0 1px 0 rgba(255, 255, 255, .45);
+  filter: brightness(1.06);
+}
+.cc-explain-btn:active:not(:disabled) { transform: translateY(0); }
+.cc-explain-btn:disabled { opacity: .45; cursor: not-allowed; }
+.cc-explain-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, .55) 50%, transparent 65%);
+  background-size: 250% 100%;
+  background-position: 140% 0;
+  animation: cc-seg-sheen 2.8s ease infinite;
+  pointer-events: none;
+}
+
+/* ---- 加载层：全屏遮罩 + 旋转能量环 ---- */
+.cc-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background:
+    radial-gradient(600px 300px at 50% 32%, rgba(34, 211, 238, .1), transparent 70%),
+    linear-gradient(160deg, rgba(10, 13, 30, .94), rgba(5, 6, 18, .97));
+  backdrop-filter: blur(2px);
+}
+.cc-loading-spinner {
+  width: 46px;
+  height: 46px;
+  border-radius: 9999px;
+  border: 3px solid rgba(34, 211, 238, .16);
+  border-top-color: #22d3ee;
+  border-right-color: rgba(167, 139, 250, .6);
+  animation: cc-spin .8s linear infinite;
+  box-shadow: 0 0 26px rgba(34, 211, 238, .35);
+}
+@keyframes cc-spin { to { transform: rotate(360deg); } }
+.cc-loading-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: #a5f3fc;
+  animation: cc-title-breathe 2s ease-in-out infinite;
+}
+.cc-loading-sub {
+  font-size: 11px;
+  color: #64748b;
+  letter-spacing: .02em;
+}
+
+/* ---- 降低动态偏好：新增动效一并关闭 ---- */
+@media (prefers-reduced-motion: reduce) {
+  .cc-rule-card.cc-gallery-hovered::after,
+  .cc-explain-btn::after,
+  .cc-loading-spinner,
+  .cc-loading-text {
+    animation: none !important;
+  }
+  .cc-rule-card::before {
+    transition: none;
+  }
+}
+
+/* ============================================================
+   🧊 全息档案滑轨（3D cover-flow）
+   ============================================================ */
+
+/* ---- 舞台：透视 + 卡片绝对定位 ---- */
+.cc-rail-stage {
+  position: absolute;
+  inset: 0;
+  perspective: 1500px;
+  perspective-origin: 50% 44%;
+}
+.cc-rail-card {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, .2);
+  background: linear-gradient(165deg, rgba(16, 22, 48, .92), rgba(6, 8, 22, .96));
+  color: #d4d4d8;
+  text-align: left;
+  cursor: pointer;
+  padding: 16px;
+  transition: transform .5s cubic-bezier(.22, .61, .36, 1), opacity .5s cubic-bezier(.22, .61, .36, 1);
+}
+.cc-rail-card--front {
+  width: 440px;
+  max-width: 62vw;
+  height: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* 正面卡内容块：头部/选择器/三柱/标签不缩，声明区伸缩并裁剪（footer 恒在底部） */
+.cc-rail-card--front > * { flex: 0 0 auto; min-height: 0; }
+.cc-rail-card--front > .cc-rail-card-decls { flex: 1 1 auto; overflow: hidden; }
+.cc-rail-card--side {
+  width: 300px;
+  max-width: 38vw;
+  height: 150px;
+  overflow: hidden;
+  padding: 12px 14px;
+}
+.cc-rail-card--hovered {
+  border-color: rgba(34, 211, 238, .7) !important;
+}
+/* 正面卡：顶部柔光 */
+.cc-rail-card--front::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(120% 80% at 50% 0%, rgba(34, 211, 238, .09), transparent 60%);
+}
+
+/* ---- 正面卡头部 + 全息详情入口 ---- */
+.cc-rail-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cc-rail-card-open {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, .08);
+  font-size: 11px;
+  color: #22d3ee;
+  text-align: center;
+  letter-spacing: .05em;
+  text-shadow: 0 0 10px rgba(34, 211, 238, .5);
+}
+
+/* ---- 特异性全息三柱 ---- */
+.cc-rail-specbar {
+  display: flex;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid rgba(255, 255, 255, .06);
+}
+.cc-rail-spec-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.cc-rail-spec-track {
+  position: relative;
+  width: 18px;
+  height: 46px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .08);
+  overflow: hidden;
+}
+.cc-rail-spec-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 3px;
+  box-shadow: 0 0 8px currentColor;
+}
+.cc-holo-bar--a { background: linear-gradient(180deg, #f9a8d4, #f472b6); color: #f472b6; }
+.cc-holo-bar--b { background: linear-gradient(180deg, #bbf7d0, #86efac); color: #86efac; }
+.cc-holo-bar--c { background: linear-gradient(180deg, #a5f3fc, #7dd3fc); color: #7dd3fc; }
+.cc-rail-spec-num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  line-height: 1;
+  text-shadow: 0 0 10px currentColor;
+}
+.cc-rail-spec-label {
+  font-size: 9px;
+  color: #71717a;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+/* ---- 氛围：透视网格地板 + 霓虹地平线 + 扫描线 ---- */
+.cc-rail-grid {
+  position: absolute;
+  left: -12%;
+  right: -12%;
+  bottom: -6px;
+  height: 46%;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(34, 211, 238, .10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, .10) 1px, transparent 1px);
+  background-size: 46px 46px;
+  transform: perspective(300px) rotateX(58deg);
+  transform-origin: center top;
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, .9), transparent 88%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, .9), transparent 88%);
+  animation: cc-grid-scroll 3s linear infinite;
+}
+@keyframes cc-grid-scroll {
+  from { background-position: 0 0; }
+  to   { background-position: 0 46px; }
+}
+.cc-rail-horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 42%;
+  height: 2px;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, .5), rgba(167, 139, 250, .5), transparent);
+  box-shadow: 0 0 20px rgba(34, 211, 238, .4);
+  opacity: .6;
+}
+.cc-rail-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -20%;
+  height: 90px;
+  z-index: 20;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(34, 211, 238, .05), rgba(255, 255, 255, .04), transparent);
+  animation: cc-scan 6s linear infinite;
+}
+@keyframes cc-scan {
+  from { top: -20%; }
+  to   { top: 110%; }
+}
+
+/* ---- 导航 ---- */
+.cc-rail-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  width: 40px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 211, 238, .25);
+  background: rgba(10, 14, 32, .55);
+  color: #67e8f9;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background .15s, box-shadow .15s, border-color .15s;
+  backdrop-filter: blur(4px);
+}
+.cc-rail-nav:hover {
+  background: rgba(34, 211, 238, .14);
+  box-shadow: 0 0 18px rgba(34, 211, 238, .35);
+  border-color: rgba(34, 211, 238, .5);
+}
+.cc-rail-nav--left  { left: 10px; }
+.cc-rail-nav--right { right: 10px; }
+
+/* ---- 进度 + 播放 ---- */
+.cc-rail-progress {
+  position: absolute;
+  bottom: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(360px, 70%);
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(10, 14, 32, .6);
+  border: 1px solid rgba(255, 255, 255, .08);
+  backdrop-filter: blur(4px);
+}
+.cc-rail-progress-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .08);
+  overflow: hidden;
+}
+.cc-rail-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #22d3ee, #a78bfa);
+  box-shadow: 0 0 8px rgba(34, 211, 238, .6);
+  transition: width .3s ease;
+}
+.cc-rail-progress-text {
+  font-size: 10px;
+  color: #71717a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.cc-rail-play {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, .12);
+  border: 1px solid rgba(34, 211, 238, .3);
+  color: #67e8f9;
+  font-size: 10px;
+  cursor: pointer;
+}
+.cc-rail-play:hover { background: rgba(34, 211, 238, .25); }
+
+/* ---- at-rule 全息条 ---- */
+.cc-rail-atstrip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  background: linear-gradient(180deg, rgba(6, 8, 22, .25), rgba(6, 8, 22, .9));
+  border-top: 1px solid rgba(167, 139, 250, .14);
+}
+.cc-rail-atstrip::-webkit-scrollbar { height: 6px; }
+.cc-rail-atstrip::-webkit-scrollbar-thumb { background: rgba(167, 139, 250, .25); border-radius: 8px; }
+.cc-rail-atchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #c4b5fd;
+  background: rgba(167, 139, 250, .08);
+  border: 1px solid rgba(167, 139, 250, .22);
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.cc-rail-atchip .cc-atrule-name {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+}
+.cc-rail-atchip:hover,
+.cc-rail-atchip--hovered {
+  border-color: rgba(167, 139, 250, .55);
+  box-shadow: 0 0 14px rgba(167, 139, 250, .35);
+  background: rgba(167, 139, 250, .16);
+}
+.cc-rail-atchip-prelude {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #e9d5ff;
+}
+.cc-rail-atchip-count {
+  font-size: 9px;
+  color: #a78bfa;
+  background: rgba(167, 139, 250, .12);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+/* ---- 降低动态偏好：滑轨动效一并关闭 ---- */
+@media (prefers-reduced-motion: reduce) {
+  .cc-rail-scanline,
+  .cc-rail-grid,
+  .cc-rail-card {
+    animation: none !important;
+    transition: none !important;
+  }
+}

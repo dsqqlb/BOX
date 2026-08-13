@@ -2,11 +2,12 @@
 
 import { useMemo } from 'react';
 import { CssRule, specText } from '@/lib/cssCascade';
+import { tokenizeSelector, tokenClass } from '@/lib/selectorHighlight';
 
 interface RuleDetailCardProps {
   rule: CssRule;
   onClose: () => void;
-  onHighlightInMain: (selector: string) => void;
+  onLocateInSource: (rule: CssRule) => void;
 }
 
 // ====== 独立效果预览：把这一条规则单独应用到一个迷你元素 ======
@@ -107,6 +108,19 @@ ${body}
 </html>`;
 }
 
+/** 该选择器能否用「构造迷你 DOM」的方式独立预览？ */
+function isProbeFriendly(sel: string): boolean {
+  if (sel.includes('::')) return false; // 伪元素
+  if (sel.includes('[')) return false; // 属性选择器
+  if (/[+~]/.test(sel)) return false; // 兄弟组合器
+  if (sel.includes('&')) return false; // 嵌套
+  const pseudos = sel.match(/:[\w-]+/g) || [];
+  for (const p of pseudos) {
+    if (p.slice(1).toLowerCase() !== 'nth-child') return false; // 只允许 :nth-child
+  }
+  return true;
+}
+
 // ====== 卡片 ======
 
 const ORIGIN_LABEL: Record<string, string> = {
@@ -114,38 +128,71 @@ const ORIGIN_LABEL: Record<string, string> = {
   inline: '内联 style',
 };
 
-export default function RuleDetailCard({ rule, onClose, onHighlightInMain }: RuleDetailCardProps) {
-  const srcdoc = useMemo(() => buildRuleSrcdoc(rule), [rule]);
+export default function RuleDetailCard({
+  rule,
+  onClose,
+  onLocateInSource,
+}: RuleDetailCardProps) {
+  const srcdoc = useMemo(() => (isProbeFriendly(rule.selectorText) ? buildRuleSrcdoc(rule) : null), [rule]);
+  const selectorTokens = useMemo(() => tokenizeSelector(rule.selectorText), [rule.selectorText]);
 
   const isInline = rule.selectorText === 'inline style';
+  const probeFriendly = !isInline && srcdoc !== null;
+  const [a, b, c] = rule.specificity;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
       {/* 背板 */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-lg max-h-[86vh] flex flex-col cc-detail-card">
+      <div className="relative w-full max-w-lg max-h-[88vh] flex flex-col cc-detail-card">
         {/* 头部 */}
         <div className="shrink-0 px-5 py-3.5 border-b border-white/10 flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-[13px] text-white cc-rule-selector break-all">{rule.selectorText}</span>
+              <code className="font-mono text-[13px] text-white cc-rule-selector break-all">
+                {selectorTokens.map((t, i) =>
+                  t.type === 'space' ? ' ' : (
+                    <span key={i} className={tokenClass(t.type)}>{t.text}</span>
+                  )
+                )}
+              </code>
               {rule.declarations.some((d) => d.important) && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300 border border-amber-400/30">!important</span>
               )}
             </div>
             <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
-              <span className="font-mono px-1.5 py-px rounded bg-white/5 text-zinc-300" title="特异性 (a,b,c)">
-                特异性 <b className="text-cyan-300">({specText(rule.specificity)})</b>
-              </span>
               <span>{ORIGIN_LABEL[isInline ? 'inline' : 'author'] || '样式表'}</span>
               {rule.locStart.line > 0 && <span>· 第 {rule.locStart.line} 行</span>}
+              {rule.layer && <span className="text-cyan-300/90">· @layer {rule.layer}</span>}
               {rule.mediaQuery && (
                 <span className="text-violet-300/90">· @media {rule.mediaQuery}</span>
               )}
             </div>
           </div>
           <button onClick={onClose} className="shrink-0 text-zinc-400 hover:text-white transition-colors text-lg leading-none px-1">✕</button>
+        </div>
+
+        {/* 特异性分解 */}
+        <div className="shrink-0 px-5 py-3 border-b border-white/10">
+          <div className="text-[10px] tracking-widest text-zinc-500 uppercase mb-1.5">特异性</div>
+          <div className="flex items-center gap-5 font-mono text-[13px]">
+            <span title="id 选择器">
+              <b className="cc-spec-a">{a}</b>
+              <span className="text-zinc-600 ml-1 text-[10px]">ID</span>
+            </span>
+            <span title="类 / 属性 / 伪类">
+              <b className="cc-spec-b">{b}</b>
+              <span className="text-zinc-600 ml-1 text-[10px]">类·属性·伪类</span>
+            </span>
+            <span title="元素 / 伪元素">
+              <b className="cc-spec-c">{c}</b>
+              <span className="text-zinc-600 ml-1 text-[10px]">元素·伪元素</span>
+            </span>
+            <span className="ml-auto text-[11px] text-zinc-500">
+              总分 <b className="text-cyan-300">({specText(rule.specificity)})</b>
+            </span>
+          </div>
         </div>
 
         {/* 声明列表 */}
@@ -171,7 +218,7 @@ export default function RuleDetailCard({ rule, onClose, onHighlightInMain }: Rul
                 <span className="text-xs text-pink-200/50">内联样式直接写在标签上，不需要也无法作为「一条规则」单独应用</span>
               </p>
             </div>
-          ) : (
+          ) : probeFriendly ? (
             <>
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[10px] tracking-widest text-zinc-500 uppercase">
@@ -182,16 +229,32 @@ export default function RuleDetailCard({ rule, onClose, onHighlightInMain }: Rul
                 )}
               </div>
               <div className="flex-1 min-h-[120px] rounded-lg overflow-hidden border border-white/10 bg-[#070a1a]">
-                <iframe title="single-rule-preview" srcDoc={srcdoc} className="w-full h-full border-0" />
+                <iframe title="single-rule-preview" srcDoc={srcdoc!} className="w-full h-full border-0" />
               </div>
-              <button
-                onClick={() => onHighlightInMain(rule.selectorText)}
-                className="mt-3 w-full py-2 rounded-lg text-sm font-medium text-cyan-200 bg-cyan-400/10 border border-cyan-400/30 hover:bg-cyan-400/20 transition-colors"
-              >
-                🔦 在主预览中高亮所有匹配元素
-              </button>
             </>
+          ) : (
+            <div className="flex-1 min-h-[120px] flex items-center justify-center rounded-lg border border-dashed border-violet-400/30 bg-violet-400/5 text-center px-6">
+              <p className="text-sm text-violet-200/90">
+                🧪 这个选择器太复杂，无法独立预览匹配效果
+                <br />
+                <span className="text-xs text-violet-200/50">
+                  含伪元素 / 属性 / 兄弟 / 嵌套选择器时，无法静态构造出命中它的迷你 DOM。
+                  <br />
+                  它的结构已在上方分色展示，请结合左侧源码查看它要匹配的目标。
+                </span>
+              </p>
+            </div>
           )}
+        </div>
+
+        {/* 操作按钮 */}
+        <div className="shrink-0 px-5 pb-4 flex gap-2">
+          <button
+            onClick={() => onLocateInSource(rule)}
+            className="flex-1 py-2 rounded-lg text-sm font-medium text-violet-200 bg-violet-400/10 border border-violet-400/30 hover:bg-violet-400/20 transition-colors"
+          >
+            📌 在源码中定位
+          </button>
         </div>
       </div>
     </div>
