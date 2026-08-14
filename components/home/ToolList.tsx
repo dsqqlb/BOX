@@ -3,47 +3,23 @@ import { Tool } from '@/lib/types';
 
 export default function ToolList({ tools }: { tools: Tool[] }) {
   return (
-    <div className="divide-y divide-zinc-200 dark:divide-zinc-800 border-t border-b border-zinc-200 dark:border-zinc-800">
-      {tools.map((tool) => (
-        <Link key={tool.slug} href={`/tools/${tool.slug}`}>
-          <div className="flex items-center gap-4 px-4 sm:px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors">
-            {/* Icon */}
-            <div className="text-2xl sm:text-3xl flex-shrink-0">
-              {tool.icon}
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5">
-                <h3 className="text-sm sm:text-base font-semibold text-zinc-900 dark:text-zinc-100 truncate">
-                  {tool.title}
-                </h3>
-                {tool.featured && (
-                  <span className="flex-shrink-0 px-1.5 py-0.5 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
-                    精选
-                  </span>
-                )}
+    <div className="overflow-hidden rounded-2xl border border-white/[0.09] bg-[#101326]/60">
+      {tools.map((tool, index) => (
+        <Link key={tool.slug} href={`/tools/${tool.slug}`} className="group block focus:outline-none focus-visible:bg-white/[0.08]">
+          <article className={`flex items-center gap-4 px-4 py-4 transition hover:bg-white/[0.045] sm:px-5 ${index > 0 ? 'border-t border-white/[0.07]' : ''}`}>
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-white/[0.09] bg-white/[0.055] text-2xl">{tool.icon}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h3 className="truncate text-sm font-semibold text-white group-hover:text-cyan-100 sm:text-base">{tool.title}</h3>
+                {tool.featured && <span className="hidden rounded-full bg-cyan-300/[0.1] px-2 py-0.5 text-[10px] font-medium text-cyan-100 sm:inline">精选</span>}
               </div>
-              <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 truncate">
-                {tool.description}
-              </p>
+              <p className="mt-1 truncate text-xs text-slate-500 sm:text-sm">{tool.description}</p>
             </div>
-
-            {/* Tags */}
-            <div className="hidden sm:flex flex-wrap gap-1.5 flex-shrink-0">
-              {tool.tags.slice(0, 3).map((tag) => (
-                <span
-                  key={tag}
-                  className="px-2 py-0.5 text-xs rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400"
-                >
-                  {tag}
-                </span>
-              ))}
+            <div className="hidden shrink-0 gap-1.5 md:flex">
+              {tool.tags.slice(0, 2).map((tag) => <span key={tag} className="rounded-md bg-white/[0.055] px-2 py-1 text-[11px] text-slate-500">{tag}</span>)}
             </div>
-
-            {/* Arrow */}
-            <span className="text-zinc-300 dark:text-zinc-600 flex-shrink-0">→</span>
-          </div>
+            <span className="text-lg text-slate-600 transition group-hover:translate-x-0.5 group-hover:text-cyan-100">→</span>
+          </article>
         </Link>
       ))}
     </div>

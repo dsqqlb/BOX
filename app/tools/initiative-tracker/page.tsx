@@ -2353,15 +2353,7 @@ export default function InitiativeTrackerPage() {
 
               <div className="mt-6 p-4 bg-black/40 rounded-lg border border-white/5">
                 <p className="text-slate-400 text-sm">
-                  <strong className="text-slate-300">提示：</strong>房间号由主屏幕生成。打开
-                  <a 
-                    href="/tools/initiative-tracker/display" 
-                    target="_blank"
-                    className="text-amber-400 hover:text-amber-300 underline mx-1"
-                  >
-                    主屏幕
-                  </a>
-                  获取房间号。
+                  <strong className="text-slate-300">提示：</strong>房间号由主屏幕生成。请在主屏幕生成房间号后输入。
                 </p>
               </div>
             </div>
