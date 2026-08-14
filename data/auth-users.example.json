@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "username": "admin",
+      "passwordHash": "",
+      "permissions": ["*"]
+    },
+    {
+      "username": "test",
+      "passwordHash": "",
+      "permissions": ["tarot-reading", "initiative-tracker"]
+    }
+  ]
+}

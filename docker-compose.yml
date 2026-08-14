@@ -14,7 +14,12 @@ services:
     restart: unless-stopped
     ports:
       - "9999:9999"
+    env_file:
+      # 从 .env.example 复制为 .env.local 后填写 BOX_SESSION_SECRET 与 BOX_COOKIE_SECURE。
+      - .env.local
     volumes:
+      # 账户权限配置只在服务端读取；必须由部署者从示例文件创建，且绝不能提交到 Git。
+      - ./data/auth-users.json:/app/data/auth-users.json:ro
       # 挂载图片目录（覆盖到静态产物的image目录）：以后加怪物图/玩家立绘/塔罗牌图，
       # 直接把文件放进宿主机的 public/image 即可生效，不需要重新构建镜像。
       # /api/enemies 和 /api/player-images 每次请求都会实时重新扫描这个目录。

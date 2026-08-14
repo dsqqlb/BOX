@@ -80,8 +80,9 @@ temp/
 # yarn.lock
 # pnpm-lock.yaml
 
-# User data files
+# User data files and server-only account configuration
 data/savings.json
+data/auth-users.json
 
 # CSS 层叠解释器：本地验证脚本产物
 scripts/shots/

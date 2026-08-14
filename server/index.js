@@ -21,6 +21,24 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const WebSocket = require('ws');
+const { createAuth } = require('./auth');
+
+// Next.js 会在自身启动后读取 .env.local，但本文件在它之前运行；本地直接 `npm run dev`
+// 时需要先加载认证配置。部署环境传入的同名变量优先，绝不被本地文件覆盖。
+function loadLocalEnvironment() {
+  const envPath = path.join(__dirname, '..', '.env.local');
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match || match[1].startsWith('#') || process.env[match[1]] !== undefined) continue;
+    const [, key, rawValue] = match;
+    const value = (rawValue.startsWith('"') && rawValue.endsWith('"')) || (rawValue.startsWith("'") && rawValue.endsWith("'"))
+      ? rawValue.slice(1, -1)
+      : rawValue;
+    process.env[key] = value;
+  }
+}
+loadLocalEnvironment();
 
 // ============ 配置 ============
 
@@ -40,6 +58,22 @@ const IMAGE_DIR = path.resolve(
 const ENEMY_DIR = path.join(IMAGE_DIR, 'enemies');
 const PLAYER_DIR = path.join(IMAGE_DIR, 'player');
 const SAVINGS_FILE = path.join(PROJECT_ROOT, 'data', 'savings.json');
+
+// 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
+const TOOL_SLUGS = [
+  'claude-code-guide',
+  'dnd-translator',
+  'initiative-tracker',
+  'initiative-tracker/display',
+  'json-visualizer',
+  'tarot-reading',
+  'savings-tracker',
+  'css-cascade',
+];
+const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
+const auth = createAuth({ projectRoot: PROJECT_ROOT, isProduction: !DEV });
+// 启动时立即校验账户文件，避免因漏挂载/错误配置而意外以无认证状态运行。
+auth.loadUsers();
 
 // ============ 省钱记录数据读写 ============
 
@@ -139,22 +173,120 @@ function getPlayerImageList() {
   return result.sort((a, b) => a.key.localeCompare(b.key));
 }
 
-function sendJson(res, data) {
-  res.writeHead(200, {
+function sendJson(res, data, statusCode = 200, headers = {}) {
+  res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    ...headers,
   });
   res.end(JSON.stringify(data));
 }
 
-function readBody(req) {
+function sendAuthError(res, statusCode, message) {
+  return sendJson(res, { error: message }, statusCode);
+}
+
+function readRawBody(req, maxBytes = 64 * 1024) {
   return new Promise((resolve) => {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => {
-      try { resolve(JSON.parse(body)); } catch { resolve(null); }
+    let size = 0;
+    const chunks = [];
+    let tooLarge = false;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        tooLarge = true;
+        return;
+      }
+      chunks.push(chunk);
     });
+    req.on('end', () => resolve(tooLarge ? null : Buffer.concat(chunks).toString('utf8')));
+    req.on('error', () => resolve(null));
   });
+}
+
+async function readBody(req) {
+  const raw = await readRawBody(req);
+  if (raw === null) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+function isSameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin || !req.headers.host) return false;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
+
+function canonicalizePathname(pathname) {
+  try {
+    const decoded = decodeURIComponent(pathname);
+    if (!decoded.startsWith('/') || decoded.includes('\\') || decoded.includes('\0')) return null;
+    const normalized = path.posix.normalize(decoded);
+    return normalized.startsWith('/') ? normalized : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizedPagePath(pathname) {
+  return pathname
+    .replace(/\/index\.html$/, '/')
+    .replace(/\.html$/, '')
+    .replace(/\/+$/, '') || '/';
+}
+
+function toolSlugForPath(pathname) {
+  const normalized = normalizedPagePath(pathname);
+  if (!normalized.startsWith('/tools/')) return null;
+  const slug = normalized.slice('/tools/'.length);
+  return TOOL_SLUG_SET.has(slug) ? slug : null;
+}
+
+function requiredToolForApi(pathname) {
+  if (pathname === '/api/enemies' || pathname === '/api/player-images' || pathname === '/api/rooms') return 'initiative-tracker';
+  if (pathname === '/api/savings') return 'savings-tracker';
+  return null;
+}
+
+function requiredToolForStaticAsset(pathname) {
+  if (pathname.startsWith('/image/enemies/') || pathname.startsWith('/image/player/')) return 'initiative-tracker';
+  if (pathname.startsWith('/image/tarot/')) return 'tarot-reading';
+  return null;
+}
+
+function safeReturnPath(value) {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/login')) return '/';
+  return value;
+}
+
+function redirectToLogin(req, res) {
+  const next = safeReturnPath(req.url || '/');
+  res.writeHead(303, { Location: `/login?next=${encodeURIComponent(next)}`, 'Cache-Control': 'no-store' });
+  res.end();
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+}
+
+function sendLoginPage(res, hasError = false, nextPath = '/') {
+  const escapedError = hasError ? '<p class="error">用户名或密码错误，或登录尝试次数过多。</p>' : '';
+  const escapedNext = escapeHtml(safeReturnPath(nextPath));
+  const page = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 BOX</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#090d18;color:#e2e8f0;font:16px system-ui,sans-serif}.card{width:min(360px,calc(100vw - 48px));padding:32px;border:1px solid #334155;border-radius:16px;background:#111827;box-shadow:0 24px 60px #0008}h1{margin:0 0 8px;font-size:24px}p{color:#94a3b8;margin:0 0 24px}.error{color:#fca5a5;background:#450a0a;padding:10px;border-radius:8px;font-size:14px}label{display:block;margin:14px 0 6px;font-size:14px}input{box-sizing:border-box;width:100%;padding:11px;border:1px solid #475569;border-radius:8px;background:#0f172a;color:#fff;font:inherit}button{width:100%;margin-top:22px;padding:11px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:700;font:inherit;cursor:pointer}button:hover{background:#3b82f6}</style></head><body><main class="card"><h1>BOX 私有工具箱</h1><p>请输入已获授权的账户。</p>${escapedError}<form method="post" action="/api/auth/login"><input type="hidden" name="next" value="${escapedNext}"><label for="username">用户名</label><input id="username" name="username" autocomplete="username" required maxlength="64"><label for="password">密码</label><input id="password" type="password" name="password" autocomplete="current-password" required maxlength="1024"><button type="submit">登录</button></form></main></body></html>`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin' });
+  res.end(page);
+}
+
+function isAuthorizedForRequest(req, user, pathname) {
+  const toolSlug = toolSlugForPath(pathname) || requiredToolForApi(pathname) || requiredToolForStaticAsset(pathname);
+  return !toolSlug || auth.hasToolAccess(user, toolSlug);
+}
+
+function getAllowedToolSlugs(user) {
+  return TOOL_SLUGS.filter((slug) => auth.hasToolAccess(user, slug));
 }
 
 // ============ 静态文件托管（替代原来的 nginx） ============
@@ -185,18 +317,6 @@ const MIME_TYPES = {
 
 // 这些文本类型压缩收益明显（json-visualizer 打包后有250KB+），二进制/图片不压缩
 const GZIP_EXT = new Set(['.html', '.js', '.mjs', '.css', '.json', '.map', '.webmanifest', '.txt', '.xml', '.svg']);
-
-function cacheControlFor(pathname, ext) {
-  // Next.js 的 /_next/static 产物文件名带内容哈希，可以永久缓存
-  if (pathname.startsWith('/_next/static/')) return 'public, max-age=31536000, immutable';
-  // HTML 不缓存，保证部署后用户刷新就能拿到新版本
-  if (ext === '.html') return 'no-cache';
-  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.otf', '.ttf', '.woff', '.woff2', '.mp3'].includes(ext)) {
-    return 'public, max-age=2592000'; // 图片/字体 30天
-  }
-  if (['.js', '.mjs', '.css'].includes(ext)) return 'public, max-age=604800'; // 7天
-  return 'public, max-age=3600';
-}
 
 // 对应原来 nginx 的 try_files $uri $uri.html $uri/index.html：
 // 静态导出产物可能是 /tools/xxx.html 也可能是 /tools/xxx/index.html，两种都要能命中
@@ -233,7 +353,8 @@ function sendStaticFile(req, res, found, statusCode = 200) {
   const ext = path.extname(found.file).toLowerCase();
   const headers = {
     'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-    'Cache-Control': cacheControlFor(req.url || '/', ext),
+    // 所有静态资源都已在外层通过 Cookie 鉴权；禁止共享缓存，避免代理向未授权请求复用已认证响应。
+    'Cache-Control': 'private, no-store',
   };
 
   const acceptsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
@@ -265,7 +386,7 @@ function sendNotFound(req, res) {
 
 // noServer:true —— 不自己起HTTP服务，而是挂到下面那个统一的http服务上，
 // 由 server.on('upgrade') 按路径决定这个升级请求是给房间同步(/ws)还是给Next.js的HMR
-const wss = new WebSocket.Server({ noServer: true });
+const wss = new WebSocket.Server({ noServer: true, maxPayload: 64 * 1024 });
 
 // 存储所有房间的数据（进程内存，容器重启会清空，这是已知限制）
 const rooms = new Map();
@@ -283,6 +404,29 @@ function broadcastToRoom(roomId, message, excludeClient = null) {
   });
 }
 
+function sendWsError(ws, message) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ERROR', payload: { message } }));
+}
+
+function isCurrentRoomMember(ws, roomId) {
+  return typeof roomId === 'string' && ws.roomId === roomId && rooms.has(roomId);
+}
+
+const ROOM_UPDATE_FIELDS = new Set([
+  'characters', 'currentTurn', 'roundNumber', 'dimIntensity', 'resultPanelOpacity',
+  'characterScale', 'diceDisplayScale', 'roomInfoScale', 'diceHistoryScale',
+  'displayRoomInfoVisible', 'displayDiceHistoryVisible', 'displayRoundVisible',
+]);
+
+function sanitizeRoomUpdates(updates) {
+  if (!updates || typeof updates !== 'object' || Array.isArray(updates)) return null;
+  const safe = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (ROOM_UPDATE_FIELDS.has(key)) safe[key] = value;
+  }
+  return safe;
+}
+
 wss.on('connection', (ws) => {
   console.log('🔌 新客户端连接');
 
@@ -291,18 +435,34 @@ wss.on('connection', (ws) => {
       const message = JSON.parse(data.toString());
       const { type, payload } = message;
 
+      if (!ws.user || !auth.hasToolAccess(ws.user, 'initiative-tracker')) {
+        sendWsError(ws, '当前账户没有先攻追踪器权限。');
+        ws.close(1008, 'Unauthorized');
+        return;
+      }
+
       console.log('📨 收到消息:', type, payload);
 
       switch (type) {
         case 'CREATE_ROOM': {
-          // 主屏幕创建房间（或断线后重新连回同一个房间）
-          const { roomId } = payload;
+          // 主屏幕创建房间（或由同一账户断线后重连）。房间号仍由主屏选择，但必须是合法的六位数字。
+          const { roomId } = payload || {};
+          if (typeof roomId !== 'string' || !/^\d{6}$/.test(roomId)) {
+            sendWsError(ws, '房间号无效。');
+            return;
+          }
           const now = Date.now();
           const isReconnect = rooms.has(roomId);
+
+          if (isReconnect && rooms.get(roomId).ownerUsername !== ws.user.username) {
+            sendWsError(ws, '只有创建该房间的账户可以作为主屏幕重连。');
+            return;
+          }
 
           if (!isReconnect) {
             rooms.set(roomId, {
               roomId,
+              ownerUsername: ws.user.username,
               characters: [],
               currentTurn: 0,
               roundNumber: 1,
@@ -340,8 +500,12 @@ wss.on('connection', (ws) => {
         }
 
         case 'JOIN_ROOM': {
-          // 遥控器加入房间
-          const { roomId } = payload;
+          // 遥控器加入房间：必须持有先攻追踪器权限，且仅允许加入合法的现有房间。
+          const { roomId } = payload || {};
+          if (typeof roomId !== 'string' || !/^\d{6}$/.test(roomId)) {
+            sendWsError(ws, '房间号无效。');
+            return;
+          }
 
           if (!rooms.has(roomId)) {
             ws.send(JSON.stringify({ type: 'ERROR', payload: { message: '房间不存在' } }));
@@ -368,30 +532,32 @@ wss.on('connection', (ws) => {
         }
 
         case 'UPDATE_ROOM': {
-          // 更新房间状态（角色列表 / 当前回合 / 回合数 / 压暗强度等）
-          const { roomId, updates } = payload;
-
-          if (!rooms.has(roomId)) {
-            console.log(`❌ 房间不存在: ${roomId}`);
-            ws.send(JSON.stringify({ type: 'ERROR', payload: { message: '房间已失效，请重新连接' } }));
+          // 只有已加入该房间的遥控器可以更改共享战斗状态；字段白名单防止客户端覆盖房间所有权等内部字段。
+          const { roomId, updates } = payload || {};
+          if (!isCurrentRoomMember(ws, roomId) || ws.isDisplay) {
+            sendWsError(ws, '无权更新该房间。');
+            return;
+          }
+          const safeUpdates = sanitizeRoomUpdates(updates);
+          if (!safeUpdates || Object.keys(safeUpdates).length === 0) {
+            sendWsError(ws, '没有可更新的房间字段。');
             return;
           }
 
           const room = rooms.get(roomId);
-          Object.assign(room, updates);
+          Object.assign(room, safeUpdates);
           room.lastActivity = Date.now();
-          rooms.set(roomId, room);
 
-          console.log(`🔄 房间更新: ${roomId}`, Object.keys(updates));
+          console.log(`🔄 房间更新: ${roomId}`, Object.keys(safeUpdates));
 
           broadcastToRoom(roomId, { type: 'ROOM_STATE', payload: room });
           break;
         }
 
         case 'DICE_HISTORY_APPEND': {
-          // 历史只由遥控器在“收起”时提交；服务器保存到房间内存并广播ROOM_STATE，供主屏幕展示。
-          const { roomId, entry } = payload;
-          if (!rooms.has(roomId) || !entry
+          // 遥控器在初次结果和每次重投结果后提交历史；只有当前房间的遥控器可写入。
+          const { roomId, entry } = payload || {};
+          if (!isCurrentRoomMember(ws, roomId) || ws.isDisplay || !entry
             || typeof entry.id !== 'string'
             || typeof entry.recordedAt !== 'string'
             || typeof entry.label !== 'string'
@@ -408,8 +574,11 @@ wss.on('connection', (ws) => {
         }
 
         case 'DICE_HISTORY_CLEAR': {
-          const { roomId } = payload;
-          if (!rooms.has(roomId)) return;
+          const { roomId } = payload || {};
+          if (!isCurrentRoomMember(ws, roomId) || ws.isDisplay) {
+            sendWsError(ws, '无权清空该房间的历史记录。');
+            return;
+          }
           const room = rooms.get(roomId);
           room.diceHistory = [];
           room.lastActivity = Date.now();
@@ -427,9 +596,9 @@ wss.on('connection', (ws) => {
           // recipe 是可选的"自定义表达式配方"(骰子分组+kh/kl取高取低+符号，不含完整语法树)，
           // 只有遥控器"自定义掷骰"标签页用表达式发起投掷时才会带上；服务器只管转发，不解析内容，
           // 主屏幕拿到后据此重新计算kh/kl明细，决定给哪几颗骰子加发光描边。
-          const { roomId, id, notation, shapeTextures, recipe, label, expression } = payload;
-          if (!rooms.has(roomId)) {
-            ws.send(JSON.stringify({ type: 'ERROR', payload: { message: '房间已失效，请重新连接' } }));
+          const { roomId, id, notation, shapeTextures, recipe, label, expression } = payload || {};
+          if (!isCurrentRoomMember(ws, roomId) || ws.isDisplay) {
+            sendWsError(ws, '无权在该房间发起掷骰。');
             return;
           }
           rooms.get(roomId).lastActivity = Date.now();
@@ -441,8 +610,11 @@ wss.on('connection', (ws) => {
         case 'DICE_ROLL_RESULT': {
           // 主屏幕算完3D骰子动画的结果后，把结构化结果广播回房间内所有客户端，
           // 遥控器据此展示每组小计+总和的文字结果。
-          const { roomId, id, notation, result } = payload;
-          if (!rooms.has(roomId)) return;
+          const { roomId, id, notation, result } = payload || {};
+          if (!isCurrentRoomMember(ws, roomId) || !ws.isDisplay) {
+            sendWsError(ws, '只有当前主屏幕可以发送掷骰结果。');
+            return;
+          }
           rooms.get(roomId).lastActivity = Date.now();
           broadcastToRoom(roomId, { type: 'DICE_ROLL_RESULT', payload: { id, notation, result } });
           break;
@@ -450,9 +622,9 @@ wss.on('connection', (ws) => {
 
         case 'DICE_DIE_REROLL': {
           // 重投请求可包含多颗骰子；服务器只转发，主屏幕会校验本轮可用骰子并一次性播放动画。
-          const { roomId, rollId, requestId, dieIds } = payload;
-          if (!rooms.has(roomId)) {
-            ws.send(JSON.stringify({ type: 'ERROR', payload: { message: '房间已失效，请重新连接' } }));
+          const { roomId, rollId, requestId, dieIds } = payload || {};
+          if (!isCurrentRoomMember(ws, roomId) || ws.isDisplay) {
+            sendWsError(ws, '无权在该房间请求重投。');
             return;
           }
           rooms.get(roomId).lastActivity = Date.now();
@@ -463,8 +635,11 @@ wss.on('connection', (ws) => {
 
         case 'DICE_DIE_REROLL_RESULT': {
           // 主屏幕广播一次批量重投后的完整结果和已使用重投机会的骰子列表。
-          const { roomId, id, requestId, notation, result, rerolledDieIds, rerolls } = payload;
-          if (!rooms.has(roomId)) return;
+          const { roomId, id, requestId, notation, result, rerolledDieIds, rerolls } = payload || {};
+          if (!isCurrentRoomMember(ws, roomId) || !ws.isDisplay) {
+            sendWsError(ws, '只有当前主屏幕可以发送重投结果。');
+            return;
+          }
           rooms.get(roomId).lastActivity = Date.now();
           broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL_RESULT', payload: { id, requestId, notation, result, rerolledDieIds, rerolls } });
           break;
@@ -474,8 +649,11 @@ wss.on('connection', (ws) => {
           // 任意一端（通常是遥控器点"收起"）主动关闭结果展示：转发给房间内所有客户端，
           // 主屏幕收到后立刻收起全屏遮罩，不用等倒计时自然结束；
           // 其他遥控器收到后也同步清掉自己本地展示的结果横幅，保持所有端一致。
-          const { roomId, id } = payload;
-          if (!rooms.has(roomId)) return;
+          const { roomId, id } = payload || {};
+          if (!isCurrentRoomMember(ws, roomId) || ws.isDisplay) {
+            sendWsError(ws, '无权收起该房间的骰盘。');
+            return;
+          }
           rooms.get(roomId).lastActivity = Date.now();
           broadcastToRoom(roomId, { type: 'DICE_ROLL_DISMISS', payload: { id } });
           break;
@@ -578,24 +756,95 @@ async function main() {
   }
 
   const server = http.createServer(async (req, res) => {
+    let requestUrl;
     let pathname = '/';
     try {
-      pathname = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;
+      requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      pathname = requestUrl.pathname;
     } catch {
+      requestUrl = new URL('http://localhost/');
       // URL解析失败就按根路径兜底
+    }
+    pathname = canonicalizePathname(pathname);
+    if (!pathname) {
+      return sendAuthError(res, 400, '请求路径无效。');
     }
 
     try {
-      // 1) 图片清单接口：放在最前面，避免被静态文件/Next路由抢先处理
+      // 登录页和认证接口是唯一允许匿名访问的 HTTP 入口；它们不依赖 Next.js，生产静态导出也可用。
+      const requestUser = auth.getUserFromRequest(req);
+      if (pathname === '/login' && req.method === 'GET') {
+        if (requestUser) {
+          res.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' });
+          return res.end();
+        }
+        return sendLoginPage(
+          res,
+          requestUrl.searchParams.get('error') === '1',
+          safeReturnPath(requestUrl.searchParams.get('next') || '/'),
+        );
+      }
+
+      if (pathname === '/api/auth/login') {
+        if (req.method !== 'POST') return sendAuthError(res, 405, '只支持 POST 登录。');
+        if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
+        const attempt = auth.loginAllowed(req);
+        if (!attempt.allowed) {
+          res.writeHead(303, { Location: '/login?error=1', 'Retry-After': String(attempt.retryAfterSeconds), 'Cache-Control': 'no-store' });
+          return res.end();
+        }
+        const raw = await readRawBody(req, 8 * 1024);
+        const form = raw === null ? null : new URLSearchParams(raw);
+        const username = form?.get('username')?.trim() || '';
+        const password = form?.get('password') || '';
+        const user = auth.loadUsers().get(username);
+        if (!user || !auth.verifyPassword(user, password)) {
+          auth.recordLoginFailure(req);
+          res.writeHead(303, { Location: '/login?error=1', 'Cache-Control': 'no-store' });
+          return res.end();
+        }
+        auth.clearLoginFailures(req);
+        const next = safeReturnPath(form?.get('next') || '/');
+        res.writeHead(303, {
+          Location: next,
+          'Set-Cookie': auth.buildSessionCookie(auth.createSession(user)),
+          'Cache-Control': 'no-store',
+        });
+        return res.end();
+      }
+
+      if (pathname === '/api/auth/logout') {
+        if (req.method !== 'POST') return sendAuthError(res, 405, '只支持 POST 登出。');
+        if (!requestUser) return sendAuthError(res, 401, '尚未登录。');
+        if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
+        res.writeHead(204, { 'Set-Cookie': auth.clearSessionCookie(), 'Cache-Control': 'no-store' });
+        return res.end();
+      }
+
+      if (pathname === '/api/auth/me') {
+        if (req.method !== 'GET') return sendAuthError(res, 405, '只支持 GET。');
+        if (!requestUser) return sendAuthError(res, 401, '尚未登录。');
+        return sendJson(res, { username: requestUser.username, allowedTools: getAllowedToolSlugs(requestUser) });
+      }
+
+      // 认证在所有业务 API、静态资源和开发页面之前执行，前端链接隐藏不是安全边界。
+      if (!requestUser) {
+        if (pathname.startsWith('/api/')) return sendAuthError(res, 401, '需要登录。');
+        return redirectToLogin(req, res);
+      }
+      if (!isAuthorizedForRequest(req, requestUser, pathname)) {
+        if (pathname.startsWith('/api/')) return sendAuthError(res, 403, '当前账户没有访问此工具的权限。');
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end('403 无权访问此工具');
+      }
+
+      // 图片清单接口：在静态文件/Next路由前处理，但已通过先攻追踪器工具权限校验。
       if (pathname === '/api/enemies') return sendJson(res, getEnemyList());
       if (pathname === '/api/player-images') return sendJson(res, getPlayerImageList());
       if (pathname === '/api/health') {
         return sendJson(res, { ok: true, dev: DEV, rooms: rooms.size });
       }
-      // 房间列表：主屏幕刚打开时用这个展示"还在跑的房间"，方便断线/设备没电后选择回到原来的房间，
-      // 而不是只能盯着一个新生成的空房间号从头开始。
-      // 安全提示：这会把所有当前存在的房间号列出来，等同于把"猜房间号"这道门槛去掉了，
-      // 只适合内网/朋友间使用的场景，不建议在完全公开的部署上开这个接口。
+      // 房间列表：仅拥有先攻追踪器权限的用户可访问。
       if (pathname === '/api/rooms') {
         const list = Array.from(rooms.values())
           .map((room) => ({
@@ -609,58 +858,65 @@ async function main() {
         return sendJson(res, list);
       }
 
-      // 省钱记录 API
+      // 省钱记录 API：记录按登录账户隔离，任意写入操作都要求同源请求。
       if (pathname === '/api/savings') {
         if (req.method === 'POST') {
+          if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
           const body = await readBody(req);
-          if (!body || !body.date || !body.time || !body.activity || !body.item || body.amount == null) {
-            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-            return res.end(JSON.stringify({ error: '缺少必填字段' }));
+          if (!body || !body.date || !body.time || !body.activity || !body.item || body.amount == null || !Number.isFinite(Number(body.amount))) {
+            return sendAuthError(res, 400, '缺少或包含无效的必填字段。');
           }
           const records = loadSavings();
           const record = {
             id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15),
-            date: body.date,
-            time: body.time,
-            activity: body.activity,
-            item: body.item,
+            owner: requestUser.username,
+            date: String(body.date),
+            time: String(body.time),
+            activity: String(body.activity),
+            item: String(body.item),
             amount: Number(body.amount),
             createdAt: new Date().toISOString(),
           };
           records.push(record);
-          saveSavings(records);
+          if (!saveSavings(records)) return sendAuthError(res, 500, '保存记录失败。');
           return sendJson(res, record);
         }
         if (req.method === 'DELETE') {
+          if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
           const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
           const id = url.searchParams.get('id');
-          if (!id) {
-            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-            return res.end(JSON.stringify({ error: '缺少 id 参数' }));
-          }
-          let records = loadSavings();
-          records = records.filter((r) => r.id !== id);
-          saveSavings(records);
+          if (!id) return sendAuthError(res, 400, '缺少 id 参数。');
+          const records = loadSavings();
+          const index = records.findIndex((record) => record.id === id && record.owner === requestUser.username);
+          if (index === -1) return sendAuthError(res, 404, '记录不存在。');
+          records.splice(index, 1);
+          if (!saveSavings(records)) return sendAuthError(res, 500, '删除记录失败。');
           return sendJson(res, { success: true });
         }
         if (req.method === 'PUT') {
+          if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
           const body = await readBody(req);
-          if (!body || !body.id) {
-            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-            return res.end(JSON.stringify({ error: '缺少 id 参数' }));
-          }
-          let records = loadSavings();
-          const idx = records.findIndex((r) => r.id === body.id);
-          if (idx === -1) {
-            res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-            return res.end(JSON.stringify({ error: '记录不存在' }));
-          }
-          records[idx] = { ...records[idx], ...body, id: records[idx].id, createdAt: records[idx].createdAt };
-          saveSavings(records);
-          return sendJson(res, records[idx]);
+          if (!body || typeof body.id !== 'string') return sendAuthError(res, 400, '缺少 id 参数。');
+          const records = loadSavings();
+          const index = records.findIndex((record) => record.id === body.id && record.owner === requestUser.username);
+          if (index === -1) return sendAuthError(res, 404, '记录不存在。');
+          const current = records[index];
+          const next = {
+            ...current,
+            date: body.date == null ? current.date : String(body.date),
+            time: body.time == null ? current.time : String(body.time),
+            activity: body.activity == null ? current.activity : String(body.activity),
+            item: body.item == null ? current.item : String(body.item),
+            amount: body.amount == null ? current.amount : Number(body.amount),
+          };
+          if (!Number.isFinite(next.amount)) return sendAuthError(res, 400, '金额无效。');
+          records[index] = next;
+          if (!saveSavings(records)) return sendAuthError(res, 500, '更新记录失败。');
+          return sendJson(res, next);
         }
-        // GET: 返回全部记录
-        return sendJson(res, loadSavings());
+        if (req.method !== 'GET') return sendAuthError(res, 405, '不支持的请求方法。');
+        // 旧版未标记 owner 的记录不自动暴露给任何账户，管理员可自行迁移数据。
+        return sendJson(res, loadSavings().filter((record) => record.owner === requestUser.username));
       }
 
       // 2) 页面：开发交给Next dev server，生产读静态产物
@@ -683,12 +939,22 @@ async function main() {
     let pathname = '/';
     try {
       pathname = new URL(req.url, 'http://localhost').pathname;
+      pathname = canonicalizePathname(pathname);
     } catch {
-      // 解析失败直接走下面的拒绝分支
+      pathname = null;
     }
 
     if (pathname === '/ws') {
+      // 浏览器 WebSocket 会附带同源 Cookie；拒绝跨站升级、未登录账户及缺少先攻权限的账户。
+      const user = auth.getUserFromRequest(req);
+      if (!isSameOrigin(req) || !user || !auth.hasToolAccess(user, 'initiative-tracker')) {
+        const status = user ? '403 Forbidden' : '401 Unauthorized';
+        socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+        socket.destroy();
+        return;
+      }
       wss.handleUpgrade(req, socket, head, (ws) => {
+        ws.user = user;
         wss.emit('connection', ws, req);
       });
       return;

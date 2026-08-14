@@ -29,11 +29,12 @@ COPY --from=builder /app/node_modules/ws ./node_modules/ws
 
 # 静态产物 + 统一服务器（托管静态页面 + WebSocket + /api 接口，全在一个端口上）
 COPY --from=builder /app/out ./out
-COPY server/index.js ./server/index.js
+COPY --from=builder /app/server ./server
 
 EXPOSE 9999
 
+# 不调用受认证保护的 HTTP API；只验证本机端口正在监听。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:9999/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+  CMD node -e "require('net').connect(9999, '127.0.0.1').on('connect', function(){this.end();process.exit(0)}).on('error', () => process.exit(1))"
 
 CMD ["node", "server/index.js"]
