@@ -49,9 +49,8 @@ const HOST = process.env.HOST || '0.0.0.0';
 const PROJECT_ROOT = path.join(__dirname, '..');
 // 静态产物目录（生产环境用）：next build + output:'export' 的产物
 const STATIC_DIR = path.resolve(process.env.STATIC_DIR || path.join(PROJECT_ROOT, 'out'));
-// 图片目录：开发环境直接读源码里的 public/image；
-// 生产环境读导出后的 out/image（docker-compose 会把宿主机的 public/image 挂载覆盖到这里，
-// 所以加新图片不需要重新构建镜像）
+// 图片目录：开发环境直接读 public/image；生产模式默认读取 out/image。
+// 如需使用其他目录，可通过 IMAGE_DIR 显式指定。
 const IMAGE_DIR = path.resolve(
   process.env.IMAGE_DIR || (DEV ? path.join(PROJECT_ROOT, 'public', 'image') : path.join(STATIC_DIR, 'image'))
 );

@@ -1,148 +1,25 @@
-# BOX - 项目文档
+# BOX 文档索引
 
-## 📦 项目概述
+本目录存放当前功能的使用与维护说明。根目录的 [README](../README.md) 提供项目概览和本地启动步骤。
 
-BOX 是一个基于 Next.js 15 构建的工具集合平台，用于展示和分享各种实用工具。
+## 认证与运行
 
-## 🚀 快速开始
+- [认证与授权](./authentication.md)：账户文件、密码哈希、工具权限、Cookie 与本地配置。
 
-### 开发环境
+完整应用运行时必须使用 `server/index.js`：它负责认证、受保护 API、WebSocket 和生产静态文件托管。不要把 `out/` 单独部署为完整应用。
 
-```bash
-# 克隆项目
-git clone <repo-url>
-cd BOX
+## 工具说明
 
-# 安装依赖
-npm install
+| 工具 | 路径 | 说明文档 |
+| --- | --- | --- |
+| Claude Code 学习中心 | `/tools/claude-code-guide` | [claude-code-guide.md](./claude-code-guide.md) |
+| DND 语言翻译器 | `/tools/dnd-translator` | [dnd-translator.md](./dnd-translator.md) |
+| DND 先攻追踪器（遥控器/主屏） | `/tools/initiative-tracker`、`/tools/initiative-tracker/display` | [initiative-tracker-room.md](./initiative-tracker-room.md) |
+| JSON 星系 | `/tools/json-visualizer` | [json-visualizer.md](./json-visualizer.md) |
+| 塔罗牌占卜 | `/tools/tarot-reading` | [tarot-reading.md](./tarot-reading.md) |
+| 省钱网页 | `/tools/savings-tracker` | [savings-tracker.md](./savings-tracker.md) |
+| CSS 层叠解释器 | `/tools/css-cascade` | [css-cascade.md](./css-cascade.md) |
 
-# 启动开发服务器（端口 9999）
-npm run dev
-```
+## 文档维护约定
 
-访问 http://localhost:9999
-
-### 生产构建
-
-```bash
-npm run build
-```
-
-静态文件输出到 `out/` 目录。
-
-## 📁 项目结构
-
-```
-BOX/
-├── app/                      # Next.js App Router
-│   ├── page.tsx              # 首页
-│   ├── layout.tsx            # 全局布局
-│   ├── globals.css           # 全局样式（含字体声明）
-│   └── tools/                # 工具页面
-│       ├── claude-code-guide/  # Claude Code 学习中心
-│       └── dnd-translator/     # DND 语言翻译器
-├── components/               # React 组件
-│   └── home/                 # 首页组件
-├── data/                     # 数据配置
-│   └── tools.json            # 工具元数据
-├── lib/                      # 工具函数
-│   ├── types.ts              # TypeScript 类型
-│   ├── tools.ts              # 工具数据操作
-│   └── translate.ts          # MyMemory 翻译 API
-├── public/                   # 静态资源
-│   └── fonts/                # 字体文件（DND 语言字体）
-└── docs/                     # 项目文档
-    ├── README.md             # 项目总览（本文件）
-    ├── claude-code-guide.md  # Claude Code 学习中心文档
-    └── dnd-translator.md     # DND 翻译器文档
-```
-
-## 🛠️ 现有工具
-
-### 1. Claude Code 学习中心
-- 路径：`/tools/claude-code-guide`
-- 功能：Claude Code 使用指南、指令说明、技巧分享
-- 文档：[claude-code-guide.md](./claude-code-guide.md)
-
-### 2. DND 语言翻译器
-- 路径：`/tools/dnd-translator`
-- 功能：中英文互译 + DND 语言符文显示
-- 支持：多语言同时显示（矮人语、卷轴·Magi 等）
-- 文档：[dnd-translator.md](./dnd-translator.md)
-
-## ✨ 添加新工具
-
-### 1. 创建工具页面
-
-```bash
-mkdir -p app/tools/your-tool
-```
-
-创建 `app/tools/your-tool/page.tsx`：
-
-```tsx
-export default function YourToolPage() {
-  return (
-    <div>
-      <h1>你的工具</h1>
-    </div>
-  );
-}
-```
-
-### 2. 添加工具元数据
-
-编辑 `data/tools.json`：
-
-```json
-{
-  "slug": "your-tool",
-  "title": "你的工具",
-  "description": "工具描述",
-  "category": "utility",
-  "tags": ["tag1", "tag2"],
-  "icon": "🔧",
-  "featured": false,
-  "createdAt": "2026-08-03"
-}
-```
-
-### 3. 创建工具文档（可选）
-
-在 `docs/` 目录下创建 `your-tool.md`，记录工具的配置、使用方法等。
-
-### 4. 提交代码
-
-```bash
-git add .
-git commit -m "feat: 新增 your-tool 工具"
-git push
-```
-
-## 🧰 技术栈
-
-- **框架**: Next.js 15.1.7 (App Router)
-- **语言**: TypeScript
-- **样式**: Tailwind CSS
-- **翻译 API**: MyMemory (免费 500 次/日)
-- **部署**: 静态导出 (`output: 'export'`)
-- **包管理**: npm
-
-## 📝 开发规范
-
-- TypeScript 严格模式
-- 组件使用函数式写法
-- 样式优先使用 Tailwind CSS
-- 提交遵循 Conventional Commits
-
-## 🔧 常用命令
-
-```bash
-npm run dev          # 启动开发服务器（端口 9999）
-npm run build        # 构建生产版本
-npm run start        # 启动生产服务器
-```
-
-## 📄 License
-
-MIT
+每个 `data/tools.json` 中注册的工具都必须有一份对应的 Markdown 说明。功能、路由、权限或持久化方式变化时，应在同一改动中更新对应文档；不要在文档中保留未实现的功能或过时的传输方式。

@@ -1,82 +1,35 @@
 # Claude Code 学习中心
 
-## 📚 工具概述
+路径：`/tools/claude-code-guide`
+所需权限：`claude-code-guide`
 
-Claude Code 学习中心是一个交互式文档工具，提供 Claude Code 的完整使用指南。
+这是项目内置的 Claude Code 学习参考页。页面将 `data/claude-code-guide.json` 中的内容按章节渲染为说明、命令卡片、技巧、高级主题和常见问题。
 
-## 🎯 功能特性
+## 使用
 
-- **核心指令说明** - 常用指令及使用场景
-- **实用技巧分享** - 提升效率的使用技巧
-- **高级用法介绍** - 进阶功能和最佳实践
-- **常见问题解答** - 常见问题及解决方案
+- 在页面中顺序浏览各章节。
+- 命令条目展示用途和示例，可使用复制按钮复制命令文本。
+- 页面底部可返回工具箱首页。
 
-## 📁 文件结构
+页面内容是静态参考资料，不会调用 Claude API，也不会向服务端提交学习内容。
 
-```
-app/tools/claude-code-guide/
-└── page.tsx                  # 主页面组件
+## 内容维护
 
-data/
-└── claude-code-guide.json    # 学习内容数据
-```
-
-## 🔧 技术实现
-
-### 数据结构
-
-内容存储在 `data/claude-code-guide.json`：
+学习资料的唯一数据源是 `data/claude-code-guide.json`。更新已有条目或新增章节时，请保持现有 `sections` 数组结构：
 
 ```json
 {
-  "sections": [
+  "id": "commands",
+  "title": "常用命令",
+  "items": [
     {
-      "id": "basics",
-      "title": "基础指令",
-      "items": [
-        {
-          "title": "指令名称",
-          "description": "指令说明",
-          "example": "使用示例"
-        }
-      ]
+      "command": "/example",
+      "description": "说明",
+      "usage": "用法",
+      "example": "示例"
     }
   ]
 }
 ```
 
-### 组件实现
-
-页面使用标签页切换不同章节，支持搜索过滤和代码高亮。
-
-## 📝 内容维护
-
-### 添加新章节
-
-编辑 `data/claude-code-guide.json`，添加新的 section：
-
-```json
-{
-  "id": "new-section",
-  "title": "新章节标题",
-  "items": [
-    // 章节内容
-  ]
-}
-```
-
-### 更新内容
-
-直接修改 JSON 文件中对应条目即可，无需修改代码。
-
-## 🎨 样式特点
-
-- 响应式布局，适配移动端
-- 暗色主题支持
-- 代码块语法高亮
-- 平滑的标签页切换动画
-
-## 🔗 相关链接
-
-- 工具路径: `/tools/claude-code-guide`
-- 数据文件: `data/claude-code-guide.json`
+不同章节使用的字段会有所不同；修改前请对照同一章节的现有数据。内容更新后重新构建或在开发服务中刷新页面即可。

@@ -1,243 +1,91 @@
-# BOX - 工具箱 🧰
+# BOX
 
-一个基于 Next.js 15 构建的个人工具集合平台，用于展示和分享各种实用工具。
+BOX 是一个带账户登录和按工具授权的私人工具箱。它使用 Next.js 构建界面，并由 `server/index.js` 统一提供页面、认证、API 和先攻追踪器的 WebSocket 服务。
 
-[![Next.js](https://img.shields.io/badge/Next.js-15.1.7-black)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38bdf8)](https://tailwindcss.com/)
-[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+> `next.config.ts` 虽然会生成 `out/` 静态产物，但完整功能**不能**只部署到静态托管：登录、权限控制、WebSocket 房间和省钱记录 API 都需要运行 `server/index.js`。
 
-## 🎯 项目特色
+## 本地启动
 
-- 🚀 **现代化技术栈** - Next.js 15 + TypeScript + Tailwind CSS
-- 🎨 **精美设计** - 每个工具都有独特的视觉风格
-- 📱 **响应式布局** - 完美适配桌面、平板、手机
-- 🌙 **暗黑模式** - 自动适配系统主题
-- ⚡ **静态导出** - 可部署到任何静态托管平台
-- 💾 **数据持久化** - localStorage 自动保存用户配置
+### 1. 安装依赖
 
-## 🚀 快速开始
-
-### 安装依赖
-
-```bash
+```powershell
 npm install
 ```
 
-### 启动开发服务器
+### 2. 配置认证
 
-```bash
+在 PowerShell 中执行：
+
+```powershell
+Copy-Item .env.example .env.local
+Copy-Item data/auth-users.example.json data/auth-users.json
+node server/create-password-hash.js
+```
+
+将命令输出的密码哈希填入 `data/auth-users.json` 对应账户的 `passwordHash`，并在 `.env.local` 中设置至少 32 字节的随机 `BOX_SESSION_SECRET`。本地 HTTP 开发请设置 `BOX_COOKIE_SECURE=false`。
+
+如果使用的是 `cmd.exe`，前两条复制命令改为：
+
+```bat
+copy .env.example .env.local
+copy data\auth-users.example.json data\auth-users.json
+```
+
+`data/auth-users.json` 含真实账户配置，已被 Git 忽略，不能提交。完整账户、权限和会话说明见[认证与授权](./docs/authentication.md)。
+
+### 3. 启动
+
+```powershell
 npm run dev
 ```
 
-访问 [http://localhost:9999](http://localhost:9999)
+打开 <http://localhost:9999>，使用已配置的账户登录。
 
-### 生产构建
+### 生产运行
 
-```bash
+```powershell
 npm run build
+npm start
 ```
 
-静态文件将输出到 `out/` 目录。
+默认端口为 `9999`；可通过 `PORT` 环境变量修改。生产部署须保留可写的 `data/` 目录，以保存省钱记录，并安全保存 `.env.local` 与 `data/auth-users.json`。
 
-## 🛠️ 现有工具
+## 工具
 
-### 📚 Claude Code 学习中心
-Claude Code 使用指南、指令说明、技巧分享和最佳实践。
+所有工具均须先登录；账户还必须具备相应权限。
 
-**路径**: `/tools/claude-code-guide`  
-**特性**: 
-- 完整的使用指南
-- 常用指令速查
-- 技巧和最佳实践
-- FAQ 常见问题
+| 工具 | 路径 | 说明 | 文档 |
+| --- | --- | --- | --- |
+| Claude Code 学习中心 | `/tools/claude-code-guide` | JSON 驱动的指令、技巧和常见问题参考 | [查看](./docs/claude-code-guide.md) |
+| DND 语言翻译器 | `/tools/dnd-translator` | 中英文翻译、奇幻字体展示与符文图片导出 | [查看](./docs/dnd-translator.md) |
+| DND 先攻追踪器（遥控器） | `/tools/initiative-tracker` | 管理角色、回合、状态与骰子 | [查看](./docs/initiative-tracker-room.md) |
+| DND 先攻追踪器（主屏） | `/tools/initiative-tracker/display` | 创建/接管房间并在大屏展示战斗 | [查看](./docs/initiative-tracker-room.md) |
+| JSON 星系 | `/tools/json-visualizer` | JSON 校验、格式化、压缩与 3D 浏览 | [查看](./docs/json-visualizer.md) |
+| 塔罗牌占卜 | `/tools/tarot-reading` | 78 张牌与多种牌阵的互动抽牌 | [查看](./docs/tarot-reading.md) |
+| 省钱网页 | `/tools/savings-tracker` | 按账户隔离的省钱记录和统计 | [查看](./docs/savings-tracker.md) |
+| CSS 层叠解释器 | `/tools/css-cascade` | 解析并可视化 CSS 规则、特异性与上下文 | [查看](./docs/css-cascade.md) |
 
-### 🏰 DND 语言翻译器
-龙与地下城多语言翻译器，支持中英文互译并显示奇幻世界符文。
+## 常用命令
 
-**路径**: `/tools/dnd-translator`  
-**特性**:
-- 中英文双向翻译（MyMemory API）
-- 多种 DND 奇幻语言符文显示
-  - Davek（矮人语）
-  - Magi（卷轴语）
-  - Elvish（精灵语）
-- 自定义符文导出（颜色、字号、背景、边距）
-- localStorage 持久化配置
-
-### 🌌 JSON 星系
-将 JSON 数据可视化为华丽的 3D 星系，支持格式化、压缩和交互式探索。
-
-**路径**: `/tools/json-visualizer`  
-**特性**:
-- JSON 格式化和验证
-- 3D 可视化渲染（Three.js）
-- 交互式节点探索
-- 数据压缩和美化
-- 支持大型 JSON 文件
-
-## 📁 项目结构
-
-```
-BOX/
-├── app/                      # Next.js App Router
-│   ├── page.tsx              # 首页
-│   ├── layout.tsx            # 全局布局
-│   ├── globals.css           # 全局样式（含自定义字体）
-│   └── tools/                # 工具页面
-│       ├── claude-code-guide/
-│       ├── dnd-translator/
-│       └── json-visualizer/
-├── components/               # React 组件
-│   ├── common/               # 通用组件
-│   ├── home/                 # 首页组件
-│   └── dnd/                  # DND 翻译器组件
-├── data/                     # 数据配置
-│   └── tools.json            # 工具元数据
-├── lib/                      # 工具函数
-│   ├── types.ts              # TypeScript 类型
-│   ├── tools.ts              # 工具数据操作
-│   └── translate.ts          # 翻译 API
-├── public/                   # 静态资源
-│   └── fonts/                # 字体文件（DND 语言字体）
-├── docs/                     # 项目文档
-│   ├── README.md             # 项目总览
-│   ├── claude-code-guide.md
-│   ├── dnd-translator.md
-│   └── json-visualizer.md
-├── mac-mini/                 # 部署脚本
-│   └── deploy.sh
-├── .env.example              # 环境变量模板
-├── next.config.ts            # Next.js 配置
-├── tailwind.config.ts        # Tailwind CSS 配置
-└── tsconfig.json             # TypeScript 配置
+```powershell
+npm run dev      # 开发服务，含 Next.js 热更新
+npm run build    # 生成 out/ 生产产物
+npm start        # 启动生产服务
+npm run lint     # 运行项目的 lint 脚本
 ```
 
-## ✨ 添加新工具
+## 项目结构
 
-### 1. 创建工具页面
-
-```bash
-mkdir -p app/tools/your-tool
+```text
+app/                    Next.js 页面与工具路由
+components/             可复用界面组件
+data/                   工具数据与本地持久化数据
+docs/                   项目、认证和每个工具的说明
+lib/                    客户端工具逻辑与 WebSocket 工具
+public/                 字体与图片等静态资源
+server/                 自定义服务、认证、API 与 WebSocket
 ```
 
-创建 `app/tools/your-tool/page.tsx`：
+## 文档
 
-```tsx
-export default function YourToolPage() {
-  return (
-    <div>
-      <h1>你的工具</h1>
-    </div>
-  );
-}
-```
-
-### 2. 添加工具元数据
-
-编辑 `data/tools.json`：
-
-```json
-{
-  "slug": "your-tool",
-  "title": "你的工具",
-  "description": "工具描述",
-  "category": "utility",
-  "tags": ["tag1", "tag2"],
-  "icon": "🔧",
-  "featured": false,
-  "createdAt": "2026-08-04"
-}
-```
-
-### 3. 创建工具文档（可选）
-
-在 `docs/` 目录下创建 `your-tool.md`。
-
-详细步骤请查看 [`docs/README.md`](./docs/README.md)。
-
-## 🧰 技术栈
-
-- **框架**: [Next.js 15.1.7](https://nextjs.org/) (App Router)
-- **语言**: [TypeScript 5](https://www.typescriptlang.org/)
-- **样式**: [Tailwind CSS 3.4](https://tailwindcss.com/)
-- **3D 渲染**: [Three.js](https://threejs.org/)
-  - [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber)
-  - [@react-three/drei](https://github.com/pmndrs/drei)
-  - [@react-three/cannon](https://github.com/pmndrs/use-cannon) (物理引擎)
-- **工具库**: 
-  - [html2canvas](https://html2canvas.hertzen.com/) (截图导出)
-- **翻译 API**: [MyMemory](https://mymemory.translated.net/) (免费 500 次/日)
-- **部署**: 静态导出 (`output: 'export'`)
-
-## 🎨 设计风格
-
-- **首页**: 简洁现代，黑白灰主色调，支持暗黑模式
-- **DND 翻译器**: 浓郁奇幻风，渐变背景 + 复古边框 + 自定义字体
-- **JSON 星系**: 科技感宇宙风，深色星空 + 3D 节点 + 粒子效果
-
-## 📝 开发规范
-
-- TypeScript 严格模式
-- 组件使用函数式写法
-- 样式优先使用 Tailwind CSS
-- 提交遵循 [Conventional Commits](https://www.conventionalcommits.org/)
-
-## 🔧 常用命令
-
-```bash
-npm run dev          # 启动开发服务器（端口 9999）
-npm run build        # 构建生产版本
-npm run start        # 启动生产服务器（端口 9999）
-npm run lint         # 代码检查
-```
-
-## 🌐 部署
-
-项目配置为静态导出，可部署到：
-
-- **Vercel**: 一键部署（推荐）
-- **Netlify**: 拖拽 `out/` 目录
-- **GitHub Pages**: 上传 `out/` 到 gh-pages 分支
-- **自托管**: 任何静态文件服务器（Nginx、Apache 等）
-
-### Vercel 部署
-
-```bash
-# 安装 Vercel CLI
-npm i -g vercel
-
-# 部署
-vercel
-```
-
-### 手动部署
-
-```bash
-# 构建
-npm run build
-
-# out/ 目录即为静态文件
-# 上传到你的服务器或静态托管平台
-```
-
-## 📚 文档
-
-详细文档请查看 [`docs/`](./docs/) 目录：
-
-- [项目总览](./docs/README.md)
-- [Claude Code 学习中心](./docs/claude-code-guide.md)
-- [DND 语言翻译器](./docs/dnd-translator.md)
-- [JSON 星系可视化](./docs/json-visualizer.md)
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📄 License
-
-[MIT](./LICENSE)
-
----
-
-**Made with ❤️ using Next.js**
+文档索引和维护约定位于 [docs/README.md](./docs/README.md)。新增工具时，请同时更新 `data/tools.json`、服务端权限白名单（如需要）和对应的 `docs/<tool>.md`。
