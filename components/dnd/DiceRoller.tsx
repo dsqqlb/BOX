@@ -61,13 +61,15 @@ interface DiceRollerProps {
   // 上一次投掷算出的kh/kl高亮目标：这个数组变化时（同一次投掷完成后才会有值），
   // 给对应的骰子网格加发光描边。传空数组/undefined则清空高亮。
   highlights?: DiceHighlightTarget[];
+  // 仅缩放3D骰子网格，不改变随浏览器自适应的骰盘画布尺寸或计算结果面板。
+  diceScale?: number;
   // 单颗骰子重投请求：场景里其余骰子原地不动，只让这一颗重新物理抛掷
   rerollRequest?: DiceRerollRequest | null;
   // 重投动画播完后回调，结果数组顺序与请求dieIds一致，父组件据此重新计算kh/kl明细+广播新结果
   onRerollComplete?: (requestId: string, results: { dieId: number; value: number }[]) => void;
 }
 
-export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, highlights, rerollRequest, onRerollComplete }: DiceRollerProps) {
+export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, highlights, diceScale = 1, rerollRequest, onRerollComplete }: DiceRollerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<any>(null);
   const readyRef = useRef(false);
@@ -121,6 +123,8 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
       }
 
       if (cancelled) return;
+      // 初始值必须在ready前应用：缩放effect可能已在初始化期间执行并提前返回。
+      box.setDiceScale(diceScale);
       boxRef.current = box;
       readyRef.current = true;
       setReady(true);
@@ -161,6 +165,12 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
       boxRef.current.roll(rollRequest.notation);
     });
   }, [rollRequest, onRollStart]);
+
+  // 直接缩放引擎内的骰子网格；画布/骰盘容器保持全尺寸自适应。
+  useEffect(() => {
+    if (!readyRef.current || !boxRef.current) return;
+    boxRef.current.setDiceScale(diceScale);
+  }, [diceScale]);
 
   // kh/kl高亮：结果算完后父组件才会给highlights传值，这里直接转发给3D引擎去加发光描边。
   // 组件每次投掷都是全新挂载（见display/page.tsx），所以不用担心"上一轮"残留高亮混进这一轮。

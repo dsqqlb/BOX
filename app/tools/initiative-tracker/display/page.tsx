@@ -57,8 +57,11 @@ interface RoomState {
   resultPanelOpacity?: number; // "骰子计算总和"结果面板的不透明度(0~1)，由遥控器上的滑块控制，0=全透明，1=完全不透明
   characterScale?: number;
   diceDisplayScale?: number;
+  roomInfoScale?: number;
+  diceHistoryScale?: number;
   displayRoomInfoVisible?: boolean;
   displayDiceHistoryVisible?: boolean;
+  displayRoundVisible?: boolean;
   diceHistory?: DiceHistoryEntry[];
 }
 
@@ -67,6 +70,8 @@ const DEFAULT_DIM_INTENSITY = 0.55;
 const DEFAULT_RESULT_PANEL_OPACITY = 1;
 const DEFAULT_CHARACTER_SCALE = 1;
 const DEFAULT_DICE_DISPLAY_SCALE = 1;
+const DEFAULT_ROOM_INFO_SCALE = 1;
+const DEFAULT_DICE_HISTORY_SCALE = 1;
 
 type CriticalEffect = 'success' | 'failure';
 
@@ -923,14 +928,14 @@ function InitiativeDisplayPageInner() {
         </div>
       )}
       
-      {/* 房间ID、二维码和回合数显示；二维码会直达带房间号的遥控器链接。 */}
+      {/* 房间ID与二维码；二维码会直达带房间号的遥控器链接。 */}
       {roomState.displayRoomInfoVisible !== false && (
         <>
       {sortedCharacters.length === 0 ? (
         /* 无角色时：大显示房间号（唯一一处显示，之前"等待玩家加入战斗"文案下面还重复显示了一次，
            已经删掉，避免同一个房间号在屏幕上出现两次）。右上角加一个复制按钮，点击直接拷贝房间号。 */
         <div className="absolute top-8 left-8 z-50">
-          <div className="relative bg-slate-900/60 backdrop-blur-xl rounded-xl px-6 py-4 pr-4 border border-slate-700/50 shadow-2xl flex items-center gap-5">
+          <div className="relative bg-slate-900/60 backdrop-blur-xl rounded-xl px-6 py-4 pr-4 border border-slate-700/50 shadow-2xl flex items-center gap-5" style={{ transform: `scale(${roomState.roomInfoScale ?? DEFAULT_ROOM_INFO_SCALE})`, transformOrigin: 'top left' }}>
             <div>
               <div className="text-slate-400 text-xs mb-1.5 font-medium tracking-wider uppercase">房间号</div>
               <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 tracking-wider font-mono">
@@ -957,7 +962,7 @@ function InitiativeDisplayPageInner() {
         <>
           {/* 有角色时：左上角小房间号 */}
           <div className="absolute top-6 left-6 z-50">
-            <div className="bg-slate-900/60 backdrop-blur-xl rounded-lg px-3 py-2 border border-slate-700/50 shadow-xl flex items-center gap-2">
+            <div className="bg-slate-900/60 backdrop-blur-xl rounded-lg px-3 py-2 border border-slate-700/50 shadow-xl flex items-center gap-2" style={{ transform: `scale(${roomState.roomInfoScale ?? DEFAULT_ROOM_INFO_SCALE})`, transformOrigin: 'top left' }}>
               <div>
                 <div className="text-slate-500 text-[10px] mb-0.5 font-medium tracking-wider uppercase">Room</div>
                 <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 tracking-wider font-mono">
@@ -971,18 +976,20 @@ function InitiativeDisplayPageInner() {
               )}
             </div>
           </div>
-          
-          {/* 回合数显示在正中间上方 */}
-          <div className="absolute top-8 left-1/2 -translate-x-1/2 z-50">
-            <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl px-8 py-3 border border-amber-600/30 shadow-2xl">
-              <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 text-center tracking-wide">
-                第 {roomState.roundNumber} 回合
-              </div>
-            </div>
-          </div>
         </>
       )}
         </>
+      )}
+
+      {/* 回合数独立于房间信息面板：即使房间号/二维码被隐藏，仍可单独展示。 */}
+      {roomState.displayRoundVisible !== false && (
+        <div className="absolute top-8 left-1/2 -translate-x-1/2 z-50">
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl px-8 py-3 border border-amber-600/30 shadow-2xl">
+            <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 text-center tracking-wide">
+              第 {roomState.roundNumber} 回合
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 主战斗区域 */}
@@ -1036,9 +1043,9 @@ function InitiativeDisplayPageInner() {
         )}
       </div>
 
-      {/* 主屏幕历史掷骰：来自房间共享状态，仅包含遥控器按“收起”确认的最终记录。 */}
+      {/* 主屏幕历史掷骰：来自房间共享状态，在初次结果和每次重投后即时更新。 */}
       {roomState.displayDiceHistoryVisible !== false && (roomState.diceHistory?.length || 0) > 0 && (
-        <aside className="absolute right-6 bottom-6 z-50 w-[min(22rem,calc(100vw-3rem))] overflow-hidden rounded-xl border border-purple-500/35 bg-slate-950/80 shadow-2xl backdrop-blur-xl">
+        <aside className="absolute right-6 bottom-6 z-50 w-[min(22rem,calc(100vw-3rem))] overflow-hidden rounded-xl border border-purple-500/35 bg-slate-950/80 shadow-2xl backdrop-blur-xl" style={{ transform: `scale(${roomState.diceHistoryScale ?? DEFAULT_DICE_HISTORY_SCALE})`, transformOrigin: 'bottom right' }}>
           <div className="flex items-center justify-between border-b border-purple-500/20 px-3 py-2">
             <span className="text-xs font-black tracking-widest text-purple-200">历史掷骰</span>
             <span className="text-[10px] text-slate-500">最近 {Math.min(roomState.diceHistory?.length || 0, 50)} 条</span>
@@ -1080,18 +1087,14 @@ function InitiativeDisplayPageInner() {
             diceOverlayVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         >
-          <div
-            className="absolute inset-0 transition-transform duration-200"
-            style={{ transform: `scale(${roomState.diceDisplayScale ?? DEFAULT_DICE_DISPLAY_SCALE})`, transformOrigin: 'center center' }}
-          >
-            <DiceRoller
-              rollRequest={diceRollRequest}
-              onRollComplete={handleDiceRollComplete}
-              highlights={diceHighlights}
-              rerollRequest={diceRerollRequest}
-              onRerollComplete={handleDieRerollComplete}
-            />
-          </div>
+          <DiceRoller
+            rollRequest={diceRollRequest}
+            diceScale={roomState.diceDisplayScale ?? DEFAULT_DICE_DISPLAY_SCALE}
+            onRollComplete={handleDiceRollComplete}
+            highlights={diceHighlights}
+            rerollRequest={diceRerollRequest}
+            onRerollComplete={handleDieRerollComplete}
+          />
         </div>
       )}
 
@@ -1144,10 +1147,7 @@ function InitiativeDisplayPageInner() {
           className="fixed top-16 left-1/2 z-[70] -translate-x-1/2 pointer-events-none transition-opacity duration-700"
           style={{ opacity: diceOverlayVisible ? (roomState?.resultPanelOpacity ?? DEFAULT_RESULT_PANEL_OPACITY) : 0 }}
         >
-          <div
-            className="animate-slideInUp"
-            style={{ transform: `scale(${roomState.diceDisplayScale ?? DEFAULT_DICE_DISPLAY_SCALE})`, transformOrigin: 'top center' }}
-          >
+          <div className="animate-slideInUp">
             {diceCustomEval ? (
               // 自定义表达式(带kh/kl)投掷：展示明细——每颗骰子换成形状图标(能看出D几)+数字，
               // 被丢弃的用DiceShapeIcon的'used'态变灰(视觉上跟"已重投过"共用同一套灰态，

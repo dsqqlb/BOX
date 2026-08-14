@@ -1,5 +1,5 @@
-// 骰子历史：只保存在当前遥控器设备的 localStorage，并按房间号隔离。
-// 一次投掷只有在用户点击“收起”后才会写入，保证记录的是包含全部重投后的最终快照。
+// 骰子历史按房间号保存在当前遥控器设备的 localStorage，并同步到房间供主屏幕展示。
+// 初次结果会立即写入；后续重投以同一投掷 ID 覆盖该条记录，保留最新总和与完整重投明细。
 
 export interface DiceRerollHistoryItem {
   dieId: number;

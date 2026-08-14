@@ -104,6 +104,7 @@ class DiceBox {
 		this.box_body = {};
 		this.bodies = [];
 		this.meshes = [];
+		this.diceScale = 1;
 		this.diceList = [];
 		// 取高/取低高亮特效：给"被保留(未丢弃)"的骰子贴一个简单的同色点光源，kh=金色，kl=红色，
 		// 让"3D6取最高"这种情况能一眼看出到底是哪颗骰子在算数。光源会跟着骰子走，不需要每帧同步坐标。
@@ -679,6 +680,7 @@ class DiceBox {
 			dicemesh.result = [];
 			dicemesh.stopped = 0;
 			dicemesh.castShadow = this.shadows;
+			dicemesh.scale.setScalar(this.diceScale || 1);
 			this.scene.add(dicemesh);
 			this.diceList.push(dicemesh);
 		} else {
@@ -959,6 +961,18 @@ class DiceBox {
 		this.highlightMeshes = [];
 	}
 
+	setDiceScale(scale = 1) {
+		this.diceScale = Math.max(0.6, Math.min(1.5, Number(scale) || 1));
+		for (const die of this.diceList) {
+			die.scale.setScalar(this.diceScale);
+		}
+		// 高亮是附着在骰子上的视觉元素，也随骰子网格一起缩放；不影响物理骰盘边界。
+		const glowSize = this.baseScale * 2.6 * this.diceScale;
+		for (const highlight of this.highlightMeshes) {
+			highlight.scale.set(glowSize, glowSize, 1);
+		}
+	}
+
 	// 生成一张"中心亮、边缘透明渐隐"的圆形辉光贴图，只生成一次缓存复用（给所有高亮贴花共用）
 	getGlowTexture(){
 		if (this._glowTexture) return this._glowTexture;
@@ -1004,7 +1018,7 @@ class DiceBox {
 			});
 			const sprite = new THREE.Sprite(spriteMat);
 			// 贴花比骰子本身大一圈，才能在骰子轮廓外面露出可见的光晕
-			const glowSize = this.baseScale * 2.6;
+			const glowSize = this.baseScale * 2.6 * this.diceScale;
 			sprite.scale.set(glowSize, glowSize, 1);
 			dicemesh.add(sprite);
 			this.highlightMeshes.push(sprite);

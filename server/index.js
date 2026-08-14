@@ -309,8 +309,11 @@ wss.on('connection', (ws) => {
               diceHistory: [],
               displayRoomInfoVisible: true,
               displayDiceHistoryVisible: true,
+              displayRoundVisible: true,
               characterScale: 1,
               diceDisplayScale: 1,
+              roomInfoScale: 1,
+              diceHistoryScale: 1,
               createdAt: now,
               lastActivity: now,
               displayConnected: true,
@@ -397,9 +400,8 @@ wss.on('connection', (ws) => {
             || !Array.isArray(entry.rerolls)) return;
           const room = rooms.get(roomId);
           const history = Array.isArray(room.diceHistory) ? room.diceHistory : [];
-          if (!history.some((item) => item && item.id === entry.id)) {
-            room.diceHistory = [entry, ...history].slice(0, 50);
-          }
+          // 初次结果立即写入；重投结果会带相同id再次提交，从而覆盖成最新点数与重投明细。
+          room.diceHistory = [entry, ...history.filter((item) => item && item.id !== entry.id)].slice(0, 50);
           room.lastActivity = Date.now();
           broadcastToRoom(roomId, { type: 'ROOM_STATE', payload: room });
           break;

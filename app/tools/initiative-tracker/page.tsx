@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import ToolHeader from '@/components/common/ToolHeader';
 import { useWebSocket, getWsUrl } from '@/lib/useWebSocket';
 // 怪物图片清单：由 useEnemyList 从WebSocket服务器实时读取 public/image/enemies 目录
 // 图片命名规则：中文名_英文标识.png（如 哥布林弓手_goblin_archer.png），加图/改名后刷新页面即可生效，无需重启服务
@@ -35,7 +34,7 @@ import {
   genPresetId,
   MAX_PRESETS,
 } from '@/lib/dicePresets';
-// 历史记录只在遥控器点击“收起”时落盘，按房间号保存到本机浏览器。
+// 历史记录会在初次结果与每次重投后即时更新，按房间号保存到本机浏览器。
 import type { DiceHistoryEntry, DiceRerollHistoryItem } from '@/lib/diceHistory';
 import { loadDiceHistory, saveDiceHistory } from '@/lib/diceHistory';
 // 自定义掷骰表达式：支持 NdS + kh/kl取高取低 + 括号 + 加减常数，词法分析+递归下降解析校验。
@@ -110,10 +109,13 @@ interface RoomState {
   dimIntensity?: number; // 非当前回合角色的压暗强度(0~1)：0=完全不灰，1=特别灰，主屏幕据此渲染
   resultPanelOpacity?: number; // 主屏幕"骰子计算总和"结果面板的不透明度(0~1)：0=全透明，1=完全不透明
   characterScale?: number; // 主屏幕角色卡片整体缩放
-  diceDisplayScale?: number; // 主屏幕骰盘与结果面板整体缩放
+  diceDisplayScale?: number; // 主屏幕3D骰子网格缩放（不影响骰盘或结果面板）
+  roomInfoScale?: number; // 主屏幕左上角房间号与二维码面板缩放
+  diceHistoryScale?: number; // 主屏幕右下角历史掷骰面板缩放
   displayRoomInfoVisible?: boolean; // 主屏幕房间号与二维码是否展示
   displayDiceHistoryVisible?: boolean; // 主屏幕历史掷骰面板是否展示
-  diceHistory?: DiceHistoryEntry[]; // 房间内本次会话共享的已收起掷骰历史
+  displayRoundVisible?: boolean; // 主屏幕回合数是否展示
+  diceHistory?: DiceHistoryEntry[]; // 房间内本次会话共享的骰子历史
 }
 
 // 非当前回合压暗强度的localStorage key + 默认值
@@ -127,8 +129,12 @@ const DEFAULT_RESULT_PANEL_OPACITY = 1;
 // 主屏幕布局缩放的本机默认记忆值；连接后会同步到房间，所有显示端保持一致。
 const CHARACTER_SCALE_KEY = 'dnd-initiative-character-scale';
 const DICE_DISPLAY_SCALE_KEY = 'dnd-dice-display-scale';
+const ROOM_INFO_SCALE_KEY = 'dnd-room-info-scale';
+const DICE_HISTORY_SCALE_KEY = 'dnd-dice-history-scale';
 const DEFAULT_CHARACTER_SCALE = 1;
 const DEFAULT_DICE_DISPLAY_SCALE = 1;
+const DEFAULT_ROOM_INFO_SCALE = 1;
+const DEFAULT_DICE_HISTORY_SCALE = 1;
 
 // 当前选中的骰子外观预设ID，存本地
 const DICE_APPEARANCE_KEY = 'dnd-dice-appearance-preset';
@@ -590,12 +596,15 @@ export default function InitiativeTrackerPage() {
   const [dimIntensity, setDimIntensity] = useState(DEFAULT_DIM_INTENSITY);
   // 主屏幕"骰子计算总和"结果面板的不透明度滑块：0=全透明，1=完全不透明，默认1(跟改动前视觉一致)
   const [resultPanelOpacity, setResultPanelOpacity] = useState(DEFAULT_RESULT_PANEL_OPACITY);
-  // 两个主屏幕整体缩放：分别控制战斗角色卡与骰盘/计算结果面板，适配不同尺寸显示器。
+  // 主屏幕缩放：角色卡片与3D骰子分别控制；骰盘画布和计算结果面板始终随视口保持原尺寸。
   const [characterScale, setCharacterScale] = useState(DEFAULT_CHARACTER_SCALE);
   const [diceDisplayScale, setDiceDisplayScale] = useState(DEFAULT_DICE_DISPLAY_SCALE);
-  // 下面两个开关控制主屏幕信息面板；遥控器底部控制栏始终可操作。
+  const [roomInfoScale, setRoomInfoScale] = useState(DEFAULT_ROOM_INFO_SCALE);
+  const [diceHistoryScale, setDiceHistoryScale] = useState(DEFAULT_DICE_HISTORY_SCALE);
+  // 下面三个开关控制主屏幕信息面板；遥控器底部控制栏始终可操作。
   const [displayRoomInfoVisible, setDisplayRoomInfoVisible] = useState(true);
   const [displayDiceHistoryVisible, setDisplayDiceHistoryVisible] = useState(true);
+  const [displayRoundVisible, setDisplayRoundVisible] = useState(true);
 
   // 先攻、骰子和主屏显示设置是三个独立sheet页，切换入口固定在屏幕最下面。
   const [activeSheet, setActiveSheet] = useState<'initiative' | 'dice' | 'settings'>('initiative');
@@ -620,13 +629,14 @@ export default function InitiativeTrackerPage() {
   // 配方(而不是完整表达式树)会随DICE_ROLL一起发给主屏幕，让主屏幕也能展示同样细致的kh/kl明细+高亮特效。
   const pendingRecipeRef = useRef<FlattenedRecipe | null>(null);
   const [customEvalResult, setCustomEvalResult] = useState<EvaluatedExpression | null>(null);
-  // 当前这轮投掷的不可变描述 + 随重投同步的最新结果；只有本机点击收起才会将它落入历史。
+  // 当前这轮投掷的不可变描述 + 随重投同步的最新结果；结果到达后立即写入历史。
   const currentRollHistoryRef = useRef<{
     id: string;
     label: string;
     expression: string;
     result: DiceRollResult | null;
     finalTotal: number | null;
+    recordedAt: string;
     rerolls: DiceRerollHistoryItem[];
   } | null>(null);
   const [diceHistory, setDiceHistory] = useState<DiceHistoryEntry[]>([]);
@@ -696,8 +706,12 @@ export default function InitiativeTrackerPage() {
   useEffect(() => {
     const savedCharacterScale = parseFloat(localStorage.getItem(CHARACTER_SCALE_KEY) || '');
     const savedDiceScale = parseFloat(localStorage.getItem(DICE_DISPLAY_SCALE_KEY) || '');
+    const savedRoomInfoScale = parseFloat(localStorage.getItem(ROOM_INFO_SCALE_KEY) || '');
+    const savedHistoryScale = parseFloat(localStorage.getItem(DICE_HISTORY_SCALE_KEY) || '');
     if (!Number.isNaN(savedCharacterScale)) setCharacterScale(savedCharacterScale);
     if (!Number.isNaN(savedDiceScale)) setDiceDisplayScale(savedDiceScale);
+    if (!Number.isNaN(savedRoomInfoScale)) setRoomInfoScale(savedRoomInfoScale);
+    if (!Number.isNaN(savedHistoryScale)) setDiceHistoryScale(savedHistoryScale);
   }, []);
 
   // 扫描主屏幕二维码后，URL会带入房间号：自动连接，无须再手动输入。
@@ -746,8 +760,11 @@ export default function InitiativeTrackerPage() {
         }
         if (typeof roomData.characterScale === 'number') setCharacterScale(roomData.characterScale);
         if (typeof roomData.diceDisplayScale === 'number') setDiceDisplayScale(roomData.diceDisplayScale);
+        if (typeof roomData.roomInfoScale === 'number') setRoomInfoScale(roomData.roomInfoScale);
+        if (typeof roomData.diceHistoryScale === 'number') setDiceHistoryScale(roomData.diceHistoryScale);
         if (typeof roomData.displayRoomInfoVisible === 'boolean') setDisplayRoomInfoVisible(roomData.displayRoomInfoVisible);
         if (typeof roomData.displayDiceHistoryVisible === 'boolean') setDisplayDiceHistoryVisible(roomData.displayDiceHistoryVisible);
+        if (typeof roomData.displayRoundVisible === 'boolean') setDisplayRoundVisible(roomData.displayRoundVisible);
         if (typeof roomData.displayConnected === 'boolean') {
           setDisplayConnected(roomData.displayConnected);
         }
@@ -772,6 +789,7 @@ export default function InitiativeTrackerPage() {
           expression: message.payload.expression || message.payload.notation,
           result: null,
           finalTotal: null,
+          recordedAt: new Date().toISOString(),
           rerolls: [],
         };
       } else if (message.type === 'DICE_ROLL_RESULT') {
@@ -797,6 +815,7 @@ export default function InitiativeTrackerPage() {
         if (hist && hist.id === message.payload.id) {
           hist.result = message.payload.result;
           hist.finalTotal = finalTotal;
+          upsertDiceHistory();
         }
       } else if (message.type === 'DICE_DIE_REROLL_RESULT') {
         // 某台遥控器请求的重投，主屏幕已经算完新结果广播回来：所有客户端(包括发起重投的那台自己)
@@ -819,6 +838,7 @@ export default function InitiativeTrackerPage() {
           hist2.result = message.payload.result;
           hist2.finalTotal = finalTotal;
           hist2.rerolls = message.payload.rerolls || [];
+          upsertDiceHistory();
         }
       } else if (message.type === 'DICE_ROLL_DISMISS') {
         // 只响应当前这一轮的收起消息，避免旧的网络消息清掉后来新掷出的结果。
@@ -904,26 +924,23 @@ export default function InitiativeTrackerPage() {
   // 实时解析当前表达式文本：成功则得到表达式树+预览文案，失败则得到具体报错原因
   const customExprParse = useMemo(() => parseDiceExpression(customExprText), [customExprText]);
 
-  // 点击“收起”才将本轮最终快照写入历史；收到其他遥控器的收起广播只清理展示、不重复记录。
-  const finalizeDiceHistory = useCallback(() => {
+  // 将初次结果立即写入历史，并在每次重投结果回来后覆盖同一条记录；收起只负责关闭界面。
+  const upsertDiceHistory = useCallback(() => {
     const current = currentRollHistoryRef.current;
     if (!roomId || !current || current.id !== lastRollIdRef.current || current.finalTotal === null || !current.result) return;
-
     const entry: DiceHistoryEntry = {
       id: current.id,
-      recordedAt: new Date().toISOString(),
+      recordedAt: current.recordedAt,
       label: current.label,
       expression: current.expression,
       finalTotal: current.finalTotal,
       rerolls: current.rerolls,
     };
     setDiceHistory((previous) => {
-      if (previous.some((item) => item.id === entry.id)) return previous;
-      const next = [entry, ...previous];
+      const next = [entry, ...previous.filter((item) => item.id !== entry.id)].slice(0, 50);
       saveDiceHistory(roomId, next);
-      return next.slice(0, 50);
+      return next;
     });
-    // 同一条最终快照也写进房间内存，主屏幕与其他遥控器可立即看到；服务端会按id去重并限制数量。
     sendMessage({ type: 'DICE_HISTORY_APPEND', payload: { roomId, entry } });
   }, [roomId, sendMessage]);
 
@@ -1142,6 +1159,18 @@ export default function InitiativeTrackerPage() {
     updateRoom({ diceDisplayScale: value });
   }, [updateRoom]);
 
+  const handleRoomInfoScaleChange = useCallback((value: number) => {
+    setRoomInfoScale(value);
+    localStorage.setItem(ROOM_INFO_SCALE_KEY, String(value));
+    updateRoom({ roomInfoScale: value });
+  }, [updateRoom]);
+
+  const handleDiceHistoryScaleChange = useCallback((value: number) => {
+    setDiceHistoryScale(value);
+    localStorage.setItem(DICE_HISTORY_SCALE_KEY, String(value));
+    updateRoom({ diceHistoryScale: value });
+  }, [updateRoom]);
+
   const toggleDisplayRoomInfo = useCallback(() => {
     const next = !displayRoomInfoVisible;
     setDisplayRoomInfoVisible(next);
@@ -1154,11 +1183,17 @@ export default function InitiativeTrackerPage() {
     updateRoom({ displayDiceHistoryVisible: next });
   }, [displayDiceHistoryVisible, updateRoom]);
 
+  const toggleDisplayRound = useCallback(() => {
+    const next = !displayRoundVisible;
+    setDisplayRoundVisible(next);
+    updateRoom({ displayRoundVisible: next });
+  }, [displayRoundVisible, updateRoom]);
+
   // 连接成功后（或重连后），把本地记住的压暗强度+结果面板不透明度推给房间，让主屏幕立即生效一次
   // （不依赖首次挂载时的连接状态，wsConnected变为true时才有意义推送）
   useEffect(() => {
     if (wsConnected && isConnected && roomId) {
-      updateRoom({ dimIntensity, resultPanelOpacity, characterScale, diceDisplayScale });
+      updateRoom({ dimIntensity, resultPanelOpacity, characterScale, diceDisplayScale, roomInfoScale, diceHistoryScale });
     }
     // 只在"刚连上"这一刻推送一次，两个值变化已经由各自的handle...Change自己同步，这里不需要重复依赖它们
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1625,11 +1660,6 @@ export default function InitiativeTrackerPage() {
 
   return (
     <div className="min-h-screen rc-chassis flex flex-col items-center py-6 px-3 sm:px-6 pb-24">
-      <ToolHeader
-        className="!bg-transparent !border-none !static !w-full !max-w-5xl"
-        textClassName="!text-slate-400 hover:!text-slate-200"
-        showBackButton
-      />
 
       {/* ========== 共同信息面板：房间号 / 信号状态 / 断开连接，放在遥控器画面最上面，
           不属于任何一个CONSOLE，是跨越DICE CONSOLE和INITIATIVE CONSOLE的全局状态展示。 ========== */}
@@ -1799,7 +1829,6 @@ export default function InitiativeTrackerPage() {
                 {diceResult && (
                   <button
                     onClick={() => {
-                      finalizeDiceHistory();
                       currentRollHistoryRef.current = null;
                       setDiceResult(null);
                       setCustomEvalResult(null);
@@ -1822,7 +1851,7 @@ export default function InitiativeTrackerPage() {
               </div>
             )}
 
-            {/* 历史掷骰：只展示已经按“收起”确认结算的记录，最新一条在最上方。 */}
+            {/* 历史掷骰：初次结果与重投后都会即时更新，最新一条在最上方。 */}
             <section className="mb-4 rounded-xl border border-slate-700/80 bg-slate-950/45 overflow-hidden">
               <div className="flex items-center justify-between gap-3 px-3 py-2">
                 <button
@@ -2188,7 +2217,7 @@ export default function InitiativeTrackerPage() {
                   <span className="w-9 text-right font-mono text-xs text-slate-400">{characterScale.toFixed(2)}</span>
                 </label>
                 <label className="flex items-center gap-2">
-                  <span className="w-24 sm:w-32 text-xs text-slate-300">骰盘与结果</span>
+                  <span className="w-24 sm:w-32 text-xs text-slate-300">3D骰子大小</span>
                   <input type="range" min={0.6} max={1.5} step={0.05} value={diceDisplayScale} onChange={(e) => handleDiceDisplayScaleChange(parseFloat(e.target.value))} className="flex-1 accent-purple-500" />
                   <span className="w-9 text-right font-mono text-xs text-slate-400">{diceDisplayScale.toFixed(2)}</span>
                 </label>
@@ -2210,8 +2239,23 @@ export default function InitiativeTrackerPage() {
               </div>
             </section>
             <section className="space-y-3">
+              <div className="rc-label">主屏幕面板尺寸</div>
+              <div className="space-y-3 rounded-xl border border-slate-700/70 bg-slate-950/40 p-3">
+                <label className="flex items-center gap-2">
+                  <span className="w-24 sm:w-32 text-xs text-slate-300">房间号与二维码</span>
+                  <input type="range" min={0.6} max={1.5} step={0.05} value={roomInfoScale} onChange={(e) => handleRoomInfoScaleChange(parseFloat(e.target.value))} className="flex-1 accent-cyan-500" />
+                  <span className="w-9 text-right font-mono text-xs text-slate-400">{roomInfoScale.toFixed(2)}</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="w-24 sm:w-32 text-xs text-slate-300">历史掷骰</span>
+                  <input type="range" min={0.6} max={1.5} step={0.05} value={diceHistoryScale} onChange={(e) => handleDiceHistoryScaleChange(parseFloat(e.target.value))} className="flex-1 accent-purple-500" />
+                  <span className="w-9 text-right font-mono text-xs text-slate-400">{diceHistoryScale.toFixed(2)}</span>
+                </label>
+              </div>
+            </section>
+            <section className="space-y-3">
               <div className="rc-label">主屏幕面板</div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <button onClick={toggleDisplayRoomInfo} className={`rounded-xl border p-3 text-left transition-colors ${displayRoomInfoVisible ? 'border-cyan-400/50 bg-cyan-500/10 text-cyan-100' : 'border-slate-700 bg-slate-950/40 text-slate-400'}`}>
                   <div className="text-sm font-black">{displayRoomInfoVisible ? '▣ 房间号与二维码：展示中' : '□ 房间号与二维码：已收起'}</div>
                   <div className="mt-1 text-[11px] opacity-75">点击{displayRoomInfoVisible ? '收起' : '展示'}主屏幕左上角房间信息</div>
@@ -2219,6 +2263,10 @@ export default function InitiativeTrackerPage() {
                 <button onClick={toggleDisplayDiceHistory} className={`rounded-xl border p-3 text-left transition-colors ${displayDiceHistoryVisible ? 'border-purple-400/50 bg-purple-500/10 text-purple-100' : 'border-slate-700 bg-slate-950/40 text-slate-400'}`}>
                   <div className="text-sm font-black">{displayDiceHistoryVisible ? '▣ 历史掷骰：展示中' : '□ 历史掷骰：已收起'}</div>
                   <div className="mt-1 text-[11px] opacity-75">点击{displayDiceHistoryVisible ? '收起' : '展示'}主屏幕右下角历史面板</div>
+                </button>
+                <button onClick={toggleDisplayRound} className={`rounded-xl border p-3 text-left transition-colors ${displayRoundVisible ? 'border-amber-400/50 bg-amber-500/10 text-amber-100' : 'border-slate-700 bg-slate-950/40 text-slate-400'}`}>
+                  <div className="text-sm font-black">{displayRoundVisible ? '▣ 回合数：展示中' : '□ 回合数：已收起'}</div>
+                  <div className="mt-1 text-[11px] opacity-75">点击{displayRoundVisible ? '收起' : '展示'}主屏幕顶部回合数</div>
                 </button>
               </div>
             </section>
