@@ -84,5 +84,9 @@ temp/
 data/savings.json
 data/auth-users.json
 
+# EDH 组卡台：同步生成的卡牌数据库（几十MB，用 npm run sync:edh-cards 生成）与用户牌组
+data/edh/cards.json
+data/edh/decks/
+
 # CSS 层叠解释器：本地验证脚本产物
 scripts/shots/

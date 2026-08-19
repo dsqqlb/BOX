@@ -6,7 +6,8 @@
     "dev": "node server/index.js --dev",
     "build": "next build",
     "start": "node server/index.js",
-    "lint": "next lint"
+    "lint": "next lint",
+    "sync:edh-cards": "node scripts/sync-edh-cards.mjs"
   },
   "dependencies": {
     "@react-three/cannon": "^6.6.0",

@@ -57,6 +57,8 @@ const IMAGE_DIR = path.resolve(
 const ENEMY_DIR = path.join(IMAGE_DIR, 'enemies');
 const PLAYER_DIR = path.join(IMAGE_DIR, 'player');
 const SAVINGS_FILE = path.join(PROJECT_ROOT, 'data', 'savings.json');
+const EDH_CARDS_FILE = path.join(PROJECT_ROOT, 'data', 'edh', 'cards.json');
+const EDH_DECKS_DIR = path.join(PROJECT_ROOT, 'data', 'edh', 'decks');
 
 // 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
 const TOOL_SLUGS = [
@@ -68,6 +70,7 @@ const TOOL_SLUGS = [
   'tarot-reading',
   'savings-tracker',
   'css-cascade',
+  'edh-builder',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 const auth = createAuth({ projectRoot: PROJECT_ROOT, isProduction: !DEV });
@@ -96,6 +99,117 @@ function saveSavings(data) {
     return true;
   } catch (e) {
     console.error('保存省钱记录失败:', e.message);
+    return false;
+  }
+}
+
+// ============ EDH 组卡台：卡牌数据库 & 牌组存储 ============
+
+// 卡牌数据库文件较大（几十MB），进程内缓存一份，只有文件修改时间变化（重新跑同步脚本后）才重新读取。
+let edhCardCache = null; // { mtimeMs, generatedAt, cardCount, chineseCoverage, cards, byOracleId }
+
+function loadEdhCardDatabase() {
+  let stat;
+  try {
+    stat = fs.statSync(EDH_CARDS_FILE);
+  } catch {
+    return null; // 尚未同步过卡牌数据
+  }
+  if (edhCardCache && edhCardCache.mtimeMs === stat.mtimeMs) return edhCardCache;
+
+  const raw = JSON.parse(fs.readFileSync(EDH_CARDS_FILE, 'utf-8'));
+  const byOracleId = new Map(raw.cards.map((card) => [card.oracleId, card]));
+  edhCardCache = {
+    mtimeMs: stat.mtimeMs,
+    generatedAt: raw.generatedAt,
+    cardCount: raw.cardCount,
+    chineseCoverage: raw.chineseCoverage,
+    cards: raw.cards,
+    byOracleId,
+  };
+  return edhCardCache;
+}
+
+const WUBRG_ORDER = ['W', 'U', 'B', 'R', 'G'];
+
+function normalizeSearchText(value) {
+  return String(value || '').toLowerCase().trim();
+}
+
+/** 单张卡是否匹配自由文本关键词：中文名/英文名/中文类型/英文类型/中文文字/英文文字，任意一处命中即可。 */
+function cardMatchesKeyword(card, keyword) {
+  if (!keyword) return true;
+  const haystacks = [card.name, card.nameZh, card.typeLine, card.typeLineZh, card.oracleText, card.oracleTextZh];
+  return haystacks.some((field) => field && normalizeSearchText(field).includes(keyword));
+}
+
+/** 颜色identity过滤：exact=正好这些颜色（含无色）；subset=不超出这些颜色（组牌时最常用，允许该颜色的子集）。 */
+function cardMatchesColors(card, colors, mode) {
+  if (!colors || colors.length === 0) return true;
+  const cardColors = new Set(card.colorIdentity || []);
+  if (mode === 'exact') {
+    return cardColors.size === colors.length && colors.every((color) => cardColors.has(color));
+  }
+  return [...cardColors].every((color) => colors.includes(color));
+}
+
+function searchEdhCards(database, params) {
+  const keyword = normalizeSearchText(params.q);
+  const colors = Array.isArray(params.colors) ? params.colors.filter((color) => WUBRG_ORDER.includes(color)) : [];
+  const colorMode = params.colorMode === 'exact' ? 'exact' : 'subset';
+  const types = Array.isArray(params.types) ? params.types.map(normalizeSearchText).filter(Boolean) : [];
+  // 注意：不能用 Number.isFinite(Number(x)) 判断"是否提供了该参数"——Number(null)===0 是有限数字，
+  // 会导致未填法力值筛选时被误判成"cmcMin=0"，把几乎所有非0费卡（包括大部分生物/瞬间/法术）都过滤掉，
+  // 只剩0费的地牌能通过。必须先判断参数是否为非空字符串，再转数字。
+  const cmcMin = params.cmcMin !== null && params.cmcMin !== '' && Number.isFinite(Number(params.cmcMin)) ? Number(params.cmcMin) : null;
+  const cmcMax = params.cmcMax !== null && params.cmcMax !== '' && Number.isFinite(Number(params.cmcMax)) ? Number(params.cmcMax) : null;
+  const commanderOnly = params.commanderOnly === true;
+  const limit = Math.min(Math.max(Number(params.limit) || 60, 1), 120);
+
+  const filtered = database.cards.filter((card) => {
+    if (!cardMatchesKeyword(card, keyword)) return false;
+    if (!cardMatchesColors(card, colors, colorMode)) return false;
+    if (types.length > 0 && !types.every((type) => normalizeSearchText(card.typeLine).includes(type))) return false;
+    if (cmcMin !== null && card.cmc < cmcMin) return false;
+    if (cmcMax !== null && card.cmc > cmcMax) return false;
+    if (commanderOnly && !card.isCommanderEligible) return false;
+    if (card.legalCommander === 'banned') return false;
+    return true;
+  });
+
+  // 优先展示 EDHREC 热门卡（rank 越小越常用），没有排名的卡排在后面，其次按名称排序。
+  filtered.sort((a, b) => {
+    const rankA = a.edhrecRank ?? Number.MAX_SAFE_INTEGER;
+    const rankB = b.edhrecRank ?? Number.MAX_SAFE_INTEGER;
+    if (rankA !== rankB) return rankA - rankB;
+    return a.name.localeCompare(b.name);
+  });
+
+  return { total: filtered.length, cards: filtered.slice(0, limit) };
+}
+
+// 牌组按账户隔离：每个用户一个 JSON 文件，文件名直接用用户名（auth.js 已限制用户名字符集，不存在路径穿越风险）。
+function getUserDeckFile(username) {
+  return path.join(EDH_DECKS_DIR, `${username}.json`);
+}
+
+function loadUserDecks(username) {
+  try {
+    const file = getUserDeckFile(username);
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (e) {
+    console.error('读取牌组数据失败:', e.message);
+  }
+  return [];
+}
+
+function saveUserDecks(username, decks) {
+  try {
+    if (!fs.existsSync(EDH_DECKS_DIR)) fs.mkdirSync(EDH_DECKS_DIR, { recursive: true });
+    fs.writeFileSync(getUserDeckFile(username), JSON.stringify(decks, null, 2), 'utf-8');
+    return true;
+  } catch (e) {
+    console.error('保存牌组数据失败:', e.message);
     return false;
   }
 }
@@ -247,6 +361,7 @@ function toolSlugForPath(pathname) {
 function requiredToolForApi(pathname) {
   if (pathname === '/api/enemies' || pathname === '/api/player-images' || pathname === '/api/rooms') return 'initiative-tracker';
   if (pathname === '/api/savings') return 'savings-tracker';
+  if (pathname.startsWith('/api/edh/')) return 'edh-builder';
   return null;
 }
 
@@ -962,6 +1077,117 @@ async function main() {
         if (req.method !== 'GET') return sendAuthError(res, 405, '不支持的请求方法。');
         // 旧版未标记 owner 的记录不自动暴露给任何账户，管理员可自行迁移数据。
         return sendJson(res, loadSavings().filter((record) => record.owner === requestUser.username));
+      }
+
+      // EDH 卡牌搜索：只读接口，卡牌数据库对所有已授权账户共享（不区分 owner）。
+      if (pathname === '/api/edh/cards/search') {
+        if (req.method !== 'GET') return sendAuthError(res, 405, '只支持 GET。');
+        const database = loadEdhCardDatabase();
+        if (!database) return sendAuthError(res, 503, '卡牌数据库尚未同步，请先在服务器上执行 npm run sync:edh-cards。');
+        const params = {
+          q: requestUrl.searchParams.get('q') || '',
+          colors: (requestUrl.searchParams.get('colors') || '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean),
+          colorMode: requestUrl.searchParams.get('colorMode') || 'subset',
+          types: (requestUrl.searchParams.get('types') || '').split(',').map((t) => t.trim()).filter(Boolean),
+          cmcMin: requestUrl.searchParams.get('cmcMin'),
+          cmcMax: requestUrl.searchParams.get('cmcMax'),
+          commanderOnly: requestUrl.searchParams.get('commanderOnly') === '1',
+          limit: requestUrl.searchParams.get('limit'),
+        };
+        return sendJson(res, searchEdhCards(database, params));
+      }
+
+      // EDH 卡牌数据库元信息：给前端展示"数据更新于/中文覆盖率"等状态，不含卡牌本体。
+      if (pathname === '/api/edh/cards/meta') {
+        if (req.method !== 'GET') return sendAuthError(res, 405, '只支持 GET。');
+        const database = loadEdhCardDatabase();
+        if (!database) return sendJson(res, { synced: false });
+        return sendJson(res, {
+          synced: true,
+          generatedAt: database.generatedAt,
+          cardCount: database.cardCount,
+          chineseCoverage: database.chineseCoverage,
+        });
+      }
+
+      // EDH 卡牌详情批量查询：牌组只存 oracleId+数量，渲染时用这个接口换回完整卡牌信息。
+      if (pathname === '/api/edh/cards/lookup') {
+        if (req.method !== 'GET') return sendAuthError(res, 405, '只支持 GET。');
+        const database = loadEdhCardDatabase();
+        if (!database) return sendAuthError(res, 503, '卡牌数据库尚未同步，请先在服务器上执行 npm run sync:edh-cards。');
+        const ids = (requestUrl.searchParams.get('ids') || '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 200);
+        const cards = ids.map((id) => database.byOracleId.get(id)).filter(Boolean);
+        return sendJson(res, cards);
+      }
+
+      // EDH 牌组：列表 / 新建
+      if (pathname === '/api/edh/decks') {
+        if (req.method === 'GET') {
+          return sendJson(res, loadUserDecks(requestUser.username));
+        }
+        if (req.method === 'POST') {
+          if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
+          const body = await readBody(req);
+          if (!body || typeof body.name !== 'string' || !body.name.trim()) {
+            return sendAuthError(res, 400, '缺少牌组名称。');
+          }
+          const decks = loadUserDecks(requestUser.username);
+          const deck = {
+            id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15),
+            owner: requestUser.username,
+            name: String(body.name).trim().slice(0, 100),
+            commanderOracleId: typeof body.commanderOracleId === 'string' ? body.commanderOracleId : null,
+            cards: [], // [{ oracleId, quantity }]，指挥官不重复存进这个数组
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          decks.push(deck);
+          if (!saveUserDecks(requestUser.username, decks)) return sendAuthError(res, 500, '保存牌组失败。');
+          return sendJson(res, deck, 201);
+        }
+        return sendAuthError(res, 405, '不支持的请求方法。');
+      }
+
+      // EDH 单个牌组：查看详情 / 更新（改名、换指挥官、增删卡） / 删除
+      if (pathname.startsWith('/api/edh/decks/')) {
+        const deckId = pathname.slice('/api/edh/decks/'.length);
+        if (!deckId) return sendAuthError(res, 400, '缺少牌组 id。');
+        const decks = loadUserDecks(requestUser.username);
+        const index = decks.findIndex((deck) => deck.id === deckId);
+
+        if (req.method === 'GET') {
+          if (index === -1) return sendAuthError(res, 404, '牌组不存在。');
+          return sendJson(res, decks[index]);
+        }
+        if (req.method === 'PUT') {
+          if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
+          if (index === -1) return sendAuthError(res, 404, '牌组不存在。');
+          const body = await readBody(req);
+          if (!body) return sendAuthError(res, 400, '请求体无效。');
+          const current = decks[index];
+          const nextCards = Array.isArray(body.cards)
+            ? body.cards
+                .filter((entry) => entry && typeof entry.oracleId === 'string' && Number.isFinite(Number(entry.quantity)) && Number(entry.quantity) > 0)
+                .map((entry) => ({ oracleId: entry.oracleId, quantity: Math.min(Math.floor(Number(entry.quantity)), 99) }))
+            : current.cards;
+          decks[index] = {
+            ...current,
+            name: typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 100) : current.name,
+            commanderOracleId: body.commanderOracleId === null || typeof body.commanderOracleId === 'string' ? body.commanderOracleId : current.commanderOracleId,
+            cards: nextCards,
+            updatedAt: new Date().toISOString(),
+          };
+          if (!saveUserDecks(requestUser.username, decks)) return sendAuthError(res, 500, '更新牌组失败。');
+          return sendJson(res, decks[index]);
+        }
+        if (req.method === 'DELETE') {
+          if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
+          if (index === -1) return sendAuthError(res, 404, '牌组不存在。');
+          decks.splice(index, 1);
+          if (!saveUserDecks(requestUser.username, decks)) return sendAuthError(res, 500, '删除牌组失败。');
+          return sendJson(res, { success: true });
+        }
+        return sendAuthError(res, 405, '不支持的请求方法。');
       }
 
       // 2) 页面：开发交给Next dev server，生产读静态产物

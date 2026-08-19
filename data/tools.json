@@ -79,5 +79,15 @@
     "icon": "🌊",
     "featured": true,
     "createdAt": "2026-08-13"
+  },
+  {
+    "slug": "edh-builder",
+    "title": "EDH 指挥官组卡台",
+    "description": "万智牌指挥官(EDH)组卡工作台：高级搜索、中文卡名、拖拽建牌、颜色identity校验、法力曲线统计",
+    "category": "game",
+    "tags": ["mtg", "edh", "commander", "deckbuilder", "cards"],
+    "icon": "🃏",
+    "featured": true,
+    "createdAt": "2026-08-19"
   }
 ]
