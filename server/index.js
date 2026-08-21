@@ -59,6 +59,7 @@ const PLAYER_DIR = path.join(IMAGE_DIR, 'player');
 const SAVINGS_FILE = path.join(PROJECT_ROOT, 'data', 'savings.json');
 const EDH_CARDS_FILE = path.join(PROJECT_ROOT, 'data', 'edh', 'cards.json');
 const EDH_DECKS_DIR = path.join(PROJECT_ROOT, 'data', 'edh', 'decks');
+const DND_SAVES_DIR = path.join(PROJECT_ROOT, 'data', 'dnd', 'saves');
 
 // 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
 const TOOL_SLUGS = [
@@ -71,6 +72,7 @@ const TOOL_SLUGS = [
   'savings-tracker',
   'css-cascade',
   'edh-builder',
+  'dnd-character',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 const auth = createAuth({ projectRoot: PROJECT_ROOT, isProduction: !DEV });
@@ -210,6 +212,38 @@ function saveUserDecks(username, decks) {
     return true;
   } catch (e) {
     console.error('保存牌组数据失败:', e.message);
+    return false;
+  }
+}
+
+// DND 角色卡存档：同样按账户隔离，每个用户一个 JSON 文件。
+// 存档内容是一张「键 → 字符串」的不透明映射（键即 localStorage 里 dnd_ 前缀后的名字，
+// 值是原本已 JSON 序列化好的字符串），服务端不解析、不校验结构，原样存取即可。
+function getDndSaveFile(username) {
+  return path.join(DND_SAVES_DIR, `${username}.json`);
+}
+
+function loadDndSave(username) {
+  try {
+    const file = getDndSaveFile(username);
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (e) {
+    console.error('读取 DND 角色卡存档失败:', e.message);
+  }
+  return null;
+}
+
+function saveDndSave(username, data) {
+  try {
+    if (!fs.existsSync(DND_SAVES_DIR)) fs.mkdirSync(DND_SAVES_DIR, { recursive: true });
+    fs.writeFileSync(
+      getDndSaveFile(username),
+      JSON.stringify({ data, updatedAt: new Date().toISOString() }, null, 2),
+      'utf-8',
+    );
+    return true;
+  } catch (e) {
+    console.error('保存 DND 角色卡存档失败:', e.message);
     return false;
   }
 }
@@ -362,12 +396,14 @@ function requiredToolForApi(pathname) {
   if (pathname === '/api/enemies' || pathname === '/api/player-images' || pathname === '/api/rooms') return 'initiative-tracker';
   if (pathname === '/api/savings') return 'savings-tracker';
   if (pathname.startsWith('/api/edh/')) return 'edh-builder';
+  if (pathname === '/api/dnd/save') return 'dnd-character';
   return null;
 }
 
 function requiredToolForStaticAsset(pathname) {
   if (pathname.startsWith('/image/enemies/') || pathname.startsWith('/image/player/')) return 'initiative-tracker';
   if (pathname.startsWith('/image/tarot/')) return 'tarot-reading';
+  if (pathname.startsWith('/dnd/')) return 'dnd-character';
   return null;
 }
 
@@ -1185,6 +1221,31 @@ async function main() {
           if (index === -1) return sendAuthError(res, 404, '牌组不存在。');
           decks.splice(index, 1);
           if (!saveUserDecks(requestUser.username, decks)) return sendAuthError(res, 500, '删除牌组失败。');
+          return sendJson(res, { success: true });
+        }
+        return sendAuthError(res, 405, '不支持的请求方法。');
+      }
+
+      // DND 角色卡存档：读取 / 保存该账户的整份角色卡快照。
+      // 前端以 localStorage 为缓存、服务器为真相源；每次改动防抖后把全量快照 POST 回来。
+      if (pathname === '/api/dnd/save') {
+        if (req.method === 'GET') {
+          const stored = loadDndSave(requestUser.username);
+          return sendJson(res, { data: stored ? stored.data : null });
+        }
+        if (req.method === 'POST') {
+          if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
+          const raw = await readRawBody(req, 5 * 1024 * 1024);
+          let body = null;
+          if (raw !== null) { try { body = JSON.parse(raw); } catch { body = null; } }
+          if (!body || typeof body.data !== 'object' || body.data === null || Array.isArray(body.data)) {
+            return sendAuthError(res, 400, '请求体无效：需要 { data: {…} } 对象。');
+          }
+          // 只接受字符串值，避免把非字符串塞进存档。
+          for (const key of Object.keys(body.data)) {
+            if (typeof body.data[key] !== 'string') return sendAuthError(res, 400, '存档值必须为字符串。');
+          }
+          if (!saveDndSave(requestUser.username, body.data)) return sendAuthError(res, 500, '保存角色卡失败。');
           return sendJson(res, { success: true });
         }
         return sendAuthError(res, 405, '不支持的请求方法。');

@@ -1,0 +1,643 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>DND 角色卡</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&display=swap" rel="stylesheet">
+<!--
+  样式 → character_sheet.css
+  逻辑 → character_sheet.js
+-->
+<link rel="stylesheet" href="css/character_sheet.css">
+<script>
+  /* 账户云同步（读取）：启动时从 /api/dnd/save 拉取该账户的存档。
+     服务器有存档且与本地不同时，用服务器数据覆盖本地（服务器优先），
+     然后刷新一次让状态以服务器数据为准；未登录或服务器无存档则保持本地不变。 */
+  (function () {
+    try {
+      fetch('/api/dnd/save', { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) return null; return r.json(); })
+        .then(function (save) {
+          if (!save || !save.data || typeof save.data !== 'object') return;
+          var changed = false, k;
+          for (k in save.data) {
+            if (localStorage.getItem('dnd_' + k) !== save.data[k]) { changed = true; break; }
+          }
+          if (!changed) return;
+          for (k in save.data) localStorage.setItem('dnd_' + k, save.data[k]);
+          location.reload();
+        })
+        .catch(function () { /* 网络失败：静默，保持本地 */ });
+    } catch (e) {}
+  })();
+</script>
+<script>
+  /* 尽早应用已保存的主题，避免刷新时闪一下默认配色 */
+  try { var _t = JSON.parse(localStorage.getItem('dnd_theme')); if (_t) document.documentElement.dataset.theme = _t; } catch (e) {}
+</script>
+</head>
+<body>
+
+<!-- ============================================================
+     专注状态横条
+============================================================ -->
+<div id="concentration-banner">
+  <span id="conc-label" class="cinzel">正在专注 ▸ <span id="conc-spell-name"></span></span>
+  <button id="conc-break">✕ 断专注</button>
+</div>
+
+<div id="pages-container">
+
+  <!-- ══ 第一页：战斗 ══ -->
+  <div class="page active" id="page-combat">
+
+    <div id="header">
+      <div class="rest-btns">
+        <button id="btn-short-rest">☾ 短休</button>
+        <button id="btn-long-rest">⌛ 长休</button>
+      </div>
+    </div>
+
+    <div id="panel-buff" class="panel">
+      <div class="panel-title">局势 · 状态</div>
+      <div id="lucky-dice-row">
+        <span class="lucky-lbl">幸运骰子</span>
+        <div class="lucky-controls">
+          <button class="lucky-btn" id="lucky-minus">−</button>
+          <span id="lucky-val" title="点击编辑">0</span>
+          <input id="lucky-input" type="number" style="display:none;" min="0" max="99">
+          <button class="lucky-btn" id="lucky-plus">+</button>
+        </div>
+        <div id="lucky-pips"></div>
+      </div>
+      <div class="buff-chips" id="buff-chips"></div>
+
+      <div style="height:4px"></div>
+
+      <!-- AC / 速度 / 先攻 / 熟练加值 由 JS 渲染，见 renderCharSheet() -->
+      <div class="stat-row" id="core-stats-row" data-module="corestats"></div>
+
+      <div class="death-saves-row">
+        <div class="death-saves" data-module="deathsaves">
+          <span class="death-saves-lbl">死亡豁免</span>
+          <div class="save-circles" id="death-success">
+            <div class="save-circle" data-type="success" data-idx="0"></div>
+            <div class="save-circle" data-type="success" data-idx="1"></div>
+            <div class="save-circle" data-type="success" data-idx="2"></div>
+          </div>
+          <div class="save-circles" id="death-fail" style="margin-left:8px;">
+            <div class="save-circle" data-type="fail" data-idx="0"></div>
+            <div class="save-circle" data-type="fail" data-idx="1"></div>
+            <div class="save-circle" data-type="fail" data-idx="2"></div>
+          </div>
+        </div>
+        <div class="death-saves" data-module="exhaustion">
+          <span class="death-saves-lbl">力竭计数</span>
+          <div class="save-circles" id="exhaustion-pips">
+            <div class="exhaust-pip" data-idx="0"></div>
+            <div class="exhaust-pip" data-idx="1"></div>
+            <div class="exhaust-pip" data-idx="2"></div>
+            <div class="exhaust-pip" data-idx="3"></div>
+            <div class="exhaust-pip" data-idx="4"></div>
+            <div class="exhaust-pip" data-idx="5"></div>
+          </div>
+        </div>
+      </div>
+
+      <span class="death-saves-lbl" data-module="castcore">施法核心属性</span>
+      <!-- 法术豁免DC / 法术攻击加成 / 施法属性调整值 由 JS 渲染 -->
+      <div class="cast-stats" id="cast-core-stats" data-module="castcore"></div>
+
+    </div><!-- /#panel-buff -->
+
+    <div id="panel-survival" class="panel">
+      <div class="panel-title">生存 · 核心状态</div>
+
+      <div id="temp-hp-slider-wrap" class="hidden">
+        <span id="temp-hp-slider-lbl">临时 HP</span>
+        <input type="range" id="temp-hp-slider" min="0" max="15" value="0">
+        <span id="temp-hp-slider-val">0</span>
+      </div>
+
+      <div id="hp-bar-track"><div id="hp-bar-fill"></div><div id="hp-bar-temp"></div></div>
+
+      <div class="hp-display">
+        <span id="hp-current" title="点击编辑">37</span>
+        <input id="hp-input" type="number" style="display:none;" min="0">
+        <span id="temp-hp-badge" title="点击调整临时HP">+<span id="temp-hp-val">0</span></span>
+        <span class="hp-sep">/</span>
+        <span id="hp-max" title="点击编辑最大HP">37</span>
+        <input id="hp-max-input" type="number" style="display:none;" min="1">
+      </div>
+
+      <div class="hp-controls">
+        <button class="hp-btn" id="hp-minus5">－ 5</button>
+        <button class="hp-btn" id="hp-minus">－ 1</button>
+        <button class="hp-btn" id="hp-plus">＋ 1</button>
+        <button class="hp-btn" id="hp-plus5">＋ 5</button>
+      </div>
+
+      <div id="hitdice-row">
+        <span class="hitdice-lbl">生命骰</span>
+        <span id="hitdice-count" class="hitdice-count"></span>
+        <div class="hitdice-pips" id="hitdice-pips"></div>
+      </div>
+    </div><!-- /#panel-survival -->
+
+  </div><!-- /#page-combat -->
+
+  <!-- ══ 第二页：角色 ══ -->
+  <div class="page" id="page-character">
+
+    <!-- 模块区：所有块作为直接子元素，用 CSS 两列紧凑自动流排布；
+         本区可上下滚动，经验值条固定在下方（见 css 的 #character-modules / #panel-xp） -->
+    <div id="character-modules">
+      <div id="character-flow">
+
+      <div id="class-char-header" data-module="identity">
+        <div id="char-name">金雳</div>
+        <div id="char-subtitle">生命领域 · 牧师 · 5级 · 丘陵矮人</div>
+      </div>
+
+      <!-- 六维属性由 JS 从 CHAR.abilities 渲染，见 renderCharSheet() -->
+      <div id="header-stats" data-module="abilities"></div>
+
+      <!-- 属性豁免（熟练项自动 +熟练加值），由 renderCharSheet() 渲染 -->
+      <div id="saves-section">
+        <span class="saves-title cinzel">豁免检定</span>
+        <div id="saving-throws" class="saves-grid"></div>
+      </div>
+
+      <!-- 种族特性面板由 render.js 依据 CHAR.race + RACE_DB 动态生成 -->
+      <div id="races-container"></div>
+
+      <!-- 专长面板由 render.js 依据 CHAR.feats + FEAT_DB 动态生成 -->
+      <div id="feats-container"></div>
+
+      <div id="panel-charinfo" class="panel">
+        <div class="panel-title">角色信息</div>
+        <div class="charinfo-row">
+          <span class="charinfo-lbl">阵营</span>
+          <span class="charinfo-val" id="info-alignment">守序中立</span>
+        </div>
+        <div class="charinfo-row">
+          <span class="charinfo-lbl">语言</span>
+          <span class="charinfo-val" id="info-languages">龙语、矮人语</span>
+        </div>
+      </div>
+
+      <div id="panel-skills" class="panel">
+        <div class="panel-title">熟练技能</div>
+        <div id="skills-list"></div>
+      </div>
+
+      </div><!-- /#character-flow -->
+    </div><!-- /#character-modules -->
+
+    <!-- 底部：经验值条 横跨全宽 -->
+    <div id="panel-xp" class="panel">
+      <div class="panel-title">经验值</div>
+      <div id="xp-bar-row">
+        <div id="xp-bar">
+          <div id="xp-bar-fill"></div>
+          <div id="xp-bar-pct">0%</div>
+        </div>
+        <button id="btn-xp-gain" title="获得经验值">＋ 经验</button>
+      </div>
+      <div id="xp-numbers">
+        <span id="xp-current" title="点击编辑当前经验值">0</span>
+        <span class="xp-sep">/</span>
+        <span id="xp-next" title="点击编辑升级所需经验值">0</span>
+        <input type="number" id="xp-input" style="display:none;" min="0">
+        <input type="number" id="xp-next-input" style="display:none;" min="1">
+      </div>
+    </div>
+
+  </div><!-- /#page-character -->
+
+  <!-- ══ 第三页：职业（职业专属资源）══ -->
+  <div class="page" id="page-class">
+    <!-- 职业专属资源面板（#panel-class 引导神力等）由 js/classes/<职业>.js 按职业动态生成并追加到 #class-resource-mount（选对应职业才注入）-->
+    <div id="class-resource-mount"></div>
+  </div><!-- /#page-class -->
+
+  <!-- ══ 第三页：法术 ══ -->
+  <div class="page" id="page-spells">
+
+    <div id="panel-spell" class="panel">
+      <div class="panel-title">施法 · 法术库<button id="btn-collapse-all" title="收起全部详情">✕ 全收起</button><button id="btn-fx-toggle" title="施法全屏特效 开/关">✨ 特效</button></div>
+      <!-- 按法表职业分区（戏法+环阶合并），每区一个「＋选择」，由 renderSpellPanel() 动态生成 -->
+      <div id="spell-classes"></div>
+    </div>
+
+    <!-- 临时法术：不消耗法术位、有独立次数、按休整恢复（来自魔法物品/状态）-->
+    <div id="temp-spells-block" class="panel" data-module="tempspells">
+      <div class="panel-title">临时法术</div>
+      <div class="temp-hint">魔法物品 / 状态给予的固定次数法术，不消耗法术位，按休整恢复。</div>
+      <div id="temp-spells-list"></div>
+      <button id="btn-add-temp" class="btn-spell-add temp-add-btn">＋ 添加临时法术</button>
+    </div>
+
+  </div><!-- /#page-spells -->
+
+  <!-- ══ 第四页：背包 ══ -->
+  <div class="page" id="page-bag">
+
+    <!-- 个人 / 团队 账目切换：钱与物品都按此分账 -->
+    <div id="bag-owner-tabs">
+      <button class="bag-owner-tab owner-personal active" data-owner="personal">👤 个人</button>
+      <button class="bag-owner-tab owner-team" data-owner="team">⚔ 团队</button>
+    </div>
+
+    <div id="panel-equip" class="panel">
+      <div class="panel-title">装备 · 杂项</div>
+
+      <div class="bag-columns" data-module="equip">
+        <div class="bag-col">
+          <div class="bag-col-head">
+            <span class="cinzel bag-col-lbl">预设</span>
+            <button class="btn-item-add">＋ 选择</button>
+          </div>
+          <div id="equip-preset-list"></div>
+        </div>
+        <div class="bag-col">
+          <div class="bag-col-head">
+            <span class="cinzel bag-col-lbl">笔记</span>
+          </div>
+          <div class="notepad" id="equip-notepad"></div>
+        </div>
+      </div>
+
+      <div id="weight-summary" data-module="weight">
+        <span class="cinzel weight-lbl">总重量</span>
+        <span id="total-weight" class="cinzel">0</span>
+        <span id="weight-cap" class="cinzel">/ 90</span>
+        <span class="weight-unit">lbs</span>
+        <span id="weight-warn">超重</span>
+      </div>
+
+      <div id="misc-currency" data-module="currency">
+        <div class="currency-box">
+          <span class="cinzel currency-label">铂</span>
+          <input type="number" id="cur-pp" min="0" value="0">
+        </div>
+        <div class="currency-box">
+          <span class="cinzel currency-label">金</span>
+          <input type="number" id="cur-gp" min="0" value="0">
+        </div>
+        <div class="currency-box">
+          <span class="cinzel currency-label">银</span>
+          <input type="number" id="cur-sp" min="0" value="0">
+        </div>
+        <div class="currency-box">
+          <span class="cinzel currency-label">铜</span>
+          <input type="number" id="cur-cp" min="0" value="0">
+        </div>
+      </div>
+
+      <!-- 收支流水：每笔金额变动都记一条，余额由流水汇总而来 -->
+      <div id="bag-ledger" data-module="ledger">
+        <div class="bag-col-head">
+          <span class="cinzel bag-col-lbl">收支流水</span>
+          <button id="btn-ledger-add" class="btn-ledger-open">＋ 记一笔</button>
+        </div>
+        <div id="ledger-list"></div>
+      </div>
+
+    </div>
+
+  </div><!-- /#page-bag -->
+
+  <!-- ══ 第五页：日志 ══ -->
+  <div class="page" id="page-log">
+
+    <!-- 跑团计时器（细条，不喧宾夺主）-->
+    <div id="timer-bar">
+      <span id="timer-icon">⏱</span>
+      <span id="timer-display" class="cinzel">00:00:00</span>
+      <div id="timer-controls">
+        <button id="timer-toggle" class="timer-btn timer-btn-main">▶ 开始</button>
+        <button id="timer-end" class="timer-btn">■ 结束</button>
+      </div>
+      <button id="btn-settings" class="timer-btn" title="设置">⚙</button>
+    </div>
+
+    <!-- 台词 · 灵感（即兴表演台词，随机 + 分类筛选 + 搜索）-->
+    <div id="panel-lines" class="panel">
+      <div class="panel-title">台词 · 灵感</div>
+      <div id="lines-tabs"></div>
+      <div id="lines-toolbar">
+        <input type="text" id="lines-search" placeholder="搜索台词…" autocomplete="off">
+        <button id="lines-reroll" class="lines-reroll-btn">🎲 换一批</button>
+      </div>
+      <div id="lines-list"></div>
+    </div>
+
+    <!-- 任务 · 备忘（记录自己的任务与备忘事项，可优先级 / 完成 / 编辑，独立导入导出）-->
+    <div id="panel-quests" class="panel">
+      <div class="panel-title">任务 · 备忘</div>
+      <div id="quest-toolbar">
+        <input type="text" id="quest-title-input" placeholder="记个任务 / 备忘…" maxlength="60" autocomplete="off">
+        <select id="quest-prio" title="优先级">
+          <option value="high">优先</option>
+          <option value="mid" selected>常规</option>
+          <option value="low">次要</option>
+        </select>
+        <button id="quest-add" class="quest-add-btn">＋ 记下</button>
+      </div>
+      <div id="quest-tabs"></div>
+            <div id="quest-list"></div>
+      <div id="quest-foot">
+        <span id="quest-count"></span>
+      </div>
+    </div>
+
+        <!-- 事件日志 -->
+    <div id="panel-log" class="panel">
+      <div class="panel-title">冒险日志
+        <span id="log-tools">
+          <button id="btn-log-export" class="log-tool-btn" title="导出全部跑团日志">⬇ 导出</button>
+          <button id="btn-log-import" class="log-tool-btn" title="从文件导入跑团日志">⬆ 导入</button>
+          <button id="btn-log-clear"  class="log-tool-btn" title="清空全部日志">🗑 清空</button>
+          <input type="file" id="log-import-file" accept="application/json,.json" style="display:none;">
+        </span>
+      </div>
+
+      <div id="log-filter-tabs"></div>
+
+      <div id="log-list"></div>
+    </div>
+
+  </div><!-- /#page-log -->
+
+</div><!-- /#pages-container -->
+<script>
+  /* 尽早把字号缩放【只加在内容区】，底部 dock 栏(#tab-bar)不受影响、位置不变 */
+  try { var _fs = JSON.parse(localStorage.getItem('dnd_fontScale')); if (typeof _fs === 'number' && _fs > 0) document.getElementById('pages-container').style.zoom = _fs; } catch (e) {}
+</script>
+
+<!-- 撤销上一步：浮动按钮 + 短暂提示 -->
+<button id="btn-undo" class="hidden" title="撤销上一步">↶ 撤销</button>
+<div id="undo-toast"></div>
+
+<!-- 施法全屏特效层：按法术学派切换动效，不拦截点击 -->
+<div id="cast-fx-layer" aria-hidden="true"></div>
+
+
+<!-- 底部翻页标签栏 -->
+<nav id="tab-bar">
+  <button class="tab-btn active" data-page="page-combat">⚔ 战斗</button>
+  <button class="tab-btn" data-page="page-character">♞ 角色</button>
+  <button class="tab-btn" data-page="page-class">☩ 职业</button>
+  <button class="tab-btn" data-page="page-spells">✦ 法术</button>  <button class="tab-btn" data-page="page-bag">⊛ 背包</button>  <button class="tab-btn" data-page="page-log">✒ 日志</button></nav>
+
+<!-- ══ 经验值获得弹窗 ══ -->
+<div id="xp-gain-modal" class="hidden">
+  <div id="xp-gain-panel">
+    <div id="xp-gain-head">
+      <span class="cinzel">获得经验值</span>
+      <button id="xp-gain-close">✕</button>
+    </div>
+    <div id="xp-gain-body">
+      <label id="xp-gain-label">输入获得的经验值（支持小数）</label>
+      <input type="number" id="xp-gain-input" min="0" step="any" placeholder="如：450" autocomplete="off">
+      <div id="xp-gain-preview"></div>
+    </div>
+    <div id="xp-gain-footer">
+      <button id="xp-gain-cancel" class="xp-gain-btn">取消</button>
+      <button id="xp-gain-confirm" class="xp-gain-btn xp-gain-btn-primary">确认</button>
+    </div>
+  </div>
+</div>
+
+<div id="spell-modal" class="hidden">
+  <div id="spell-modal-panel">
+    <div id="spell-modal-head">
+      <span class="cinzel" id="spell-modal-title">选择法术</span>
+      <div class="spell-modal-head-ctrls">
+        <button id="spell-view-toggle">▦ 卡片视图</button>
+        <button id="spell-modal-close">✕</button>
+      </div>
+    </div>
+    <div id="spell-modal-tabs"><!-- 环阶标签由 dialogs.js 依据 CHAR.spellSlots 动态生成 --></div>
+    <div id="spell-modal-search-wrap">
+      <input type="text" id="spell-modal-search" placeholder="搜索法术名（中 / 英）…" autocomplete="off">
+    </div>
+    <div id="spell-modal-list"></div>
+    <div id="spell-modal-detail" class="spm-hidden"></div>
+    <div id="spell-modal-cards" class="spm-hidden"></div>
+  </div>
+</div>
+
+<div id="item-modal" class="hidden">
+  <div id="item-modal-panel">
+    <div id="item-modal-head">
+      <span class="cinzel" id="item-modal-title">添加物品</span>
+      <button id="item-modal-close">✕</button>
+    </div>
+    <div id="item-modal-tabs"></div>
+    <div id="item-modal-search-wrap">
+      <input type="text" id="item-modal-search" placeholder="搜索物品名…" autocomplete="off">
+    </div>
+    <div id="item-modal-list"></div>
+  </div>
+</div>
+
+<div id="ledger-modal" class="hidden">
+  <div id="ledger-modal-panel">
+    <div id="ledger-modal-head">
+      <span class="cinzel">记一笔收支</span>
+      <button id="ledger-modal-close">✕</button>
+    </div>
+    <div id="ledger-modal-body">
+      <div id="ledger-type-toggle">
+        <button class="ledger-type-btn active" data-type="income">＋ 收入</button>
+        <button class="ledger-type-btn" data-type="expense">－ 支出</button>
+      </div>
+      <div class="ledger-modal-currencies">
+        <div class="ledger-cur-box">
+          <span class="cinzel currency-label">铂</span>
+          <input type="number" id="ledger-pp" min="0" value="0">
+        </div>
+        <div class="ledger-cur-box">
+          <span class="cinzel currency-label">金</span>
+          <input type="number" id="ledger-gp" min="0" value="0">
+        </div>
+        <div class="ledger-cur-box">
+          <span class="cinzel currency-label">银</span>
+          <input type="number" id="ledger-sp" min="0" value="0">
+        </div>
+        <div class="ledger-cur-box">
+          <span class="cinzel currency-label">铜</span>
+          <input type="number" id="ledger-cp" min="0" value="0">
+        </div>
+      </div>
+      <div class="ledger-hint">可多币种同填，如领赏金填金/银两栏</div>
+      <div id="ledger-presets" class="ledger-presets"></div>
+      <input type="text" id="ledger-note" placeholder="用途备注（如：卖装备 / 旅店住宿）" autocomplete="off">
+      <button id="ledger-save-preset">☆ 存为常用</button>
+      <button id="ledger-submit">记录</button>
+    </div>
+  </div>
+</div>
+
+<div id="buff-modal" class="hidden">
+  <div id="buff-modal-panel">
+    <div id="buff-modal-head">
+      <span class="cinzel" id="buff-modal-title">选择状态标签</span>
+      <button id="buff-modal-close">✕</button>
+    </div>
+    <div id="buff-modal-tabs"></div>
+    <div id="buff-modal-list"></div>
+  </div>
+</div>
+
+<!-- 日志导出：先选跑团，再选导出格式 -->
+<div id="log-export-modal" class="hidden">
+  <div id="log-export-panel">
+    <div id="log-export-head">
+      <span class="cinzel">导出日志</span>
+      <button id="log-export-close">✕</button>
+    </div>
+    <label id="log-export-all-row">
+      <input type="checkbox" id="log-export-all"> <span>全选</span>
+      <span id="log-export-count"></span>
+    </label>
+    <div id="log-export-list"></div>
+    <div id="log-export-step2">选择导出内容：</div>
+    <div id="log-export-actions">
+      <button class="log-export-fmt" data-fmt="txt">仅战报 .txt</button>
+      <button class="log-export-fmt" data-fmt="json">仅存档 .json</button>
+      <button class="log-export-fmt log-export-both" data-fmt="both">两者都要</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置弹窗：全数据备份 + 主题（日志页齿轮打开）-->
+<div id="settings-modal" class="hidden">
+  <div id="settings-panel">
+    <div id="settings-head">
+      <span class="cinzel">设置</span>
+      <button id="settings-close">✕</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title cinzel">全数据备份</div>
+      <div class="settings-hint">导出/导入包含角色数据与冒险日志在内的<b>全部</b>数据；导入为整体覆盖还原（导入前会自动下载一份当前快照）。</div>
+      <div class="settings-btn-row">
+        <button id="settings-export" class="settings-btn">⬇ 导出全部</button>
+        <button id="settings-import" class="settings-btn">⬆ 导入全部</button>
+        <input type="file" id="settings-import-file" accept="application/json,.json" style="display:none;">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title cinzel">角色</div>
+      <div class="settings-hint">编辑等级 / 六维 / AC / 法术位等配置，保存即生效（存入备份，无需改代码）。当前生命值、经验值请直接点卡面上的数字修改。</div>
+      <button id="btn-open-charcfg" class="settings-btn settings-btn-wide">✎ 编辑角色配置</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title cinzel">模块显示</div>
+      <div class="settings-hint">按页分类勾选要显示的模块，不勾就隐藏；不同职业按需开关。</div>
+      <button id="btn-open-modules" class="settings-btn settings-btn-wide">▦ 模块显示设置</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title cinzel">字号</div>
+      <div class="settings-hint">整体界面等比缩放，字和方框一起放大，读起来更清楚（不影响任何数据）。</div>
+      <select id="fontscale-select" class="settings-select">
+        <option value="0.9">小</option>
+        <option value="1">标准</option>
+        <option value="1.15">大</option>
+        <option value="1.3">特大</option>
+      </select>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title cinzel">主题</div>
+      <select id="theme-select" class="settings-select"></select>
+    </div>
+  </div>
+</div>
+
+<!-- 模块显示大弹窗：所有模块按页分列平铺 -->
+<div id="modules-modal" class="hidden">
+  <div id="modules-panel">
+    <div id="modules-head">
+      <span class="cinzel">模块显示</span>
+      <button id="modules-close">✕</button>
+    </div>
+    <div class="settings-hint" id="modules-hint">按页勾选要显示的模块，不勾就隐藏（底部标签始终保留）。<br>模块布局会随「全数据备份」一起导出/导入。</div>
+    <div id="module-toggles"></div>
+  </div>
+</div>
+
+<!-- 角色编辑器（字段由 charconfig.js 生成）-->
+<div id="charcfg-modal" class="hidden">
+  <div id="charcfg-panel">
+    <div id="charcfg-head">
+      <span class="cinzel">编辑角色配置</span>
+      <button id="charcfg-close">✕</button>
+    </div>
+    <div id="charcfg-body"></div>
+    <div id="charcfg-foot">
+      <button id="charcfg-reset" class="charcfg-btn charcfg-btn-danger">恢复默认</button>
+      <span style="flex:1"></span>
+      <button id="charcfg-cancel" class="charcfg-btn">取消</button>
+      <button id="charcfg-save" class="charcfg-btn charcfg-btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 通用对话框（确认 / 提示），替代浏览器原生 alert / confirm -->
+<div id="dialog-modal" class="hidden">
+  <div id="dialog-panel">
+    <div id="dialog-icon" class="cinzel"></div>
+    <div id="dialog-title" class="cinzel"></div>
+    <div id="dialog-message"></div>
+    <div id="dialog-actions">
+      <button id="dialog-cancel" class="dialog-btn">取消</button>
+      <button id="dialog-confirm" class="dialog-btn">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- JS 模块：按依赖顺序加载（经典脚本，共享全局变量） -->
+<script src="js/data/spell_0.js"></script>          <!-- 法术数据 · 戏法(0环) SPELL_L0 -->
+<script src="js/data/spell_1.js"></script>          <!-- 法术数据 · 1环 SPELL_L1 -->
+<script src="js/data/spell_2.js"></script>          <!-- 法术数据 · 2环 SPELL_L2 -->
+<script src="js/data/spell_3.js"></script>          <!-- 法术数据 · 3环 SPELL_L3 -->
+<script src="js/data/spell_4.js"></script>          <!-- 法术数据 · 4环 SPELL_L4 -->
+<script src="js/data/spell_5.js"></script>          <!-- 法术数据 · 5环 SPELL_L5 -->
+<script src="js/data/spell_6.js"></script>          <!-- 法术数据 · 6环 SPELL_L6 -->
+<script src="js/data/spell_7.js"></script>          <!-- 法术数据 · 7环 SPELL_L7 -->
+<script src="js/data/spell_8.js"></script>          <!-- 法术数据 · 8环 SPELL_L8 -->
+<script src="js/data/spell_9.js"></script>          <!-- 法术数据 · 9环 SPELL_L9 -->
+<script src="js/data/spells.js"></script>           <!-- 聚合成 SPELL_DB（须在各 spell_N.js 之后） -->
+<script src="js/data/items.js"></script>            <!-- 物品数据库 -->
+<script src="js/data/buffs.js"></script>            <!-- 状态 / 增益库 BUFF_DB -->
+<script src="js/data/skills.js"></script>           <!-- 技能库 SKILL_DB -->
+<script src="js/data/feats.js"></script>            <!-- 专长库 FEAT_DB -->
+<script src="js/data/races.js"></script>            <!-- 种族特性库 RACE_DB -->
+<script src="js/data/lines.js"></script>            <!-- 台词库 LINES_DB -->
+<script src="js/config/character.js"></script>      <!-- 角色配置 CHAR -->
+<script src="js/core/state.js"></script>            <!-- localStorage工具 + state + 派生计算 -->
+<script src="js/features/sync.js"></script>      <!-- 账户云同步：拦截 dnd_* 写入自动 POST 到 /api/dnd/save -->
+<script src="js/core/render.js"></script>           <!-- 渲染函数：角色卡/血量/法术/状态等 -->
+<script src="js/core/dialogs.js"></script>          <!-- 对话框系统 + 法术/状态选择器 -->
+<script src="js/features/rest.js"></script>         <!-- 长休/短休 + HP/死亡豁免/力竭交互 -->
+<script src="js/features/bag.js"></script>          <!-- 背包管理（独立IIFE） -->
+<script src="js/features/log.js"></script>          <!-- 日志页 + 跑团计时器 -->
+<script src="js/features/lines.js"></script>        <!-- 台词模块（随机/分类/搜索） -->
+<script src="js/features/quests.js"></script>       <!-- 任务模块（任务/备忘，随全数据备份） -->
+<script src="js/features/theme.js"></script>        <!-- 主题切换面板 -->
+<script src="js/features/charconfig.js"></script>   <!-- 角色配置在线编辑器（覆盖层 dnd_charConfig） -->
+<script src="js/features/undo.js"></script>         <!-- 撤销上一步 -->
+<script src="js/features/castfx.js"></script>       <!-- 施法全屏特效（按学派区分，可开关） -->
+<script src="js/classes/cleric.js"></script>        <!-- 牧师职业模块（数据+逻辑）：按职业/领域动态生成引导神力面板 -->
+<script src="js/main.js"></script>                  <!-- 首次渲染 + 标签页 + 货币 + 备份 -->
+<script src="js/features/modules.js"></script>      <!-- 模块显示开关（插件式，dnd_modules） -->
+</body>
+</html>

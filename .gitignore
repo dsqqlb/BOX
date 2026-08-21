@@ -88,5 +88,8 @@ data/auth-users.json
 data/edh/cards.json
 data/edh/decks/
 
+# DND 角色卡：按账户隔离的角色卡存档（运行时由前端自动保存生成）
+data/dnd/saves/
+
 # CSS 层叠解释器：本地验证脚本产物
 scripts/shots/

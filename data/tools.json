@@ -89,5 +89,15 @@
     "icon": "🃏",
     "featured": true,
     "createdAt": "2026-08-19"
+  },
+  {
+    "slug": "dnd-character",
+    "title": "DND 角色卡",
+    "description": "金雳·冒险者档案：D&D 5e 角色卡，法术施放、专注追踪、冒险日志、背包负重、多主题皮肤，数据按账户云端同步",
+    "category": "game",
+    "tags": ["dnd", "character", "sheet", "cleric", "5e"],
+    "icon": "⚔️",
+    "featured": true,
+    "createdAt": "2026-08-21"
   }
 ]
