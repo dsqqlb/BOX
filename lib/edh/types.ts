@@ -28,6 +28,13 @@ export interface EdhCard {
   typeLineZh: string | null;
   oracleText: string;
   oracleTextZh: string | null;
+  flavorText: string;
+  flavorTextZh: string | null;
+  artist: string;
+  legalities: Record<string, string>;
+  reprint: boolean;
+  powerNumeric: number | null;
+  toughnessNumeric: number | null;
   colors: ManaColor[];
   colorIdentity: ManaColor[];
   keywords: string[];
@@ -66,6 +73,14 @@ export interface EdhSearchFilters {
   types: string[];
   cmcMin: number | null;
   cmcMax: number | null;
+  rarities: string[];
+  powerMin: number | null;
+  powerMax: number | null;
+  toughnessMin: number | null;
+  toughnessMax: number | null;
+  format: string;
+  nonReprint: boolean;
+  searchField: 'all' | 'name' | 'type' | 'oracle' | 'flavor' | 'artist';
   commanderOnly: boolean;
 }
 
@@ -87,12 +102,16 @@ export interface EdhDeckCardEntry {
   quantity: number;
 }
 
+export type DeckViewMode = 'free' | 'type' | 'cmc';
+export interface EdhDeckLayout { viewMode: DeckViewMode; positions: Record<string, { x: number; y: number }>; }
+
 export interface EdhDeck {
   id: string;
   owner: string;
   name: string;
   commanderOracleId: string | null;
   cards: EdhDeckCardEntry[];
+  layout?: EdhDeckLayout;
   createdAt: string;
   updatedAt: string;
 }

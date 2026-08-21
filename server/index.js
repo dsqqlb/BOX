@@ -138,11 +138,27 @@ function normalizeSearchText(value) {
   return String(value || '').toLowerCase().trim();
 }
 
-/** 单张卡是否匹配自由文本关键词：中文名/英文名/中文类型/英文类型/中文文字/英文文字，任意一处命中即可。 */
-function cardMatchesKeyword(card, keyword) {
+function cardMatchesKeyword(card, keyword, field = 'all') {
   if (!keyword) return true;
-  const haystacks = [card.name, card.nameZh, card.typeLine, card.typeLineZh, card.oracleText, card.oracleTextZh];
-  return haystacks.some((field) => field && normalizeSearchText(field).includes(keyword));
+  const fields = {
+    name: [card.name, card.nameZh],
+    type: [card.typeLine, card.typeLineZh],
+    oracle: [card.oracleText, card.oracleTextZh],
+    flavor: [card.flavorText, card.flavorTextZh],
+    artist: [card.artist],
+  };
+  const haystacks = field === 'all' ? Object.values(fields).flat() : (fields[field] || fields.name);
+  return haystacks.some((value) => value && normalizeSearchText(value).includes(keyword));
+}
+
+function numberParam(value) {
+  return value !== null && value !== '' && Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function inRange(value, min, max) {
+  if (min === null && max === null) return true;
+  if (!Number.isFinite(value)) return false;
+  return (min === null || value >= min) && (max === null || value <= max);
 }
 
 /** 颜色identity过滤：exact=正好这些颜色（含无色）；subset=不超出这些颜色（组牌时最常用，允许该颜色的子集）。 */
@@ -157,36 +173,43 @@ function cardMatchesColors(card, colors, mode) {
 
 function searchEdhCards(database, params) {
   const keyword = normalizeSearchText(params.q);
+  const searchField = ['all', 'name', 'type', 'oracle', 'flavor', 'artist'].includes(params.searchField) ? params.searchField : 'all';
   const colors = Array.isArray(params.colors) ? params.colors.filter((color) => WUBRG_ORDER.includes(color)) : [];
   const colorMode = params.colorMode === 'exact' ? 'exact' : 'subset';
   const types = Array.isArray(params.types) ? params.types.map(normalizeSearchText).filter(Boolean) : [];
-  // 注意：不能用 Number.isFinite(Number(x)) 判断"是否提供了该参数"——Number(null)===0 是有限数字，
-  // 会导致未填法力值筛选时被误判成"cmcMin=0"，把几乎所有非0费卡（包括大部分生物/瞬间/法术）都过滤掉，
-  // 只剩0费的地牌能通过。必须先判断参数是否为非空字符串，再转数字。
-  const cmcMin = params.cmcMin !== null && params.cmcMin !== '' && Number.isFinite(Number(params.cmcMin)) ? Number(params.cmcMin) : null;
-  const cmcMax = params.cmcMax !== null && params.cmcMax !== '' && Number.isFinite(Number(params.cmcMax)) ? Number(params.cmcMax) : null;
+  const rarities = Array.isArray(params.rarities) ? params.rarities.filter((rarity) => ['common', 'uncommon', 'rare', 'mythic'].includes(rarity)) : [];
+  const cmcMin = numberParam(params.cmcMin);
+  const cmcMax = numberParam(params.cmcMax);
+  const powerMin = numberParam(params.powerMin);
+  const powerMax = numberParam(params.powerMax);
+  const toughnessMin = numberParam(params.toughnessMin);
+  const toughnessMax = numberParam(params.toughnessMax);
+  const format = typeof params.format === 'string' ? params.format.toLowerCase() : '';
   const commanderOnly = params.commanderOnly === true;
+  const nonReprint = params.nonReprint === true;
   const limit = Math.min(Math.max(Number(params.limit) || 60, 1), 120);
 
   const filtered = database.cards.filter((card) => {
-    if (!cardMatchesKeyword(card, keyword)) return false;
+    if (!cardMatchesKeyword(card, keyword, searchField)) return false;
     if (!cardMatchesColors(card, colors, colorMode)) return false;
     if (types.length > 0 && !types.every((type) => normalizeSearchText(card.typeLine).includes(type))) return false;
-    if (cmcMin !== null && card.cmc < cmcMin) return false;
-    if (cmcMax !== null && card.cmc > cmcMax) return false;
+    if (rarities.length > 0 && !rarities.includes(card.rarity)) return false;
+    if (!inRange(card.cmc, cmcMin, cmcMax)) return false;
+    if (!inRange(card.powerNumeric, powerMin, powerMax)) return false;
+    if (!inRange(card.toughnessNumeric, toughnessMin, toughnessMax)) return false;
+    if (format && (card.legalities?.[format] || 'not_legal') !== 'legal') return false;
+    if (nonReprint && card.reprint !== false) return false;
     if (commanderOnly && !card.isCommanderEligible) return false;
     if (card.legalCommander === 'banned') return false;
     return true;
   });
 
-  // 优先展示 EDHREC 热门卡（rank 越小越常用），没有排名的卡排在后面，其次按名称排序。
   filtered.sort((a, b) => {
     const rankA = a.edhrecRank ?? Number.MAX_SAFE_INTEGER;
     const rankB = b.edhrecRank ?? Number.MAX_SAFE_INTEGER;
     if (rankA !== rankB) return rankA - rankB;
     return a.name.localeCompare(b.name);
   });
-
   return { total: filtered.length, cards: filtered.slice(0, limit) };
 }
 
@@ -1127,6 +1150,14 @@ async function main() {
           types: (requestUrl.searchParams.get('types') || '').split(',').map((t) => t.trim()).filter(Boolean),
           cmcMin: requestUrl.searchParams.get('cmcMin'),
           cmcMax: requestUrl.searchParams.get('cmcMax'),
+          rarities: (requestUrl.searchParams.get('rarities') || '').split(',').map((v) => v.trim().toLowerCase()).filter(Boolean),
+          powerMin: requestUrl.searchParams.get('powerMin'),
+          powerMax: requestUrl.searchParams.get('powerMax'),
+          toughnessMin: requestUrl.searchParams.get('toughnessMin'),
+          toughnessMax: requestUrl.searchParams.get('toughnessMax'),
+          format: requestUrl.searchParams.get('format') || '',
+          nonReprint: requestUrl.searchParams.get('nonReprint') === '1',
+          searchField: requestUrl.searchParams.get('searchField') || 'all',
           commanderOnly: requestUrl.searchParams.get('commanderOnly') === '1',
           limit: requestUrl.searchParams.get('limit'),
         };
@@ -1211,6 +1242,18 @@ async function main() {
             name: typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 100) : current.name,
             commanderOracleId: body.commanderOracleId === null || typeof body.commanderOracleId === 'string' ? body.commanderOracleId : current.commanderOracleId,
             cards: nextCards,
+            layout: body.layout && typeof body.layout === 'object' && !Array.isArray(body.layout)
+              ? {
+                  viewMode: ['free', 'type', 'cmc'].includes(body.layout.viewMode) ? body.layout.viewMode : (current.layout?.viewMode || 'free'),
+                  positions: typeof body.layout.positions === 'object' && body.layout.positions && !Array.isArray(body.layout.positions)
+                    ? Object.fromEntries(Object.entries(body.layout.positions).slice(0, 250).flatMap(([id, point]) => (
+                      point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y))
+                        ? [[id, { x: Math.max(0, Math.min(Number(point.x), 10000)), y: Math.max(0, Math.min(Number(point.y), 10000)) }]]
+                        : []
+                    )))
+                    : (current.layout?.positions || {}),
+                }
+              : current.layout,
             updatedAt: new Date().toISOString(),
           };
           if (!saveUserDecks(requestUser.username, decks)) return sendAuthError(res, 500, '更新牌组失败。');

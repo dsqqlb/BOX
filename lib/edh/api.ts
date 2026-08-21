@@ -25,6 +25,14 @@ export function buildSearchQuery(filters: EdhSearchFilters, limit = 60): string 
   if (filters.types.length > 0) params.set('types', filters.types.join(','));
   if (filters.cmcMin !== null) params.set('cmcMin', String(filters.cmcMin));
   if (filters.cmcMax !== null) params.set('cmcMax', String(filters.cmcMax));
+  if (filters.rarities.length) params.set('rarities', filters.rarities.join(','));
+  if (filters.powerMin !== null) params.set('powerMin', String(filters.powerMin));
+  if (filters.powerMax !== null) params.set('powerMax', String(filters.powerMax));
+  if (filters.toughnessMin !== null) params.set('toughnessMin', String(filters.toughnessMin));
+  if (filters.toughnessMax !== null) params.set('toughnessMax', String(filters.toughnessMax));
+  if (filters.format) params.set('format', filters.format);
+  if (filters.nonReprint) params.set('nonReprint', '1');
+  if (filters.searchField !== 'all') params.set('searchField', filters.searchField);
   if (filters.commanderOnly) params.set('commanderOnly', '1');
   params.set('limit', String(limit));
   return params.toString();
@@ -51,7 +59,7 @@ export function createDeck(name: string): Promise<EdhDeck> {
   return request<EdhDeck>('/api/edh/decks', { method: 'POST', body: JSON.stringify({ name }) });
 }
 
-export function updateDeck(deckId: string, patch: Partial<Pick<EdhDeck, 'name' | 'commanderOracleId' | 'cards'>>): Promise<EdhDeck> {
+export function updateDeck(deckId: string, patch: Partial<Pick<EdhDeck, 'name' | 'commanderOracleId' | 'cards' | 'layout'>>): Promise<EdhDeck> {
   return request<EdhDeck>(`/api/edh/decks/${encodeURIComponent(deckId)}`, { method: 'PUT', body: JSON.stringify(patch) });
 }
 

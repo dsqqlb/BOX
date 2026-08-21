@@ -13,10 +13,11 @@ interface CardTileProps {
   isCommander?: boolean;
   draggable?: boolean;
   onPreview?: (card: EdhCard | null) => void;
+  onDetails?: (card: EdhCard) => void;
 }
 
 /** 卡池/牌组通用的卡片格子：悬浮放大预览、拖拽添加、点击快速加减、右键设为指挥官。 */
-export default function CardTile({ card, quantity, onAdd, onRemove, onSetCommander, isCommander, draggable = true, onPreview }: CardTileProps) {
+export default function CardTile({ card, quantity, onAdd, onRemove, onSetCommander, isCommander, draggable = true, onPreview, onDetails }: CardTileProps) {
   const [imageFailed, setImageFailed] = useState(false);
   const image = card.image?.normal || card.faces?.[0]?.image?.normal;
   const name = displayName(card);
@@ -35,7 +36,7 @@ export default function CardTile({ card, quantity, onAdd, onRemove, onSetCommand
       <div
         draggable={draggable}
         onDragStart={handleDragStart}
-        onClick={() => onAdd?.(card)}
+        onClick={() => onDetails?.(card)}
         onContextMenu={(event) => {
           if (!onSetCommander) return;
           event.preventDefault();

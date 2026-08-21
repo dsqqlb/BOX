@@ -49,27 +49,32 @@ const EXCLUDED_LAYOUTS = new Set([
 // Scryfall 建议的请求间隔（避免触发限流），单位毫秒。搜索接口比bulk-data更容易被限流，间隔要更保守。
 const REQUEST_DELAY_MS = 400;
 const MAX_RETRIES = 5;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** 请求 JSON，遇到 429 时按指数退避重试，而不是直接放弃剩余分页。 */
+/** 请求 JSON：限流或网络超时都按指数退避重试，避免某一页无限挂起。 */
 async function fetchJson(url, attempt = 1) {
-  const response = await fetch(url, { headers: HEADERS });
-  if (response.status === 429 && attempt <= MAX_RETRIES) {
-    const retryAfterHeader = Number(response.headers.get('retry-after'));
-    const waitMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
-      ? retryAfterHeader * 1000
-      : 1000 * 2 ** attempt; // 2s, 4s, 8s, 16s, 32s
-    console.warn(`  ⏳ 被限流（429），等待 ${Math.round(waitMs / 1000)}s 后重试（第 ${attempt}/${MAX_RETRIES} 次）...`);
+  try {
+    const response = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    if (response.status === 429 && attempt <= MAX_RETRIES) {
+      const retryAfterHeader = Number(response.headers.get('retry-after'));
+      const waitMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader * 1000 : 1000 * 2 ** attempt;
+      console.warn(`  ⏳ 被限流（429），等待 ${Math.round(waitMs / 1000)}s 后重试（第 ${attempt}/${MAX_RETRIES} 次）...`);
+      await sleep(waitMs);
+      return fetchJson(url, attempt + 1);
+    }
+    if (!response.ok) throw new Error(`请求失败 ${response.status} ${response.statusText}：${url}`);
+    return response.json();
+  } catch (error) {
+    if (attempt > MAX_RETRIES) throw error;
+    const waitMs = 1000 * 2 ** attempt;
+    console.warn(`  ⏳ 请求超时或失败，${Math.round(waitMs / 1000)}s 后重试（第 ${attempt}/${MAX_RETRIES} 次）...`);
     await sleep(waitMs);
     return fetchJson(url, attempt + 1);
   }
-  if (!response.ok) {
-    throw new Error(`请求失败 ${response.status} ${response.statusText}：${url}`);
-  }
-  return response.json();
 }
 
 /** 从 bulk-data 列表中找到 oracle_cards 的下载地址。 */
@@ -104,6 +109,13 @@ function toSlimCard(card) {
     typeLineZh: null,
     oracleText: card.oracle_text || faces?.map((face) => face.oracle_text || '').filter(Boolean).join('\n---\n') || '',
     oracleTextZh: null,
+    flavorText: card.flavor_text || '',
+    flavorTextZh: null,
+    artist: card.artist || '',
+    legalities: card.legalities || {},
+    reprint: card.reprint === true,
+    powerNumeric: /^-?\d+(?:\.\d+)?$/.test(String(card.power ?? faces?.[0]?.power ?? '')) ? Number(card.power ?? faces?.[0]?.power) : null,
+    toughnessNumeric: /^-?\d+(?:\.\d+)?$/.test(String(card.toughness ?? faces?.[0]?.toughness ?? '')) ? Number(card.toughness ?? faces?.[0]?.toughness) : null,
     colors: card.colors || faces?.flatMap((face) => face.colors || []) || [],
     colorIdentity: card.color_identity || [],
     keywords: card.keywords || [],
@@ -183,6 +195,7 @@ async function fetchLocalizedNames(langCode, onEntry) {
         name: card.printed_name,
         typeLine: card.printed_type_line || null,
         oracleText: card.printed_text || null,
+        flavorText: card.flavor_text || null,
       });
       total += 1;
     }
@@ -216,6 +229,7 @@ async function main() {
     card.nameZh = zh.name;
     card.typeLineZh = zh.typeLine;
     card.oracleTextZh = zh.oracleText;
+    card.flavorTextZh = zh.flavorText;
     zhsCount += 1;
   });
   console.log(`   → 简体中文覆盖 ${zhsCount} 张\n`);
@@ -228,6 +242,7 @@ async function main() {
     card.nameZh = zh.name;
     card.typeLineZh = zh.typeLine;
     card.oracleTextZh = zh.oracleText;
+    card.flavorTextZh = zh.flavorText;
     zhtCount += 1;
   });
   console.log(`   → 繁体中文补充 ${zhtCount} 张\n`);
@@ -237,6 +252,7 @@ async function main() {
   console.log('⑤ 写入本地数据文件...');
 
   const payload = {
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     cardCount: cards.length,
     chineseCoverage: withChinese,
