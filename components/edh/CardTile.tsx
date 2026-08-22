@@ -14,18 +14,17 @@ interface CardTileProps {
   draggable?: boolean;
   onPreview?: (card: EdhCard | null) => void;
   onDetails?: (card: EdhCard) => void;
+  /** 指针拖拽开始（自定义拖拽系统，触屏/鼠标通用）。由父组件管理全局拖拽状态。 */
+  onPointerDragStart?: (e: React.PointerEvent<HTMLDivElement>, card: EdhCard) => void;
+  /** 附加到卡牌上的 touch-action 控制类（如 "touch-pan-x"、"touch-none"），决定触屏手势归谁处理。 */
+  dragClassName?: string;
 }
 
-/** 卡池/牌组通用的卡片格子：悬浮放大预览、拖拽添加、点击快速加减、右键设为指挥官。 */
-export default function CardTile({ card, quantity, onAdd, onRemove, onSetCommander, isCommander, draggable = true, onPreview, onDetails }: CardTileProps) {
+/** 卡池/牌组通用的卡片格子：悬浮放大预览、指针拖拽添加、点击快速加减、右键设为指挥官。 */
+export default function CardTile({ card, quantity, onAdd, onRemove, onSetCommander, isCommander, onPreview, onDetails, onPointerDragStart, dragClassName }: CardTileProps) {
   const [imageFailed, setImageFailed] = useState(false);
   const image = card.image?.normal || card.faces?.[0]?.image?.normal;
   const name = displayName(card);
-
-  const handleDragStart = (event: React.DragEvent) => {
-    event.dataTransfer.setData('application/x-edh-oracle-id', card.oracleId);
-    event.dataTransfer.effectAllowed = 'copy';
-  };
 
   return (
     <div
@@ -34,19 +33,19 @@ export default function CardTile({ card, quantity, onAdd, onRemove, onSetCommand
       onMouseLeave={() => onPreview?.(null)}
     >
       <div
-        draggable={draggable}
-        onDragStart={handleDragStart}
+        draggable={false}
+        onPointerDown={onPointerDragStart ? (e) => onPointerDragStart(e, card) : undefined}
         onClick={() => onDetails?.(card)}
         onContextMenu={(event) => {
           if (!onSetCommander) return;
           event.preventDefault();
           onSetCommander(card);
         }}
-        className={`relative aspect-[5/7] cursor-grab select-none overflow-hidden rounded-lg border transition-all duration-150 active:cursor-grabbing ${
+        className={`relative aspect-[5/7] cursor-grab select-none overflow-hidden rounded-lg border transition-all duration-150 active:cursor-grabbing [-webkit-touch-callout:none] ${
           isCommander
             ? 'border-amber-300/70 shadow-[0_0_0_2px_rgba(252,211,77,.5),0_10px_24px_rgba(0,0,0,.4)]'
             : 'border-white/10 hover:-translate-y-1 hover:border-cyan-300/40 hover:shadow-[0_10px_24px_rgba(0,0,0,.4)]'
-        }`}
+        } ${dragClassName || ''}`}
         title={onSetCommander ? `${name}（右键：设为指挥官）` : name}
       >
         {image && !imageFailed ? (
