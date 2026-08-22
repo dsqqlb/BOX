@@ -50,7 +50,21 @@ function createAuth({ projectRoot, isProduction }) {
   }
 
   const usersFile = path.resolve(process.env.BOX_AUTH_USERS_FILE || path.join(projectRoot, 'data', 'auth-users.json'));
-  const cookieSecure = process.env.BOX_COOKIE_SECURE === 'true' || (isProduction && process.env.BOX_COOKIE_SECURE !== 'false');
+
+  // 是否给 cookie 加 Secure 标志。
+  // 局域网/内网常用 http://IP 访问，若强制 Secure，浏览器不会保存 cookie，
+  // 登录后会一直弹回登录页（表现为"输入框被清空、没反应"）。所以规则是：
+  //   请求实际不是 HTTPS  -> 绝不加 Secure（无论环境变量怎么配，都不能用安全标志去弄坏登录）；
+  //   请求确认走 HTTPS     -> 默认加 Secure，BOX_COOKIE_SECURE=false 可强制关闭。
+  function isHttpsRequest(req) {
+    return Boolean(req && req.socket && req.socket.encrypted)
+      || String((req && req.headers && req.headers['x-forwarded-proto']) || '').toLowerCase().split(',')[0].trim() === 'https';
+  }
+
+  function resolveCookieSecure(req) {
+    if (!isHttpsRequest(req)) return false;
+    return process.env.BOX_COOKIE_SECURE !== 'false';
+  }
 
   function loadUsers() {
     let parsed;
@@ -146,7 +160,7 @@ function createAuth({ projectRoot, isProduction }) {
     return Boolean(user && user.permissions.some((permission) => permission === '*' || permission === toolSlug || toolSlug.startsWith(`${permission}/`)));
   }
 
-  function buildSessionCookie(token) {
+  function buildSessionCookie(token, req) {
     const attributes = [
       `${SESSION_COOKIE_NAME}=${token}`,
       'Path=/',
@@ -154,13 +168,13 @@ function createAuth({ projectRoot, isProduction }) {
       'SameSite=Strict',
       `Max-Age=${SESSION_TTL_SECONDS}`,
     ];
-    if (cookieSecure) attributes.push('Secure');
+    if (resolveCookieSecure(req)) attributes.push('Secure');
     return attributes.join('; ');
   }
 
-  function clearSessionCookie() {
+  function clearSessionCookie(req) {
     const attributes = [`${SESSION_COOKIE_NAME}=`, 'Path=/', 'HttpOnly', 'SameSite=Strict', 'Max-Age=0'];
-    if (cookieSecure) attributes.push('Secure');
+    if (resolveCookieSecure(req)) attributes.push('Secure');
     return attributes.join('; ');
   }
 

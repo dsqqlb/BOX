@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node server/index.js --dev",
     "build": "next build",
+    "prestart": "npm run build",
     "start": "node server/index.js",
     "lint": "next lint",
     "sync:edh-cards": "node scripts/sync-edh-cards.mjs"

@@ -568,12 +568,21 @@ function resolveStaticFile(pathname) {
   return null;
 }
 
-function sendStaticFile(req, res, found, statusCode = 200) {
+// 静态资源缓存策略：
+// - /_next/static/* 是构建产物，文件名带内容哈希，URL一变即内容一变，可以放心长期缓存（immutable），
+//   浏览器本地缓存后局域网/内网加载会明显变快；
+// - 其余（HTML/图片等）保持 no-store：HTML 要实时反映最新构建，图片要支持"加图后刷新页面即生效"。
+function cacheControlFor(pathname) {
+  if (pathname.startsWith('/_next/static/')) return 'private, max-age=31536000, immutable';
+  return 'private, no-store';
+}
+
+function sendStaticFile(req, res, found, statusCode = 200, cacheControl = 'private, no-store') {
   const ext = path.extname(found.file).toLowerCase();
   const headers = {
     'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-    // 所有静态资源都已在外层通过 Cookie 鉴权；禁止共享缓存，避免代理向未授权请求复用已认证响应。
-    'Cache-Control': 'private, no-store',
+    // 所有静态资源都已在外层通过 Cookie 鉴权；用 private 而非 public，避免代理向未授权请求复用已认证响应。
+    'Cache-Control': cacheControl,
   };
 
   const acceptsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
@@ -1026,7 +1035,7 @@ async function main() {
         const next = safeReturnPath(form?.get('next') || '/');
         res.writeHead(303, {
           Location: next,
-          'Set-Cookie': auth.buildSessionCookie(auth.createSession(user)),
+          'Set-Cookie': auth.buildSessionCookie(auth.createSession(user), req),
           'Cache-Control': 'no-store',
         });
         return res.end();
@@ -1036,7 +1045,7 @@ async function main() {
         if (req.method !== 'POST') return sendAuthError(res, 405, '只支持 POST 登出。');
         if (!requestUser) return sendAuthError(res, 401, '尚未登录。');
         if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
-        res.writeHead(204, { 'Set-Cookie': auth.clearSessionCookie(), 'Cache-Control': 'no-store' });
+        res.writeHead(204, { 'Set-Cookie': auth.clearSessionCookie(req), 'Cache-Control': 'no-store' });
         return res.end();
       }
 
@@ -1299,7 +1308,7 @@ async function main() {
 
       const found = resolveStaticFile(pathname);
       if (!found) return sendNotFound(req, res);
-      return sendStaticFile(req, res, found);
+      return sendStaticFile(req, res, found, 200, cacheControlFor(pathname));
     } catch (error) {
       console.error('❌ 请求处理错误:', pathname, error);
       if (!res.headersSent) {

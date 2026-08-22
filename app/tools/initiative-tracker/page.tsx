@@ -2580,7 +2580,7 @@ export default function InitiativeTrackerPage() {
       {/* 底部sheet切换tab：房间连上后才出现(未连接时只有先攻页承载连接界面，没有切换的意义)。
           fixed固定在屏幕最下面，留出安全间距(pb-24给页面内容)避免被这个tab条挡住。 */}
       {isConnected && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center px-3 pb-3 pt-2 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent">
+        <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent">
           <div className="w-full max-w-5xl rc-chassis-edge rounded-2xl p-1.5 grid grid-cols-3 gap-1.5">
             <button
               onClick={() => setActiveSheet('initiative')}

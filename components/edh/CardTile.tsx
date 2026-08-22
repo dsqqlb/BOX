@@ -68,7 +68,7 @@ export default function CardTile({ card, quantity, onAdd, onRemove, onSetCommand
           <button
             type="button"
             onClick={(event) => { event.stopPropagation(); onRemove(card); }}
-            className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/70 text-xs text-white opacity-0 ring-1 ring-white/20 transition group-hover:opacity-100 hover:bg-rose-500/80"
+            className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/70 text-xs text-white ring-1 ring-white/20 transition hover:bg-rose-500/80 opacity-100 md:opacity-0 md:group-hover:opacity-100"
             title="移出牌组"
             aria-label={`将 ${name} 移出牌组`}
           >

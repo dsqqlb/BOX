@@ -90,7 +90,7 @@ export default function DeckSidebar({ decks, activeDeckId, onSelect, onCreate, o
             <button
               type="button"
               onClick={() => { setRenamingId(deck.id); setRenameValue(deck.name); }}
-              className="opacity-0 transition hover:text-cyan-200 group-hover:opacity-100"
+              className="opacity-100 transition hover:text-cyan-200 md:opacity-0 md:group-hover:opacity-100"
               title="重命名"
               aria-label={`重命名 ${deck.name}`}
             >
@@ -99,7 +99,7 @@ export default function DeckSidebar({ decks, activeDeckId, onSelect, onCreate, o
             <button
               type="button"
               onClick={() => { if (confirm(`确定删除牌组「${deck.name}」吗？此操作无法撤销。`)) onDelete(deck.id); }}
-              className="opacity-0 transition hover:text-rose-300 group-hover:opacity-100"
+              className="opacity-100 transition hover:text-rose-300 md:opacity-0 md:group-hover:opacity-100"
               title="删除"
               aria-label={`删除 ${deck.name}`}
             >
