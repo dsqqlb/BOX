@@ -1,6 +1,6 @@
 # DND 人物卡
 
-路径：`/tools/dnd-character`  
+路径：`/tools/dnd-character`
 所需权限：`dnd-character`
 
 DND 人物卡在浏览器中提供角色、装备、法术、状态和日志等交互编辑功能。
