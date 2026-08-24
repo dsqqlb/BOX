@@ -80,9 +80,11 @@ temp/
 # yarn.lock
 # pnpm-lock.yaml
 
-# User data files and server-only account configuration
+# 历史 JSON（仅供一次性迁移备份；运行时不再生成）
 data/savings.json
 data/auth-users.json
+data/box.sqlite
+data/backups/
 
 # EDH 组卡台：整个数据目录（含 37MB 卡牌库 data/edh/cards.json 与用户牌组 data/edh/decks/）不纳入版本控制
 data/edh/
@@ -90,7 +92,7 @@ data/edh/
 # 本地图片资源：DND 怪物图等，体积大且由本地维护，不上传（历史已跟踪的 PNG 仍保留）
 /public/image/
 
-# DND 角色卡：按账户隔离的角色卡存档（运行时由前端自动保存生成）
+# DND 历史 JSON 存档（仅供迁移备份；运行时不再生成）
 data/dnd/saves/
 
 # CSS 层叠解释器：本地验证脚本产物

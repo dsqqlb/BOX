@@ -14,8 +14,10 @@
 | --- | --- | --- |
 | Claude Code 学习中心 | `/tools/claude-code-guide` | [claude-code-guide.md](./claude-code-guide.md) |
 | DND 语言翻译器 | `/tools/dnd-translator` | [dnd-translator.md](./dnd-translator.md) |
+| DND 人物卡 | `/tools/dnd-character` | [dnd-character.md](./dnd-character.md) |
 | DND 先攻追踪器（遥控器/主屏） | `/tools/initiative-tracker`、`/tools/initiative-tracker/display` | [initiative-tracker-room.md](./initiative-tracker-room.md) |
 | JSON 星系 | `/tools/json-visualizer` | [json-visualizer.md](./json-visualizer.md) |
+| EDH 指挥官组卡台 | `/tools/edh-builder` | [edh-builder.md](./edh-builder.md) |
 | 塔罗牌占卜 | `/tools/tarot-reading` | [tarot-reading.md](./tarot-reading.md) |
 | 省钱网页 | `/tools/savings-tracker` | [savings-tracker.md](./savings-tracker.md) |
 | CSS 层叠解释器 | `/tools/css-cascade` | [css-cascade.md](./css-cascade.md) |

@@ -113,7 +113,19 @@ scrypt$16384$8$1$...$...
 
 把**完整的一行**粘贴到对应账户的 `passwordHash`。每个账户都要独立运行一次脚本并使用不同密码哈希。保存 JSON 后，请确认逗号、引号和数组格式正确；错误的 JSON、空哈希、重复用户名或空权限会使服务拒绝启动。
 
-### 6. 构建、启动和首次验证
+### 6. 初始化 SQLite 数据库并导入初始账户
+
+账户配置完成后，执行一次：
+
+```powershell
+npm run db:setup
+```
+
+此命令会创建 `data/box.sqlite`、应用受版本控制的数据库结构，并导入 `data/auth-users.json`、已有 EDH 牌组、DND 人物卡快照和省钱记录。导入前会自动在 `data/backups/` 建立源 JSON 备份，**不会删除原文件**。
+
+之后运行时的账户、权限、EDH 牌组、DND 人物卡和省钱记录均以 SQLite 为准；新账户首次保存 DND 人物卡会直接创建 SQLite 数据，不会生成 JSON。`data/auth-users.json` 仅用于新机器首次初始化或有计划的数据迁移。务必将 `data/box.sqlite` 与 `.env.local` 一起纳入私密备份，并确保 `data/` 对服务账户可写。
+
+### 7. 构建、启动和首次验证
 
 ```powershell
 npm run build
@@ -122,7 +134,7 @@ npm start
 
 访问 `https://你的域名/`（或本机调试时的 `http://localhost:9999`），使用刚配置的账户登录。若服务启动时提示无法读取账户文件、账户无效或会话密钥不足 32 字节，请逐项检查 `.env.local` 与 `data/auth-users.json`，不要删除认证逻辑来绕过错误。
 
-目标机器运行时必须允许 `data/` 写入：省钱工具的数据会保存为 `data/savings.json`。应定期备份 `.env.local`、`data/auth-users.json` 和 `data/savings.json`，并限制这些文件仅由运行服务的账户读取。
+目标机器运行时必须允许 `data/` 写入 SQLite 和卡牌索引更新。应定期备份 `.env.local`、`data/box.sqlite` 和 `data/edh/cards.json`；首次导入期也应保留 `data/auth-users.json`、`data/edh/decks/`、`data/dnd/saves/` 与 `data/savings.json` 的历史 JSON 备份。
 
 ## 本地启动
 
@@ -168,7 +180,7 @@ npm run build
 npm start
 ```
 
-默认端口为 `9999`；可通过 `PORT` 环境变量修改。生产部署须保留可写的 `data/` 目录，以保存省钱记录，并安全保存 `.env.local` 与 `data/auth-users.json`。
+默认端口为 `9999`；可通过 `PORT` 环境变量修改。生产部署须保留可写且持久化的 `data/` 目录，以保存 `data/box.sqlite` 与 EDH 卡池；同时安全保存 `.env.local`。
 
 ## 工具
 
@@ -178,9 +190,11 @@ npm start
 | --- | --- | --- | --- |
 | Claude Code 学习中心 | `/tools/claude-code-guide` | JSON 驱动的指令、技巧和常见问题参考 | [查看](./docs/claude-code-guide.md) |
 | DND 语言翻译器 | `/tools/dnd-translator` | 中英文翻译、奇幻字体展示与符文图片导出 | [查看](./docs/dnd-translator.md) |
+| DND 人物卡 | `/tools/dnd-character` | 按账户保存角色、装备、法术与日志快照 | [查看](./docs/dnd-character.md) |
 | DND 先攻追踪器（遥控器） | `/tools/initiative-tracker` | 管理角色、回合、状态与骰子 | [查看](./docs/initiative-tracker-room.md) |
 | DND 先攻追踪器（主屏） | `/tools/initiative-tracker/display` | 创建/接管房间并在大屏展示战斗 | [查看](./docs/initiative-tracker-room.md) |
 | JSON 星系 | `/tools/json-visualizer` | JSON 校验、格式化、压缩与 3D 浏览 | [查看](./docs/json-visualizer.md) |
+| EDH 指挥官组卡台 | `/tools/edh-builder` | 中文优先高级检索、拖放组牌与账户隔离的牌组 | [查看](./docs/edh-builder.md) |
 | 塔罗牌占卜 | `/tools/tarot-reading` | 78 张牌与多种牌阵的互动抽牌 | [查看](./docs/tarot-reading.md) |
 | 省钱网页 | `/tools/savings-tracker` | 按账户隔离的省钱记录和统计 | [查看](./docs/savings-tracker.md) |
 | CSS 层叠解释器 | `/tools/css-cascade` | 解析并可视化 CSS 规则、特异性与上下文 | [查看](./docs/css-cascade.md) |

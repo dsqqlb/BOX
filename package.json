@@ -8,9 +8,15 @@
     "prestart": "npm run build",
     "start": "node server/index.js",
     "lint": "next lint",
-    "sync:edh-cards": "node scripts/sync-edh-cards.mjs"
+    "sync:edh-cards": "node scripts/sync-edh-cards.mjs",
+    "db:generate": "node scripts/prisma-cli.mjs generate",
+    "db:migrate": "node scripts/prisma-cli.mjs migrate deploy",
+    "db:import-json": "node scripts/migrate-json-to-sqlite.mjs",
+    "db:migrate-runtime-json": "node scripts/migrate-runtime-json-to-sqlite.mjs",
+    "db:setup": "npm run db:generate && npm run db:migrate && npm run db:import-json && npm run db:migrate-runtime-json"
   },
   "dependencies": {
+    "@prisma/client": "6.15.0",
     "@react-three/cannon": "^6.6.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.7.0",
@@ -35,6 +41,7 @@
     "eslint": "^9",
     "eslint-config-next": "15.1.6",
     "postcss": "^8.4.49",
+    "prisma": "6.15.0",
     "tailwindcss": "^3.4.17",
     "typescript": "^5"
   }

@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String           @id @default(cuid())
+  username    String           @unique
+  passwordHash String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions UserPermission[]
+  decks       Deck[]
+  dndSave     DndSave?
+  savings     SavingsRecord[]
+}
+
+model UserPermission {
+  userId     String
+  permission String
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permission])
+}
+
+model Deck {
+  id                 String     @id
+  ownerId            String
+  name               String
+  commanderOracleId  String?
+  layoutJson         String?
+  createdAt          DateTime
+  updatedAt          DateTime
+  owner              User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  cards              DeckCard[]
+
+  @@index([ownerId, updatedAt])
+}
+
+model DeckCard {
+  deckId   String
+  oracleId String
+  quantity Int
+  deck     Deck   @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@id([deckId, oracleId])
+}
+
+model DndSave {
+  ownerId   String   @unique
+  dataJson  String
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model SavingsRecord {
+  id        String   @id
+  ownerId   String
+  date      String
+  time      String
+  activity  String
+  item      String
+  amount    Float
+  createdAt DateTime
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+}

@@ -22,6 +22,8 @@ const path = require('path');
 const zlib = require('zlib');
 const WebSocket = require('ws');
 const { createAuth } = require('./auth');
+const edhDecks = require('./edh-decks');
+const userData = require('./user-data');
 
 // Next.js 会在自身启动后读取 .env.local，但本文件在它之前运行；本地直接 `npm run dev`
 // 时需要先加载认证配置。部署环境传入的同名变量优先，绝不被本地文件覆盖。
@@ -56,10 +58,7 @@ const IMAGE_DIR = path.resolve(
 );
 const ENEMY_DIR = path.join(IMAGE_DIR, 'enemies');
 const PLAYER_DIR = path.join(IMAGE_DIR, 'player');
-const SAVINGS_FILE = path.join(PROJECT_ROOT, 'data', 'savings.json');
 const EDH_CARDS_FILE = path.join(PROJECT_ROOT, 'data', 'edh', 'cards.json');
-const EDH_DECKS_DIR = path.join(PROJECT_ROOT, 'data', 'edh', 'decks');
-const DND_SAVES_DIR = path.join(PROJECT_ROOT, 'data', 'dnd', 'saves');
 
 // 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
 const TOOL_SLUGS = [
@@ -76,34 +75,6 @@ const TOOL_SLUGS = [
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 const auth = createAuth({ projectRoot: PROJECT_ROOT, isProduction: !DEV });
-// 启动时立即校验账户文件，避免因漏挂载/错误配置而意外以无认证状态运行。
-auth.loadUsers();
-
-// ============ 省钱记录数据读写 ============
-
-function loadSavings() {
-  try {
-    if (fs.existsSync(SAVINGS_FILE)) {
-      const raw = fs.readFileSync(SAVINGS_FILE, 'utf-8');
-      return JSON.parse(raw);
-    }
-  } catch (e) {
-    console.error('读取省钱记录失败:', e.message);
-  }
-  return [];
-}
-
-function saveSavings(data) {
-  try {
-    const dir = path.dirname(SAVINGS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(SAVINGS_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    return true;
-  } catch (e) {
-    console.error('保存省钱记录失败:', e.message);
-    return false;
-  }
-}
 
 // ============ EDH 组卡台：卡牌数据库 & 牌组存储 ============
 
@@ -213,63 +184,9 @@ function searchEdhCards(database, params) {
   return { total: filtered.length, cards: filtered.slice(0, limit) };
 }
 
-// 牌组按账户隔离：每个用户一个 JSON 文件，文件名直接用用户名（auth.js 已限制用户名字符集，不存在路径穿越风险）。
-function getUserDeckFile(username) {
-  return path.join(EDH_DECKS_DIR, `${username}.json`);
-}
+// EDH 牌组已迁移至 SQLite，由 server/edh-decks.js 提供按账户隔离的事务读写。
 
-function loadUserDecks(username) {
-  try {
-    const file = getUserDeckFile(username);
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf-8'));
-  } catch (e) {
-    console.error('读取牌组数据失败:', e.message);
-  }
-  return [];
-}
-
-function saveUserDecks(username, decks) {
-  try {
-    if (!fs.existsSync(EDH_DECKS_DIR)) fs.mkdirSync(EDH_DECKS_DIR, { recursive: true });
-    fs.writeFileSync(getUserDeckFile(username), JSON.stringify(decks, null, 2), 'utf-8');
-    return true;
-  } catch (e) {
-    console.error('保存牌组数据失败:', e.message);
-    return false;
-  }
-}
-
-// DND 角色卡存档：同样按账户隔离，每个用户一个 JSON 文件。
-// 存档内容是一张「键 → 字符串」的不透明映射（键即 localStorage 里 dnd_ 前缀后的名字，
-// 值是原本已 JSON 序列化好的字符串），服务端不解析、不校验结构，原样存取即可。
-function getDndSaveFile(username) {
-  return path.join(DND_SAVES_DIR, `${username}.json`);
-}
-
-function loadDndSave(username) {
-  try {
-    const file = getDndSaveFile(username);
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf-8'));
-  } catch (e) {
-    console.error('读取 DND 角色卡存档失败:', e.message);
-  }
-  return null;
-}
-
-function saveDndSave(username, data) {
-  try {
-    if (!fs.existsSync(DND_SAVES_DIR)) fs.mkdirSync(DND_SAVES_DIR, { recursive: true });
-    fs.writeFileSync(
-      getDndSaveFile(username),
-      JSON.stringify({ data, updatedAt: new Date().toISOString() }, null, 2),
-      'utf-8',
-    );
-    return true;
-  } catch (e) {
-    console.error('保存 DND 角色卡存档失败:', e.message);
-    return false;
-  }
-}
+// DND 与省钱记录已迁移至 SQLite，由 server/user-data.js 提供账户隔离读写。
 
 // ============ 图片目录扫描（怪物图 / 玩家立绘） ============
 // 命名规则：怪物图为"中文名_英文标识.png"；玩家立绘为 player/<种族中文>_<种族英文>/<职业中文>.png
@@ -964,6 +881,8 @@ const cleanupTimer = setInterval(() => {
 // ============ 启动统一服务 ============
 
 async function main() {
+  // 未导入账户时拒绝启动，避免服务意外以无认证状态运行。
+  await auth.loadUsers();
   // 开发模式：把页面请求交给 Next.js dev server 处理（保留HMR热更新）
   let nextRequestHandler = null;
   let nextUpgradeHandler = null;
@@ -1000,7 +919,7 @@ async function main() {
 
     try {
       // 登录页和认证接口是唯一允许匿名访问的 HTTP 入口；它们不依赖 Next.js，生产静态导出也可用。
-      const requestUser = auth.getUserFromRequest(req);
+      const requestUser = await auth.getUserFromRequest(req);
       if (pathname === '/login' && req.method === 'GET') {
         if (requestUser) {
           res.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' });
@@ -1025,7 +944,7 @@ async function main() {
         const form = raw === null ? null : new URLSearchParams(raw);
         const username = form?.get('username')?.trim() || '';
         const password = form?.get('password') || '';
-        const user = auth.loadUsers().get(username);
+        const user = (await auth.loadUsers()).get(username);
         if (!user || !auth.verifyPassword(user, password)) {
           auth.recordLoginFailure(req);
           res.writeHead(303, { Location: '/login?error=1', 'Cache-Control': 'no-store' });
@@ -1086,65 +1005,41 @@ async function main() {
         return sendJson(res, list);
       }
 
-      // 省钱记录 API：记录按登录账户隔离，任意写入操作都要求同源请求。
+      // 省钱记录 API：SQLite 按账户隔离，写操作要求同源请求。
       if (pathname === '/api/savings') {
         if (req.method === 'POST') {
           if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
           const body = await readBody(req);
-          if (!body || !body.date || !body.time || !body.activity || !body.item || body.amount == null || !Number.isFinite(Number(body.amount))) {
-            return sendAuthError(res, 400, '缺少或包含无效的必填字段。');
-          }
-          const records = loadSavings();
-          const record = {
+          if (!body || !body.date || !body.time || !body.activity || !body.item || body.amount == null || !Number.isFinite(Number(body.amount))) return sendAuthError(res, 400, '缺少或包含无效的必填字段。');
+          const record = await userData.createSavings(requestUser.username, {
             id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15),
-            owner: requestUser.username,
-            date: String(body.date),
-            time: String(body.time),
-            activity: String(body.activity),
-            item: String(body.item),
-            amount: Number(body.amount),
-            createdAt: new Date().toISOString(),
-          };
-          records.push(record);
-          if (!saveSavings(records)) return sendAuthError(res, 500, '保存记录失败。');
+            date: String(body.date), time: String(body.time), activity: String(body.activity), item: String(body.item), amount: Number(body.amount), createdAt: new Date().toISOString(),
+          });
           return sendJson(res, record);
         }
         if (req.method === 'DELETE') {
           if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
-          const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-          const id = url.searchParams.get('id');
+          const id = requestUrl.searchParams.get('id');
           if (!id) return sendAuthError(res, 400, '缺少 id 参数。');
-          const records = loadSavings();
-          const index = records.findIndex((record) => record.id === id && record.owner === requestUser.username);
-          if (index === -1) return sendAuthError(res, 404, '记录不存在。');
-          records.splice(index, 1);
-          if (!saveSavings(records)) return sendAuthError(res, 500, '删除记录失败。');
+          if (!(await userData.deleteSavings(requestUser.username, id))) return sendAuthError(res, 404, '记录不存在。');
           return sendJson(res, { success: true });
         }
         if (req.method === 'PUT') {
           if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
           const body = await readBody(req);
           if (!body || typeof body.id !== 'string') return sendAuthError(res, 400, '缺少 id 参数。');
-          const records = loadSavings();
-          const index = records.findIndex((record) => record.id === body.id && record.owner === requestUser.username);
-          if (index === -1) return sendAuthError(res, 404, '记录不存在。');
-          const current = records[index];
-          const next = {
-            ...current,
-            date: body.date == null ? current.date : String(body.date),
-            time: body.time == null ? current.time : String(body.time),
-            activity: body.activity == null ? current.activity : String(body.activity),
-            item: body.item == null ? current.item : String(body.item),
+          const current = (await userData.listSavings(requestUser.username)).find((record) => record.id === body.id);
+          if (!current) return sendAuthError(res, 404, '记录不存在。');
+          const patch = {
+            date: body.date == null ? current.date : String(body.date), time: body.time == null ? current.time : String(body.time),
+            activity: body.activity == null ? current.activity : String(body.activity), item: body.item == null ? current.item : String(body.item),
             amount: body.amount == null ? current.amount : Number(body.amount),
           };
-          if (!Number.isFinite(next.amount)) return sendAuthError(res, 400, '金额无效。');
-          records[index] = next;
-          if (!saveSavings(records)) return sendAuthError(res, 500, '更新记录失败。');
-          return sendJson(res, next);
+          if (!Number.isFinite(patch.amount)) return sendAuthError(res, 400, '金额无效。');
+          return sendJson(res, await userData.updateSavings(requestUser.username, body.id, patch));
         }
         if (req.method !== 'GET') return sendAuthError(res, 405, '不支持的请求方法。');
-        // 旧版未标记 owner 的记录不自动暴露给任何账户，管理员可自行迁移数据。
-        return sendJson(res, loadSavings().filter((record) => record.owner === requestUser.username));
+        return sendJson(res, await userData.listSavings(requestUser.username));
       }
 
       // EDH 卡牌搜索：只读接口，卡牌数据库对所有已授权账户共享（不区分 owner）。
@@ -1196,108 +1091,65 @@ async function main() {
         return sendJson(res, cards);
       }
 
-      // EDH 牌组：列表 / 新建
+      // EDH 牌组：数据保存在 SQLite，响应格式保持与原 JSON API 完全一致。
       if (pathname === '/api/edh/decks') {
-        if (req.method === 'GET') {
-          return sendJson(res, loadUserDecks(requestUser.username));
-        }
+        if (req.method === 'GET') return sendJson(res, await edhDecks.listDecks(requestUser.username));
         if (req.method === 'POST') {
           if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
           const body = await readBody(req);
-          if (!body || typeof body.name !== 'string' || !body.name.trim()) {
-            return sendAuthError(res, 400, '缺少牌组名称。');
-          }
-          const decks = loadUserDecks(requestUser.username);
-          const deck = {
+          if (!body || typeof body.name !== 'string' || !body.name.trim()) return sendAuthError(res, 400, '缺少牌组名称。');
+          const now = new Date().toISOString();
+          const deck = await edhDecks.createDeck(requestUser.username, {
             id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15),
-            owner: requestUser.username,
-            name: String(body.name).trim().slice(0, 100),
-            commanderOracleId: typeof body.commanderOracleId === 'string' ? body.commanderOracleId : null,
-            cards: [], // [{ oracleId, quantity }]，指挥官不重复存进这个数组
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-          decks.push(deck);
-          if (!saveUserDecks(requestUser.username, decks)) return sendAuthError(res, 500, '保存牌组失败。');
+            name: body.name.trim().slice(0, 100), commanderOracleId: typeof body.commanderOracleId === 'string' ? body.commanderOracleId : null,
+            createdAt: now, updatedAt: now,
+          });
           return sendJson(res, deck, 201);
         }
         return sendAuthError(res, 405, '不支持的请求方法。');
       }
 
-      // EDH 单个牌组：查看详情 / 更新（改名、换指挥官、增删卡） / 删除
       if (pathname.startsWith('/api/edh/decks/')) {
         const deckId = pathname.slice('/api/edh/decks/'.length);
         if (!deckId) return sendAuthError(res, 400, '缺少牌组 id。');
-        const decks = loadUserDecks(requestUser.username);
-        const index = decks.findIndex((deck) => deck.id === deckId);
-
-        if (req.method === 'GET') {
-          if (index === -1) return sendAuthError(res, 404, '牌组不存在。');
-          return sendJson(res, decks[index]);
-        }
+        const current = await edhDecks.getDeck(requestUser.username, deckId);
+        if (req.method === 'GET') return current ? sendJson(res, current) : sendAuthError(res, 404, '牌组不存在。');
         if (req.method === 'PUT') {
           if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
-          if (index === -1) return sendAuthError(res, 404, '牌组不存在。');
+          if (!current) return sendAuthError(res, 404, '牌组不存在。');
           const body = await readBody(req);
           if (!body) return sendAuthError(res, 400, '请求体无效。');
-          const current = decks[index];
-          const nextCards = Array.isArray(body.cards)
-            ? body.cards
-                .filter((entry) => entry && typeof entry.oracleId === 'string' && Number.isFinite(Number(entry.quantity)) && Number(entry.quantity) > 0)
-                .map((entry) => ({ oracleId: entry.oracleId, quantity: Math.min(Math.floor(Number(entry.quantity)), 99) }))
-            : current.cards;
-          decks[index] = {
-            ...current,
+          const cards = Array.isArray(body.cards) ? body.cards.filter((entry) => entry && typeof entry.oracleId === 'string' && Number.isFinite(Number(entry.quantity)) && Number(entry.quantity) > 0).map((entry) => ({ oracleId: entry.oracleId, quantity: Math.min(Math.floor(Number(entry.quantity)), 99) })) : undefined;
+          const layout = body.layout && typeof body.layout === 'object' && !Array.isArray(body.layout) ? {
+            viewMode: ['free', 'type', 'cmc'].includes(body.layout.viewMode) ? body.layout.viewMode : (current.layout?.viewMode || 'free'),
+            positions: typeof body.layout.positions === 'object' && body.layout.positions && !Array.isArray(body.layout.positions) ? Object.fromEntries(Object.entries(body.layout.positions).slice(0, 250).flatMap(([id, point]) => point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)) ? [[id, { x: Math.max(0, Math.min(Number(point.x), 10000)), y: Math.max(0, Math.min(Number(point.y), 10000)) }]] : [])) : (current.layout?.positions || {}),
+          } : undefined;
+          const saved = await edhDecks.updateDeck(requestUser.username, deckId, {
             name: typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 100) : current.name,
             commanderOracleId: body.commanderOracleId === null || typeof body.commanderOracleId === 'string' ? body.commanderOracleId : current.commanderOracleId,
-            cards: nextCards,
-            layout: body.layout && typeof body.layout === 'object' && !Array.isArray(body.layout)
-              ? {
-                  viewMode: ['free', 'type', 'cmc'].includes(body.layout.viewMode) ? body.layout.viewMode : (current.layout?.viewMode || 'free'),
-                  positions: typeof body.layout.positions === 'object' && body.layout.positions && !Array.isArray(body.layout.positions)
-                    ? Object.fromEntries(Object.entries(body.layout.positions).slice(0, 250).flatMap(([id, point]) => (
-                      point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y))
-                        ? [[id, { x: Math.max(0, Math.min(Number(point.x), 10000)), y: Math.max(0, Math.min(Number(point.y), 10000)) }]]
-                        : []
-                    )))
-                    : (current.layout?.positions || {}),
-                }
-              : current.layout,
-            updatedAt: new Date().toISOString(),
-          };
-          if (!saveUserDecks(requestUser.username, decks)) return sendAuthError(res, 500, '更新牌组失败。');
-          return sendJson(res, decks[index]);
+            cards, layout,
+          });
+          return sendJson(res, saved);
         }
         if (req.method === 'DELETE') {
           if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
-          if (index === -1) return sendAuthError(res, 404, '牌组不存在。');
-          decks.splice(index, 1);
-          if (!saveUserDecks(requestUser.username, decks)) return sendAuthError(res, 500, '删除牌组失败。');
+          if (!(await edhDecks.deleteDeck(requestUser.username, deckId))) return sendAuthError(res, 404, '牌组不存在。');
           return sendJson(res, { success: true });
         }
         return sendAuthError(res, 405, '不支持的请求方法。');
       }
 
-      // DND 角色卡存档：读取 / 保存该账户的整份角色卡快照。
-      // 前端以 localStorage 为缓存、服务器为真相源；每次改动防抖后把全量快照 POST 回来。
+      // DND 角色卡存档：账户级全量快照存 SQLite；首次保存创建数据库行，不生成 JSON 文件。
       if (pathname === '/api/dnd/save') {
-        if (req.method === 'GET') {
-          const stored = loadDndSave(requestUser.username);
-          return sendJson(res, { data: stored ? stored.data : null });
-        }
+        if (req.method === 'GET') return sendJson(res, { data: await userData.getDndSave(requestUser.username) });
         if (req.method === 'POST') {
           if (!isSameOrigin(req)) return sendAuthError(res, 403, '请求来源无效。');
           const raw = await readRawBody(req, 5 * 1024 * 1024);
           let body = null;
           if (raw !== null) { try { body = JSON.parse(raw); } catch { body = null; } }
-          if (!body || typeof body.data !== 'object' || body.data === null || Array.isArray(body.data)) {
-            return sendAuthError(res, 400, '请求体无效：需要 { data: {…} } 对象。');
-          }
-          // 只接受字符串值，避免把非字符串塞进存档。
-          for (const key of Object.keys(body.data)) {
-            if (typeof body.data[key] !== 'string') return sendAuthError(res, 400, '存档值必须为字符串。');
-          }
-          if (!saveDndSave(requestUser.username, body.data)) return sendAuthError(res, 500, '保存角色卡失败。');
+          if (!body || typeof body.data !== 'object' || body.data === null || Array.isArray(body.data)) return sendAuthError(res, 400, '请求体无效：需要 { data: {…} } 对象。');
+          for (const key of Object.keys(body.data)) if (typeof body.data[key] !== 'string') return sendAuthError(res, 400, '存档值必须为字符串。');
+          await userData.saveDndSave(requestUser.username, body.data);
           return sendJson(res, { success: true });
         }
         return sendAuthError(res, 405, '不支持的请求方法。');
@@ -1320,36 +1172,27 @@ async function main() {
 
   // WebSocket升级请求分流：/ws 给房间同步，其余（开发模式下的 /_next/webpack-hmr）给Next.js
   server.on('upgrade', (req, socket, head) => {
-    let pathname = '/';
-    try {
-      pathname = new URL(req.url, 'http://localhost').pathname;
-      pathname = canonicalizePathname(pathname);
-    } catch {
-      pathname = null;
-    }
+    void (async () => {
+      let pathname = '/';
+      try {
+        pathname = new URL(req.url, 'http://localhost').pathname;
+        pathname = canonicalizePathname(pathname);
+      } catch { pathname = null; }
 
-    if (pathname === '/ws') {
-      // 浏览器 WebSocket 会附带同源 Cookie；拒绝跨站升级、未登录账户及缺少先攻权限的账户。
-      const user = auth.getUserFromRequest(req);
-      if (!isSameOrigin(req) || !user || !auth.hasToolAccess(user, 'initiative-tracker')) {
-        const status = user ? '403 Forbidden' : '401 Unauthorized';
-        socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
-        socket.destroy();
+      if (pathname === '/ws') {
+        const user = await auth.getUserFromRequest(req);
+        if (!isSameOrigin(req) || !user || !auth.hasToolAccess(user, 'initiative-tracker')) {
+          const status = user ? '403 Forbidden' : '401 Unauthorized';
+          socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+          socket.destroy();
+          return;
+        }
+        wss.handleUpgrade(req, socket, head, (ws) => { ws.user = user; wss.emit('connection', ws, req); });
         return;
       }
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        ws.user = user;
-        wss.emit('connection', ws, req);
-      });
-      return;
-    }
-
-    if (DEV && nextUpgradeHandler) {
-      nextUpgradeHandler(req, socket, head);
-      return;
-    }
-
-    socket.destroy();
+      if (DEV && nextUpgradeHandler) { nextUpgradeHandler(req, socket, head); return; }
+      socket.destroy();
+    })().catch((error) => { console.error('❌ WebSocket 认证失败:', error); socket.destroy(); });
   });
 
   server.listen(PORT, HOST, () => {
