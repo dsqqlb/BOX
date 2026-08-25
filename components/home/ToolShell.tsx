@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ToolGrid from './ToolGrid';
 import { getAllTools } from '@/lib/tools';
 
@@ -16,6 +16,7 @@ const CATEGORY_MAP: Record<string, { label: string; icon: string }> = {
 interface AuthenticatedUser {
   username: string;
   allowedTools: string[];
+  isAdmin: boolean;
 }
 
 function GridIcon() {
@@ -43,6 +44,8 @@ export default function ToolShell() {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
 
   // 首页只负责导航体验；真正的工具、API 与 WebSocket 权限仍由 server/index.js 强制执行。
   useEffect(() => {
@@ -63,6 +66,21 @@ export default function ToolShell() {
       });
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const closeForOutsideClick = (event: MouseEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) setAccountMenuOpen(false);
+    };
+    const closeForEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAccountMenuOpen(false);
+    };
+    document.addEventListener('mousedown', closeForOutsideClick);
+    document.addEventListener('keydown', closeForEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeForOutsideClick);
+      document.removeEventListener('keydown', closeForEscape);
     };
   }, []);
 
@@ -120,7 +138,7 @@ export default function ToolShell() {
         <div className="absolute -right-24 top-72 h-72 w-72 rounded-full bg-cyan-400/10 blur-[110px]" />
       </div>
 
-      <header className="border-b border-white/[0.08] bg-[#080a18]/60 backdrop-blur-xl">
+      <header className="relative z-50 border-b border-white/[0.08] bg-[#080a18]/60 backdrop-blur-xl">
         <div className="mx-auto flex min-h-[72px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <a href="/" className="group flex items-center gap-3 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
             <span className="grid h-10 w-10 place-items-center rounded-xl border border-white/15 bg-gradient-to-br from-violet-400 to-indigo-600 text-white shadow-[0_8px_30px_rgba(99,102,241,.35)] transition-transform duration-300 group-hover:scale-105"><BoxMark /></span>
@@ -135,11 +153,20 @@ export default function ToolShell() {
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(74,222,128,.9)]" />
               已安全连接
             </div>
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] py-1 pl-1 pr-2 sm:pr-3">
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-cyan-300 to-violet-400 text-xs font-bold text-slate-950">{user?.username.slice(0, 1).toUpperCase()}</span>
-              <span className="hidden max-w-28 truncate text-xs font-medium text-slate-200 sm:block">{user?.username}</span>
+            <div className="relative" ref={accountMenuRef}>
+              <button type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen} aria-haspopup="menu" className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] py-1 pl-1 pr-2 text-left transition hover:border-white/[0.2] hover:bg-white/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 sm:pr-3">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-cyan-300 to-violet-400 text-xs font-bold text-slate-950">{user?.username.slice(0, 1).toUpperCase()}</span>
+                <span className="hidden max-w-28 truncate text-xs font-medium text-slate-200 sm:block">{user?.username}</span>
+                <svg className={`hidden h-3.5 w-3.5 text-slate-400 transition-transform sm:block ${accountMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m3 6 5 5 5-5" /></svg>
+              </button>
+              {accountMenuOpen && (
+                <div role="menu" className="absolute right-0 z-[60] mt-2 w-56 overflow-hidden rounded-2xl border border-white/[0.12] bg-[#11152b]/95 p-1.5 shadow-2xl shadow-black/40 backdrop-blur-xl">
+                  <div className="border-b border-white/[0.08] px-3 py-2.5"><p className="truncate text-sm font-semibold text-white">{user?.username}</p><p className="mt-0.5 text-[11px] text-slate-500">{user?.isAdmin ? '工作区管理员' : '已登录账户'}</p></div>
+                  {user?.isAdmin && <a role="menuitem" href="/admin/accounts" onClick={() => setAccountMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-cyan-100 transition hover:bg-cyan-300/[0.1] hover:text-white"><span className="text-cyan-300">⌘</span>账户管理</a>}
+                  <button role="menuitem" onClick={handleLogout} className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm text-slate-300 transition hover:bg-rose-400/10 hover:text-rose-100"><span className="text-rose-300">↗</span>退出登录</button>
+                </div>
+              )}
             </div>
-            <button onClick={handleLogout} className="rounded-lg px-2.5 py-2 text-xs font-medium text-slate-400 transition hover:bg-white/[0.07] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 sm:px-3" title="退出登录">退出</button>
           </div>
         </div>
       </header>

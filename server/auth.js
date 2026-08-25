@@ -20,7 +20,7 @@ function parsePasswordHash(passwordHash) {
   return { N, r, p, salt, hash };
 }
 
-function toUser(record) { return { username: record.username, passwordHash: record.passwordHash, permissions: record.permissions.map((entry) => entry.permission) }; }
+function toUser(record) { return { username: record.username, passwordHash: record.passwordHash, sessionRevision: record.sessionRevision, permissions: record.permissions.map((entry) => entry.permission) }; }
 
 function createAuth({ isProduction }) {
   const sessionSecret = process.env.BOX_SESSION_SECRET;
@@ -35,14 +35,14 @@ function createAuth({ isProduction }) {
     const users = new Map();
     for (const record of records) {
       const user = toUser(record);
-      if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{1,63}$/.test(user.username) || !parsePasswordHash(user.passwordHash) || user.permissions.length === 0 || users.has(user.username)) throw new Error('SQLite 数据库包含无效或重复的账户。');
+      if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{1,63}$/.test(user.username) || !parsePasswordHash(user.passwordHash) || !Number.isInteger(user.sessionRevision) || user.sessionRevision < 0 || user.permissions.length === 0 || users.has(user.username)) throw new Error('SQLite 数据库包含无效或重复的账户。');
       users.set(user.username, user);
     }
     return users;
   }
 
   function sign(value) { return crypto.createHmac('sha256', sessionSecret).update(value).digest('base64url'); }
-  function createSession(user) { const expiresAt = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS; const payload = base64url(JSON.stringify({ username: user.username, expiresAt, nonce: crypto.randomBytes(16).toString('base64url') })); return `${payload}.${sign(payload)}`; }
+  function createSession(user) { const expiresAt = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS; const payload = base64url(JSON.stringify({ username: user.username, expiresAt, sessionRevision: user.sessionRevision, nonce: crypto.randomBytes(16).toString('base64url') })); return `${payload}.${sign(payload)}`; }
 
   async function getUserFromRequest(req) {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
@@ -51,9 +51,9 @@ function createAuth({ isProduction }) {
     if (!payload || !signature || !safeEqual(sign(payload), signature)) return null;
     try {
       const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-      if (!session || typeof session.username !== 'string' || !Number.isInteger(session.expiresAt) || session.expiresAt <= Math.floor(Date.now() / 1000)) return null;
+      if (!session || typeof session.username !== 'string' || !Number.isInteger(session.expiresAt) || !Number.isInteger(session.sessionRevision) || session.sessionRevision < 0 || session.expiresAt <= Math.floor(Date.now() / 1000)) return null;
       const user = await prisma.user.findUnique({ where: { username: session.username }, include: { permissions: { select: { permission: true } } } });
-      return user ? toUser(user) : null;
+      return user && user.sessionRevision === session.sessionRevision ? toUser(user) : null;
     } catch { return null; }
   }
 

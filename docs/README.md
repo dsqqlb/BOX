@@ -4,7 +4,7 @@
 
 ## 认证与运行
 
-- [认证与授权](./authentication.md)：账户文件、密码哈希、工具权限、Cookie 与本地配置。
+- [认证与授权](./authentication.md)：SQLite 账户、密码哈希、工具权限、管理员账户管理与 Cookie。
 
 完整应用运行时必须使用 `server/index.js`：它负责认证、受保护 API、WebSocket 和生产静态文件托管。不要把 `out/` 单独部署为完整应用。
 

@@ -16,7 +16,7 @@ const staticFiles = require('./static-files');
 const edhCards = require('./edh-cards');
 const images = require('./images');
 
-function createRequestHandler({ auth, userData, edhDecks, roomServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -98,7 +98,7 @@ function createRequestHandler({ auth, userData, edhDecks, roomServer, config }) 
     if (pathname === '/api/auth/me') {
       if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
       if (!requestUser) return httpUtils.sendAuthError(res, 401, '尚未登录。');
-      return httpUtils.sendJson(res, { username: requestUser.username, allowedTools: getAllowedToolSlugs(requestUser) });
+      return httpUtils.sendJson(res, { username: requestUser.username, allowedTools: getAllowedToolSlugs(requestUser), isAdmin: accountAdmin.isAdmin(requestUser) });
     }
 
     // 认证在所有业务 API、静态资源和开发页面之前执行，前端链接隐藏不是安全边界。
@@ -106,10 +106,53 @@ function createRequestHandler({ auth, userData, edhDecks, roomServer, config }) 
       if (pathname.startsWith('/api/')) return httpUtils.sendAuthError(res, 401, '需要登录。');
       return httpUtils.redirectToLogin(req, res);
     }
+
+    // 账户管理不是普通工具：页面与接口均要求精确的通配符管理员权限。
+    const isAdminPage = pathname === '/admin/accounts' || pathname === '/admin/accounts/' || pathname === '/admin/accounts.html';
+    const isAdminApi = pathname === '/api/admin/accounts' || pathname.startsWith('/api/admin/accounts/');
+    if ((isAdminPage || isAdminApi) && !accountAdmin.isAdmin(requestUser)) {
+      if (isAdminApi) return httpUtils.sendAuthError(res, 403, '需要管理员权限。');
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end('403 需要管理员权限');
+    }
     if (!isAuthorizedForRequest(req, requestUser, pathname)) {
       if (pathname.startsWith('/api/')) return httpUtils.sendAuthError(res, 403, '当前账户没有访问此工具的权限。');
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end('403 无权访问此工具');
+    }
+
+    // 管理员账户 API：只返回公开账户信息，密码哈希永不离开服务端。
+    if (isAdminApi) {
+      const accountPrefix = '/api/admin/accounts';
+      const targetUsername = pathname.slice(accountPrefix.length).replace(/^\/+/, '');
+      try {
+        if (!targetUsername) {
+          if (req.method === 'GET') return httpUtils.sendJson(res, { users: await accountAdmin.listAccounts(), availablePermissions: TOOL_SLUGS });
+          if (req.method === 'POST') {
+            if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+            const body = await httpUtils.readBody(req);
+            if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+            return httpUtils.sendJson(res, await accountAdmin.createAccount(body), 201);
+          }
+          return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+        }
+        if (targetUsername.includes('/')) return httpUtils.sendAuthError(res, 400, '账户标识无效。');
+        if (req.method === 'PUT') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+          return httpUtils.sendJson(res, await accountAdmin.updateAccount(requestUser.username, targetUsername, body));
+        }
+        if (req.method === 'DELETE') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          await accountAdmin.deleteAccount(requestUser.username, targetUsername);
+          return httpUtils.sendJson(res, { success: true });
+        }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) {
+        if (error instanceof accountAdmin.AccountAdminError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
+        throw error;
+      }
     }
 
     // 图片清单接口：在静态文件/Next路由前处理，但已通过先攻追踪器工具权限校验。

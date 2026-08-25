@@ -15,6 +15,7 @@
  *   edh-decks.js     EDH 牌组的 SQLite 读写（自包含，保持不变）
  *   edh-cards.js     EDH 卡牌数据库加载与搜索
  *   images.js        怪物图 / 玩家立绘目录扫描
+ *   account-admin.js  管理员账户、密码与权限的 SQLite 操作
  *   http-utils.js    HTTP 通用工具（JSON响应、请求体、同源、路径规范化、权限slug映射）
  *   login-page.js    登录页渲染
  *   static-files.js  静态文件托管（MIME、gzip、目录穿越防护、缓存策略）
@@ -32,6 +33,7 @@ const config = require('./config');
 const { createAuth } = require('./auth');
 const userData = require('./user-data');
 const edhDecks = require('./edh-decks');
+const accountAdmin = require('./account-admin');
 const httpUtils = require('./http-utils');
 const { createRoomServer } = require('./rooms');
 const { createRequestHandler } = require('./routes');
@@ -40,7 +42,7 @@ const { createRequestHandler } = require('./routes');
 
 const auth = createAuth({ projectRoot: config.PROJECT_ROOT, isProduction: !config.DEV });
 const roomServer = createRoomServer({ auth });
-const requestHandler = createRequestHandler({ auth, userData, edhDecks, roomServer, config });
+const requestHandler = createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServer, config });
 
 // ============ 启动统一服务 ============
 
