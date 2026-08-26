@@ -56,6 +56,7 @@ const TOOL_SLUGS = [
   'css-cascade',
   'edh-builder',
   'dnd-character',
+  'conways-game-of-life',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 

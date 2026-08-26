@@ -91,6 +91,16 @@
     "createdAt": "2026-08-19"
   },
   {
+    "slug": "conways-game-of-life",
+    "title": "康威生命游戏",
+    "description": "可绘制、演化与保存快照的赛博生命系统实验室，探索元胞自动机的无尽涌现",
+    "category": "game",
+    "tags": ["conway", "game-of-life", "cellular-automaton", "simulation"],
+    "icon": "🧬",
+    "featured": true,
+    "createdAt": "2026-08-25"
+  },
+  {
     "slug": "dnd-character",
     "title": "DND 角色卡",
     "description": "金雳·冒险者档案：D&D 5e 角色卡，法术施放、专注追踪、冒险日志、背包负重、多主题皮肤，数据按账户云端同步",

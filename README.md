@@ -95,7 +95,7 @@ BOX_COOKIE_SECURE=true
 }
 ```
 
-当前可用权限为：`claude-code-guide`、`dnd-translator`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
+当前可用权限为：`claude-code-guide`、`dnd-translator`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`edh-builder`、`dnd-character`、`conways-game-of-life`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
 
 ### 5. 为每个账户生成密码哈希
 
@@ -190,6 +190,7 @@ npm start
 | --- | --- | --- | --- |
 | Claude Code 学习中心 | `/tools/claude-code-guide` | JSON 驱动的指令、技巧和常见问题参考 | [查看](./docs/claude-code-guide.md) |
 | DND 语言翻译器 | `/tools/dnd-translator` | 中英文翻译、奇幻字体展示与符文图片导出 | [查看](./docs/dnd-translator.md) |
+| 康威生命游戏 | `/tools/conways-game-of-life` | 可绘制、演化、保存快照的赛博元胞自动机实验室 | [查看](./docs/conways-game-of-life.md) |
 | DND 人物卡 | `/tools/dnd-character` | 按账户保存角色、装备、法术与日志快照 | [查看](./docs/dnd-character.md) |
 | DND 先攻追踪器（遥控器） | `/tools/initiative-tracker` | 管理角色、回合、状态与骰子 | [查看](./docs/initiative-tracker-room.md) |
 | DND 先攻追踪器（主屏） | `/tools/initiative-tracker/display` | 创建/接管房间并在大屏展示战斗 | [查看](./docs/initiative-tracker-room.md) |
