@@ -17,6 +17,7 @@
 | 康威生命游戏 | `/tools/conways-game-of-life` | [conways-game-of-life.md](./conways-game-of-life.md) |
 | DND 人物卡 | `/tools/dnd-character` | [dnd-character.md](./dnd-character.md) |
 | DND 先攻追踪器（遥控器/主屏） | `/tools/initiative-tracker`、`/tools/initiative-tracker/display` | [initiative-tracker-room.md](./initiative-tracker-room.md) |
+| Kards 二战卡牌 | `/tools/kards` | [kards.md](./kards.md) |
 | JSON 星系 | `/tools/json-visualizer` | [json-visualizer.md](./json-visualizer.md) |
 | EDH 指挥官组卡台 | `/tools/edh-builder` | [edh-builder.md](./edh-builder.md) |
 | 塔罗牌占卜 | `/tools/tarot-reading` | [tarot-reading.md](./tarot-reading.md) |

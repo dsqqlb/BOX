@@ -43,6 +43,7 @@ const IMAGE_DIR = path.resolve(
 const ENEMY_DIR = path.join(IMAGE_DIR, 'enemies');
 const PLAYER_DIR = path.join(IMAGE_DIR, 'player');
 const EDH_CARDS_FILE = path.join(PROJECT_ROOT, 'data', 'edh', 'cards.json');
+const KARDS_CARDS_FILE = path.join(PROJECT_ROOT, 'data', 'kards', 'cards.json');
 
 // 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
 const TOOL_SLUGS = [
@@ -56,6 +57,7 @@ const TOOL_SLUGS = [
   'css-cascade',
   'edh-builder',
   'dnd-character',
+  'kards',
   'conways-game-of-life',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
@@ -70,6 +72,7 @@ module.exports = {
   ENEMY_DIR,
   PLAYER_DIR,
   EDH_CARDS_FILE,
+  KARDS_CARDS_FILE,
   TOOL_SLUGS,
   TOOL_SLUG_SET,
 };

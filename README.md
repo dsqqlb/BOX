@@ -95,7 +95,7 @@ BOX_COOKIE_SECURE=true
 }
 ```
 
-当前可用权限为：`claude-code-guide`、`dnd-translator`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`edh-builder`、`dnd-character`、`conways-game-of-life`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
+当前可用权限为：`claude-code-guide`、`dnd-translator`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`edh-builder`、`dnd-character`、`kards`、`conways-game-of-life`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
 
 ### 5. 为每个账户生成密码哈希
 
@@ -194,6 +194,7 @@ npm start
 | DND 人物卡 | `/tools/dnd-character` | 按账户保存角色、装备、法术与日志快照 | [查看](./docs/dnd-character.md) |
 | DND 先攻追踪器（遥控器） | `/tools/initiative-tracker` | 管理角色、回合、状态与骰子 | [查看](./docs/initiative-tracker-room.md) |
 | DND 先攻追踪器（主屏） | `/tools/initiative-tracker/display` | 创建/接管房间并在大屏展示战斗 | [查看](./docs/initiative-tracker-room.md) |
+| Kards 二战卡牌 | `/tools/kards` | 1600+ 全卡图组卡器与双人房间号联机对战桌，TTS 式手动操作 | [查看](./docs/kards.md) |
 | JSON 星系 | `/tools/json-visualizer` | JSON 校验、格式化、压缩与 3D 浏览 | [查看](./docs/json-visualizer.md) |
 | EDH 指挥官组卡台 | `/tools/edh-builder` | 中文优先高级检索、拖放组牌与账户隔离的牌组 | [查看](./docs/edh-builder.md) |
 | 塔罗牌占卜 | `/tools/tarot-reading` | 78 张牌与多种牌阵的互动抽牌 | [查看](./docs/tarot-reading.md) |

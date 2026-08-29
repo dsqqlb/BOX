@@ -16,6 +16,7 @@ model User {
   updatedAt   DateTime         @updatedAt
   permissions UserPermission[]
   decks       Deck[]
+  kardsDecks  KardsDeck[]
   dndSave     DndSave?
   savings     SavingsRecord[]
 }
@@ -49,6 +50,19 @@ model DeckCard {
   deck     Deck   @relation(fields: [deckId], references: [id], onDelete: Cascade)
 
   @@id([deckId, oracleId])
+}
+
+model KardsDeck {
+  id        String   @id
+  ownerId   String
+  name      String
+  faction   String?
+  cardsJson String
+  createdAt DateTime
+  updatedAt DateTime
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, updatedAt])
 }
 
 model DndSave {

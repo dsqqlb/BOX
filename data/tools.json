@@ -109,5 +109,15 @@
     "icon": "⚔️",
     "featured": true,
     "createdAt": "2026-08-21"
+  },
+  {
+    "slug": "kards",
+    "title": "Kards 二战卡牌",
+    "description": "Kards 二战卡牌：1600+ 全卡图组卡器 + 双人房间号联机对战桌，像桌游模拟器一样自由操作，规则由玩家掌握",
+    "category": "game",
+    "tags": ["kards", "card", "ww2", "deck", "multiplayer", "tabletop"],
+    "icon": "🎖️",
+    "featured": true,
+    "createdAt": "2026-08-29"
   }
 ]

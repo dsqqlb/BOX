@@ -62,6 +62,7 @@ BOX 默认拒绝未登录访问。除 `/login` 与登录接口外，页面、业
 - `css-cascade`
 - `edh-builder`
 - `dnd-character`
+- `kards`
 - `conways-game-of-life`
 
 `"*"` 授予所有工具权限。父级 `initiative-tracker` 同时授予 `/tools/initiative-tracker/display`；单独授予 `initiative-tracker/display` 时仅能访问主屏。

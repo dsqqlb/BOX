@@ -9,6 +9,7 @@
     "start": "node server/index.js",
     "lint": "next lint",
     "sync:edh-cards": "node scripts/sync-edh-cards.mjs",
+    "build:kards": "node scripts/build-kards-catalog.mjs",
     "db:generate": "node scripts/prisma-cli.mjs generate",
     "db:migrate": "node scripts/prisma-cli.mjs migrate deploy",
     "db:import-json": "node scripts/migrate-json-to-sqlite.mjs",
@@ -16,7 +17,7 @@
     "db:setup": "npm run db:generate && npm run db:migrate && npm run db:import-json && npm run db:migrate-runtime-json"
   },
   "dependencies": {
-    "@prisma/client": "6.15.0",
+    "@prisma/client": "^6.15.0",
     "@react-three/cannon": "^6.6.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.7.0",

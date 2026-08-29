@@ -15,6 +15,7 @@ const loginPage = require('./login-page');
 const staticFiles = require('./static-files');
 const edhCards = require('./edh-cards');
 const images = require('./images');
+const kardsDecks = require('./kards-decks');
 
 function createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
@@ -304,6 +305,60 @@ function createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServ
       if (req.method === 'DELETE') {
         if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
         if (!(await edhDecks.deleteDeck(requestUser.username, deckId))) return httpUtils.sendAuthError(res, 404, '牌组不存在。');
+        return httpUtils.sendJson(res, { success: true });
+      }
+      return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+    }
+
+    // Kards 卡牌目录：由 scripts/build-kards-catalog.mjs 扫描卡图生成，
+    // 只包含名称/阵营/费用/图片路径等轻量元数据（数值与效果印在卡图上）。
+    if (pathname === '/api/kards/cards') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      const catalog = kardsDecks.getCatalogJson();
+      if (!catalog || !catalog.cards || catalog.cards.length === 0) return httpUtils.sendAuthError(res, 503, '卡牌目录尚未生成，请先在服务器上执行 npm run build:kards。');
+      return httpUtils.sendJson(res, catalog);
+    }
+
+    // Kards 牌组：按账户隔离，存卡牌 id 数组（含重复=多张）。
+    if (pathname === '/api/kards/decks') {
+      if (req.method === 'GET') return httpUtils.sendJson(res, await kardsDecks.listDecks(requestUser.username));
+      if (req.method === 'POST') {
+        if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+        const body = await httpUtils.readBody(req);
+        if (!body || typeof body.name !== 'string' || !body.name.trim()) return httpUtils.sendAuthError(res, 400, '缺少牌组名称。');
+        const now = new Date().toISOString();
+        const deck = await kardsDecks.createDeck(requestUser.username, {
+          id: randomId(),
+          name: body.name.trim().slice(0, 100),
+          cards: Array.isArray(body.cards) ? body.cards : [],
+          createdAt: now,
+          updatedAt: now,
+        });
+        return httpUtils.sendJson(res, deck, 201);
+      }
+      return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+    }
+
+    if (pathname.startsWith('/api/kards/decks/')) {
+      const deckId = pathname.slice('/api/kards/decks/'.length);
+      if (!deckId) return httpUtils.sendAuthError(res, 400, '缺少牌组 id。');
+      const current = await kardsDecks.getDeck(requestUser.username, deckId);
+      if (req.method === 'GET') return current ? httpUtils.sendJson(res, current) : httpUtils.sendAuthError(res, 404, '牌组不存在。');
+      if (req.method === 'PUT') {
+        if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+        if (!current) return httpUtils.sendAuthError(res, 404, '牌组不存在。');
+        const body = await httpUtils.readBody(req);
+        if (!body) return httpUtils.sendAuthError(res, 400, '请求体无效。');
+        const saved = await kardsDecks.updateDeck(requestUser.username, deckId, {
+          name: typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 100) : current.name,
+          faction: body.faction === null || typeof body.faction === 'string' ? body.faction : current.faction,
+          cards: Array.isArray(body.cards) ? body.cards : current.cards,
+        });
+        return httpUtils.sendJson(res, saved);
+      }
+      if (req.method === 'DELETE') {
+        if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+        if (!(await kardsDecks.deleteDeck(requestUser.username, deckId))) return httpUtils.sendAuthError(res, 404, '牌组不存在。');
         return httpUtils.sendJson(res, { success: true });
       }
       return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');

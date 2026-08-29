@@ -36,12 +36,14 @@ const edhDecks = require('./edh-decks');
 const accountAdmin = require('./account-admin');
 const httpUtils = require('./http-utils');
 const { createRoomServer } = require('./rooms');
+const { createKardsRoomServer } = require('./kards-rooms');
 const { createRequestHandler } = require('./routes');
 
 // ============ 组装 ============
 
 const auth = createAuth({ projectRoot: config.PROJECT_ROOT, isProduction: !config.DEV });
 const roomServer = createRoomServer({ auth });
+const kardsRoomServer = createKardsRoomServer({ auth });
 const requestHandler = createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServer, config });
 
 // ============ 启动统一服务 ============
@@ -100,6 +102,17 @@ async function main() {
         roomServer.wss.handleUpgrade(req, socket, head, (ws) => { ws.user = user; roomServer.wss.emit('connection', ws, req); });
         return;
       }
+      if (pathname === '/ws/kards') {
+        const user = await auth.getUserFromRequest(req);
+        if (!httpUtils.isSameOrigin(req) || !user || !auth.hasToolAccess(user, 'kards')) {
+          const status = user ? '403 Forbidden' : '401 Unauthorized';
+          socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+          socket.destroy();
+          return;
+        }
+        kardsRoomServer.wss.handleUpgrade(req, socket, head, (ws) => { ws.user = user; kardsRoomServer.wss.emit('connection', ws, req); });
+        return;
+      }
       if (config.DEV && nextUpgradeHandler) { nextUpgradeHandler(req, socket, head); return; }
       socket.destroy();
     })().catch((error) => { console.error('❌ WebSocket 认证失败:', error); socket.destroy(); });
@@ -110,6 +123,7 @@ async function main() {
     console.log(`🚀 BOX 服务已启动（${config.DEV ? '开发' : '生产'}模式，单端口）`);
     console.log(`   本机访问:   http://localhost:${config.PORT}`);
     console.log(`   WebSocket:  ws://localhost:${config.PORT}/ws`);
+    console.log(`   Kards 对战: ws://localhost:${config.PORT}/ws/kards`);
     console.log(`   图片目录:   ${config.IMAGE_DIR}`);
     if (!config.DEV) console.log(`   静态产物:   ${config.STATIC_DIR}`);
     console.log('');
@@ -119,7 +133,9 @@ async function main() {
   const shutdown = () => {
     console.log('\n👋 正在关闭服务器...');
     clearInterval(roomServer.cleanupTimer);
+    clearInterval(kardsRoomServer.cleanupTimer);
     roomServer.wss.clients.forEach((client) => client.close());
+    kardsRoomServer.wss.clients.forEach((client) => client.close());
     server.close(() => {
       console.log('✅ 服务器已关闭');
       process.exit(0);

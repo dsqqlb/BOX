@@ -5,7 +5,8 @@ interface WebSocketMessage {
   payload: any;
 }
 
-// WebSocket地址：固定连"当前页面同源的 /ws"，不需要任何环境变量、也不需要推断端口号。
+// WebSocket地址：默认连"当前页面同源的 /ws"（先攻追踪器），
+// 也可传入自定义路径（如 /ws/kards）。不需要任何环境变量、也不需要推断端口号。
 //
 // 因为页面和WebSocket由同一个Node进程、同一个端口提供服务（见 server/index.js），
 // 所以浏览器访问什么地址，WebSocket就连什么地址：
@@ -13,12 +14,12 @@ interface WebSocketMessage {
 //   局域网     http://192.168.1.50:9999     -> ws://192.168.1.50:9999/ws
 //   公网域名   https://box.dsqqlb.top       -> wss://box.dsqqlb.top/ws
 // window.location.host 自带端口（有端口时），https自动切wss，所以三种场景都不用额外配置。
-export function getWsUrl(): string {
+export function getWsUrl(path = '/ws'): string {
   // SSR/静态导出预渲染阶段没有window，返回占位值；真正连接发生在客户端useEffect里
   if (typeof window === 'undefined') return '';
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws`;
+  return `${protocol}//${window.location.host}${path}`;
 }
 
 interface UseWebSocketOptions {
