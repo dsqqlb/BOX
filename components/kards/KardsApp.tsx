@@ -6,6 +6,7 @@ import { KardsCatalog, KardsDeck } from '@/lib/kards/types';
 import { fetchCatalog, listDecks } from '@/lib/kards/api';
 import DeckBuilder from './DeckBuilder';
 import BattleTable from './BattleTable';
+import RoomLobby from './RoomLobby';
 
 interface Notice {
   message: string;
@@ -27,7 +28,6 @@ export default function KardsApp() {
   const [builderDraft, setBuilderDraft] = useState<string[]>([]);
   const [battle, setBattle] = useState<BattleRequest | null>(null);
   const [joinRoomId, setJoinRoomId] = useState('');
-  const [battleDeckId, setBattleDeckId] = useState<string>('draft');
   const [notice, setNotice] = useState<Notice | null>(null);
   const noticeTimerRef = useRef<number | undefined>(undefined);
 
@@ -70,16 +70,11 @@ export default function KardsApp() {
     };
   }, []);
 
-  const selectedBattleCards = useMemo(() => {
-    if (battleDeckId === 'draft') return builderDraft;
-    return decks.find((deck) => deck.id === battleDeckId)?.cards || [];
-  }, [battleDeckId, builderDraft, decks]);
-
-  function startBattle(mode: 'create' | 'join', roomId?: string | null, deckCards?: string[]) {
+  function startBattle(mode: 'create' | 'join', roomId: string | null, deckCards: string[]) {
     setBattle({
       mode,
-      roomId: roomId ?? null,
-      deckCards: deckCards ?? selectedBattleCards,
+      roomId,
+      deckCards,
       key: Date.now(),
     });
   }
@@ -153,61 +148,14 @@ export default function KardsApp() {
         )}
 
         {tab === 'table' && !battle && (
-          <div className="flex min-h-0 flex-1 items-center justify-center">
-            <div className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-950/60 p-5">
-              <h2 className="text-lg font-bold text-zinc-100">建立对战桌</h2>
-              <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-                房主创建房间后，把 6 位房间号或链接发给对方。所有操作由玩家手动进行：抽牌、出牌、翻面、旋转、伤害与 kredits 都由桌面上完成，模拟器不判定规则。
-              </p>
-
-              <div className="mt-4">
-                <div className="mb-1 text-xs text-zinc-500">出战牌组</div>
-                <select
-                  value={battleDeckId}
-                  onChange={(event) => setBattleDeckId(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 outline-none focus:border-amber-500/60"
-                >
-                  <option value="draft">当前草稿（{builderDraft.length} 张）</option>
-                  {decks.map((deck) => (
-                    <option key={deck.id} value={deck.id}>
-                      {deck.name}（{deck.cards.length} 张）
-                    </option>
-                  ))}
-                </select>
-                {battleDeckId === 'draft' && builderDraft.length === 0 && (
-                  <p className="mt-1 text-[11px] text-amber-400/80">当前草稿为空，建议先去组卡器组一副牌</p>
-                )}
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => startBattle('create')}
-                  disabled={selectedBattleCards.length === 0}
-                  className="h-11 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-sm font-bold text-zinc-950 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  🏳 创建房间
-                </button>
-                <button
-                  onClick={() => startBattle('join', joinRoomId.trim())}
-                  disabled={!/^\d{6}$/.test(joinRoomId.trim())}
-                  className="h-11 rounded-xl border border-amber-500/50 bg-amber-500/10 text-sm font-bold text-amber-300 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  🔑 加入房间
-                </button>
-              </div>
-
-              <div className="mt-3">
-                <div className="mb-1 text-xs text-zinc-500">输入对方给你的房间号</div>
-                <input
-                  value={joinRoomId}
-                  onChange={(event) => setJoinRoomId(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="6 位数字房间号"
-                  inputMode="numeric"
-                  className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 font-mono text-lg tracking-[0.5em] text-zinc-100 outline-none focus:border-amber-500/60"
-                />
-              </div>
-            </div>
-          </div>
+          <RoomLobby
+            catalog={catalog}
+            decks={decks}
+            builderDraft={builderDraft}
+            initialRoomId={joinRoomId}
+            onStartBattle={startBattle}
+            notify={notify}
+          />
         )}
 
         {tab === 'table' && battle && (

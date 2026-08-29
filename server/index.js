@@ -44,7 +44,7 @@ const { createRequestHandler } = require('./routes');
 const auth = createAuth({ projectRoot: config.PROJECT_ROOT, isProduction: !config.DEV });
 const roomServer = createRoomServer({ auth });
 const kardsRoomServer = createKardsRoomServer({ auth });
-const requestHandler = createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServer, config });
+const requestHandler = createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServer, kardsRoomServer, config });
 
 // ============ 启动统一服务 ============
 
@@ -86,20 +86,27 @@ async function main() {
   server.on('upgrade', (req, socket, head) => {
     void (async () => {
       let pathname = '/';
+      let isKardsRequest = false;
       try {
-        pathname = new URL(req.url, 'http://localhost').pathname;
+        const requestUrl = new URL(req.url, 'http://localhost');
+        pathname = requestUrl.pathname;
+        // Kards 客户端固定用同一个 /ws 通道（带 ?kards=1 标记），
+        // 这样只需要在代理/隧道里转发 /ws 一个路径，和先攻追踪器保持一致。
+        isKardsRequest = requestUrl.searchParams.get('kards') === '1';
         pathname = httpUtils.canonicalizePathname(pathname);
       } catch { pathname = null; }
 
       if (pathname === '/ws') {
         const user = await auth.getUserFromRequest(req);
-        if (!httpUtils.isSameOrigin(req) || !user || !auth.hasToolAccess(user, 'initiative-tracker')) {
+        const toolSlug = isKardsRequest ? 'kards' : 'initiative-tracker';
+        if (!httpUtils.isSameOrigin(req) || !user || !auth.hasToolAccess(user, toolSlug)) {
           const status = user ? '403 Forbidden' : '401 Unauthorized';
           socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
           socket.destroy();
           return;
         }
-        roomServer.wss.handleUpgrade(req, socket, head, (ws) => { ws.user = user; roomServer.wss.emit('connection', ws, req); });
+        const targetServer = isKardsRequest ? kardsRoomServer : roomServer;
+        targetServer.wss.handleUpgrade(req, socket, head, (ws) => { ws.user = user; targetServer.wss.emit('connection', ws, req); });
         return;
       }
       if (pathname === '/ws/kards') {
@@ -123,7 +130,7 @@ async function main() {
     console.log(`🚀 BOX 服务已启动（${config.DEV ? '开发' : '生产'}模式，单端口）`);
     console.log(`   本机访问:   http://localhost:${config.PORT}`);
     console.log(`   WebSocket:  ws://localhost:${config.PORT}/ws`);
-    console.log(`   Kards 对战: ws://localhost:${config.PORT}/ws/kards`);
+    console.log(`   Kards 对战: ws://localhost:${config.PORT}/ws?kards=1`);
     console.log(`   图片目录:   ${config.IMAGE_DIR}`);
     if (!config.DEV) console.log(`   静态产物:   ${config.STATIC_DIR}`);
     console.log('');

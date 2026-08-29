@@ -346,6 +346,10 @@ function createKardsRoomServer({ auth }) {
             }
             const room = rooms.get(roomId);
 
+            if (room.hostUsername === ws.user.username) {
+              sendError(ws, '不能加入自己创建的房间（房主请直接在房间里操作）。');
+              return;
+            }
             if (room.joinerUsername === ws.user.username) {
               // 2P 断线重连。
               room.players[1].connected = true;

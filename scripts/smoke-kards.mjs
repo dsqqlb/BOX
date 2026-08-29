@@ -99,7 +99,7 @@ async function login(username, password) {
 
 function wsConnect(cookie) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_BASE}/ws/kards`, {
+    const ws = new WebSocket(`${WS_BASE}/ws?kards=1`, {
       headers: { Cookie: cookie, Origin: BASE },
     });
     ws.once('open', () => resolve(ws));
@@ -201,6 +201,14 @@ async function runWsTests(cookies) {
   check('房主收到 ROOM_STATE 与座位 0', hostState.payload.seat === 0 && /^\d{6}$/.test(roomId));
   check('房主牌库 10 张对自己可见', hostState.payload.cards.filter((card) => card.owner === 0 && card.zone === 'deck').length === 10);
 
+  const roomList1 = await (await fetch(`${BASE}/api/kards/rooms`, { headers: { Cookie: cookies.a } })).json();
+  check('公共房间列表包含新房', roomList1.some((room) => room.roomId === roomId && room.hostUsername === 'kards_smoke_a' && room.playerCount === 1));
+
+  const selfJoinError = nextMessage(wsA, 'ERROR');
+  send(wsA, { type: 'JOIN_ROOM', payload: { roomId } });
+  const selfJoinMessage = await selfJoinError;
+  check('房主不能加入自己的房间', typeof selfJoinMessage.payload.message === 'string' && selfJoinMessage.payload.message.includes('自己'));
+
   async function actAndAwaitBoth(message) {
     const aNext = nextMessage(wsA, 'ROOM_STATE');
     const bNext = nextMessage(wsB, 'ROOM_STATE');
@@ -219,6 +227,8 @@ async function runWsTests(cookies) {
   check('对手牌库被遮蔽（cardId 为 null 且 hidden=true）', hiddenDeckCards.length === 10 && hiddenDeckCards.every((card) => card.hidden && card.cardId === null));
   check('加入者无效卡被过滤', joinerState.payload.cards.filter((card) => card.owner === 1).length === 0, '无效卡不应进入房间');
   check('房主看到加入者已入座', hostAfterJoin.payload.players.find((p) => p.seat === 1)?.username === 'kards_smoke_b');
+  const roomList2 = await (await fetch(`${BASE}/api/kards/rooms`, { headers: { Cookie: cookies.b } })).json();
+  check('加入后房间列表显示双方', roomList2.find((room) => room.roomId === roomId)?.joinerUsername === 'kards_smoke_b');
 
   // 房主抽 3 张：自己可见，对手只能看到 3 张牌背
   const afterDraw = await actAndAwaitBoth({ type: 'ACTION', payload: { roomId, action: 'DRAW', count: 3 } });

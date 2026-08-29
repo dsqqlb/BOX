@@ -17,7 +17,7 @@ const edhCards = require('./edh-cards');
 const images = require('./images');
 const kardsDecks = require('./kards-decks');
 
-function createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServer, kardsRoomServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -170,6 +170,22 @@ function createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServ
           characterCount: room.characters.length,
           roundNumber: room.roundNumber,
           displayConnected: room.displayConnected !== false,
+          lastActivity: room.lastActivity || room.createdAt,
+        }))
+        .sort((a, b) => b.lastActivity - a.lastActivity);
+      return httpUtils.sendJson(res, list);
+    }
+
+    // Kards 公共房间列表：展示内存中所有房间，供大厅"像公共服务一样"浏览/加入。
+    if (pathname === '/api/kards/rooms') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      const list = Array.from(kardsRoomServer.rooms.values())
+        .map((room) => ({
+          roomId: room.roomId,
+          hostUsername: room.hostUsername,
+          joinerUsername: room.joinerUsername,
+          playerCount: room.players.filter((player) => player.username).length,
+          connectedCount: room.players.filter((player) => player.connected).length,
           lastActivity: room.lastActivity || room.createdAt,
         }))
         .sort((a, b) => b.lastActivity - a.lastActivity);

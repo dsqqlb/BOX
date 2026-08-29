@@ -90,8 +90,8 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions = 
       };
 
       ws.onerror = (error) => {
-        console.error('❌ WebSocket错误:', error);
-        console.error('❌ WebSocket详细信息:', {
+        console.warn('⚠️ WebSocket错误:', error);
+        console.warn('⚠️ WebSocket详细信息:', {
           url,
           readyState: ws?.readyState,
           type: error?.type,
@@ -100,10 +100,10 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions = 
         
         // 检查是否是连接失败
         if (ws?.readyState === WebSocket.CLOSED || ws?.readyState === WebSocket.CLOSING) {
-          console.error('❌ WebSocket连接失败，可能原因：');
-          console.error('   1. 服务未通过 server/index.js 启动（开发用 npm run dev，生产用 npm start）');
-          console.error('   2. 反向代理/隧道没有转发WebSocket升级请求（当前尝试: ' + url + '）');
-          console.error('   3. 防火墙阻止连接');
+          console.warn('⚠️ WebSocket连接失败，可能原因：');
+          console.warn('   1. 服务未通过 server/index.js 启动（开发用 npm run dev，生产用 npm start）');
+          console.warn('   2. 反向代理/隧道没有转发WebSocket升级请求（当前尝试: ' + url + '）');
+          console.warn('   3. 防火墙阻止连接');
         }
         
         optionsRef.current.onError?.(error);
