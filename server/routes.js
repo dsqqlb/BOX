@@ -9,6 +9,7 @@
  */
 
 const crypto = require('crypto');
+const fs = require('fs');
 const { TOOL_SLUGS } = require('./config');
 const httpUtils = require('./http-utils');
 const loginPage = require('./login-page');
@@ -16,8 +17,9 @@ const staticFiles = require('./static-files');
 const edhCards = require('./edh-cards');
 const images = require('./images');
 const kardsDecks = require('./kards-decks');
+const chatStore = require('./chat-store');
 
-function createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePreferences, roomServer, kardsRoomServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePreferences, roomServer, kardsRoomServer, chatServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -29,6 +31,37 @@ function createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePref
 
   function randomId() {
     return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+  }
+
+  function sendChatAttachment(req, res, attachment, filePath) {
+    let stat;
+    try { stat = fs.statSync(filePath); } catch { return httpUtils.sendAuthError(res, 404, '附件文件不存在或已被清理。'); }
+    if (!stat.isFile()) return httpUtils.sendAuthError(res, 404, '附件文件不存在。');
+    const inline = /^(image\/(jpeg|png|gif|webp|avif)|video\/|audio\/)/.test(attachment.mimeType);
+    const disposition = `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(attachment.originalName)}`;
+    const baseHeaders = {
+      'Content-Type': attachment.mimeType,
+      'Content-Disposition': disposition,
+      'Accept-Ranges': 'bytes',
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'private, no-store',
+    };
+    const range = req.headers.range;
+    if (!range) {
+      res.writeHead(200, { ...baseHeaders, 'Content-Length': stat.size });
+      if (req.method === 'HEAD') return res.end();
+      return fs.createReadStream(filePath).pipe(res);
+    }
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match) { res.writeHead(416, { ...baseHeaders, 'Content-Range': `bytes */${stat.size}` }); return res.end(); }
+    let start = match[1] ? Number(match[1]) : 0;
+    let end = match[2] ? Number(match[2]) : stat.size - 1;
+    if (!match[1] && match[2]) { start = Math.max(0, stat.size - end); end = stat.size - 1; }
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= stat.size || end < start) { res.writeHead(416, { ...baseHeaders, 'Content-Range': `bytes */${stat.size}` }); return res.end(); }
+    end = Math.min(end, stat.size - 1);
+    res.writeHead(206, { ...baseHeaders, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${stat.size}` });
+    if (req.method === 'HEAD') return res.end();
+    return fs.createReadStream(filePath, { start, end }).pipe(res);
   }
 
   return async function requestHandler(req, res, ctx) {
@@ -152,6 +185,76 @@ function createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePref
         if (error instanceof homePreferences.HomePreferencesError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
         throw error;
       }
+    }
+
+    // 局域网大厅：消息与元数据保存在 SQLite，附件仅由受保护端点读取，绝不作为公开静态目录暴露。
+    if (pathname === '/api/chat/messages') {
+      try {
+        if (req.method === 'GET') return httpUtils.sendJson(res, await chatStore.getMessages(requestUser, requestUrl.searchParams.get('cursor') || undefined));
+        if (req.method === 'POST') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          const message = await chatStore.createMessage(requestUser, body);
+          chatServer?.broadcast({ type: 'MESSAGE_CREATED', payload: message });
+          return httpUtils.sendJson(res, message, 201);
+        }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) {
+        if (error instanceof chatStore.ChatError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
+        throw error;
+      }
+    }
+
+    if (pathname === '/api/chat/search') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      try { return httpUtils.sendJson(res, { messages: await chatStore.searchMessages(requestUser, requestUrl.searchParams.get('q') || '') }); }
+      catch (error) { if (error instanceof chatStore.ChatError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+
+    if (pathname === '/api/chat/members') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      return httpUtils.sendJson(res, { usernames: await chatStore.listMembers(auth) });
+    }
+
+    if (pathname === '/api/chat/uploads') {
+      if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try { return httpUtils.sendJson(res, await chatStore.uploadAttachment(req, requestUser), 201); }
+      catch (error) { if (error instanceof chatStore.ChatError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+
+    if (pathname.startsWith('/api/chat/files/')) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return httpUtils.sendAuthError(res, 405, '只支持 GET 或 HEAD。');
+      try { const resource = await chatStore.getAttachment(pathname.slice('/api/chat/files/'.length)); return sendChatAttachment(req, res, resource.attachment, resource.filePath); }
+      catch (error) { if (error instanceof chatStore.ChatError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+
+    const chatReactionMatch = /^\/api\/chat\/messages\/([^/]+)\/reactions$/.exec(pathname);
+    const chatWithdrawMatch = /^\/api\/chat\/messages\/([^/]+)\/withdraw$/.exec(pathname);
+    const chatAdminDeleteMatch = /^\/api\/chat\/admin\/messages\/([^/]+)$/.exec(pathname);
+    if (chatReactionMatch) {
+      if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try { const body = await httpUtils.readBody(req); const message = await chatStore.toggleReaction(requestUser, chatReactionMatch[1], body?.emoji); chatServer?.broadcast({ type: 'MESSAGE_CHANGED', payload: { id: message.id } }); return httpUtils.sendJson(res, message); }
+      catch (error) { if (error instanceof chatStore.ChatError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    if (chatWithdrawMatch) {
+      if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try { const message = await chatStore.withdrawMessage(requestUser, chatWithdrawMatch[1]); chatServer?.broadcast({ type: 'MESSAGE_CHANGED', payload: { id: message.id } }); return httpUtils.sendJson(res, message); }
+      catch (error) { if (error instanceof chatStore.ChatError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    if (pathname === '/api/chat/admin/stats') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      if (!accountAdmin.isAdmin(requestUser)) return httpUtils.sendAuthError(res, 403, '需要管理员权限。');
+      return httpUtils.sendJson(res, await chatStore.getAdminStats());
+    }
+    if (chatAdminDeleteMatch) {
+      if (req.method !== 'DELETE') return httpUtils.sendAuthError(res, 405, '只支持 DELETE。');
+      if (!accountAdmin.isAdmin(requestUser)) return httpUtils.sendAuthError(res, 403, '需要管理员权限。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try { const removed = await chatStore.deleteMessageAsAdmin(chatAdminDeleteMatch[1]); chatServer?.broadcast({ type: 'MESSAGE_DELETED', payload: removed }); return httpUtils.sendJson(res, removed); }
+      catch (error) { if (error instanceof chatStore.ChatError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
     }
 
     // 管理员账户 API：只返回公开账户信息，密码哈希永不离开服务端。

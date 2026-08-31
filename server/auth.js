@@ -62,7 +62,8 @@ function createAuth({ isProduction }) {
   function loginAllowed(req) { const attempt = loginAttempts.get(clientKey(req)); if (!attempt) return { allowed: true, retryAfterSeconds: 0 }; const elapsed = Date.now() - attempt.startedAt; if (elapsed >= LOGIN_WINDOW_MS) { loginAttempts.delete(clientKey(req)); return { allowed: true, retryAfterSeconds: 0 }; } return attempt.count < MAX_LOGIN_FAILURES ? { allowed: true, retryAfterSeconds: 0 } : { allowed: false, retryAfterSeconds: Math.ceil((LOGIN_WINDOW_MS - elapsed) / 1000) }; }
   function recordLoginFailure(req) { const key = clientKey(req); const current = loginAttempts.get(key); if (!current || Date.now() - current.startedAt >= LOGIN_WINDOW_MS) loginAttempts.set(key, { count: 1, startedAt: Date.now() }); else current.count += 1; }
   function clearLoginFailures(req) { loginAttempts.delete(clientKey(req)); }
-  function hasToolAccess(user, toolSlug) { return Boolean(user && user.permissions.some((permission) => permission === '*' || permission === toolSlug || toolSlug.startsWith(`${permission}/`))); }
+  // 局域网大厅是登录后的公共工作区：所有有效账户均可访问；其余工具仍按明确权限控制。
+  function hasToolAccess(user, toolSlug) { return Boolean(user && (toolSlug === 'lan-chat' || user.permissions.some((permission) => permission === '*' || permission === toolSlug || toolSlug.startsWith(`${permission}/`)))); }
   function buildSessionCookie(token, req) { const attributes = [`${SESSION_COOKIE_NAME}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${SESSION_TTL_SECONDS}`]; if (resolveCookieSecure(req)) attributes.push('Secure'); return attributes.join('; '); }
   function clearSessionCookie(req) { const attributes = [`${SESSION_COOKIE_NAME}=`, 'Path=/', 'HttpOnly', 'SameSite=Strict', 'Max-Age=0']; if (resolveCookieSecure(req)) attributes.push('Secure'); return attributes.join('; '); }
 

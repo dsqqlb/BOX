@@ -23,7 +23,7 @@ BOX 默认拒绝未登录访问。除 `/login` 与登录接口外，页面、业
 - 日常升级部署执行 `npm run db:generate` 和 `npm run db:migrate`，再启动服务；它们不会重新导入 JSON 或清空现有数据。
 - `npm run db:import-json` 是一次性迁移工具，会先备份再**替换** SQLite 中的用户、权限和 EDH 牌组数据，仅应在停服维护时使用。
 - `npm run db:migrate-runtime-json` 是 DND 和省钱 JSON 的增量导入工具：会备份源文件、按账户验证并 upsert，不清空其他 SQLite 数据。
-- 定期备份 `data/box.sqlite`、`.env.local` 和 EDH 卡牌索引；恢复时应先停服务，再替换数据库文件。运行时不会创建 `data/savings.json` 或 `data/dnd/saves/<用户名>.json`。
+- 定期备份 `data/box.sqlite`、`data/chat/`、`.env.local` 和 EDH 卡牌索引；恢复聊天时数据库与 `data/chat/` 必须使用同一时点的备份。运行时不会创建 `data/savings.json` 或 `data/dnd/saves/<用户名>.json`。
 - 首页收藏、分类折叠、主题和网格/列表视图偏好，以及最近使用工具记录也保存在 SQLite 中，按账户隔离；工具 slug 在读取与保存时都会按该账户的实时权限过滤。
 
 ## 初始账户导入文件
@@ -65,6 +65,7 @@ BOX 默认拒绝未登录访问。除 `/login` 与登录接口外，页面、业
 - `dnd-character`
 - `kards`
 - `conways-game-of-life`
+- `lan-chat`（局域网大厅是所有有效登录账户的公共工作区；该 slug 会显示在允许工具列表中，但不需要逐账户授予）
 - `target-text`
 
 `"*"` 授予所有工具权限。父级 `initiative-tracker` 同时授予 `/tools/initiative-tracker/display`；单独授予 `initiative-tracker/display` 时仅能访问主屏。
@@ -75,7 +76,7 @@ BOX 默认拒绝未登录访问。除 `/login` 与登录接口外，页面、业
 
 - `/admin/accounts` 与 `/api/admin/accounts` 都在服务端校验管理员权限；仅隐藏菜单入口并不构成授权。
 - 管理 API 只返回用户名、权限和时间戳，绝不返回密码或密码哈希。新密码在服务端使用现有 scrypt 格式哈希后才写入 SQLite。
-- 删除账户会级联删除其 EDH 牌组、DND 存档、省钱记录、首页偏好与最近使用记录。当前登录管理员、最后一个管理员均不能被删除；也不能移除最后一个管理员的 `"*"` 权限。
+- 删除账户会级联删除其 EDH 牌组、DND 存档、省钱记录、首页偏好、最近使用记录，以及其局域网消息、附件元数据和表情反应；附件磁盘文件由聊天服务同步清理。当前登录管理员、最后一个管理员均不能被删除；也不能移除最后一个管理员的 `"*"` 权限。
 - 通过管理页创建或修改账户直接写入 SQLite，不会修改或生成运行时 JSON 账户配置。
 
 ## 会话与安全行为

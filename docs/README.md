@@ -15,6 +15,7 @@
 | Claude Code 学习中心 | `/tools/claude-code-guide` | [claude-code-guide.md](./claude-code-guide.md) |
 | DND 语言翻译器 | `/tools/dnd-translator` | [dnd-translator.md](./dnd-translator.md) |
 | 康威生命游戏 | `/tools/conways-game-of-life` | [conways-game-of-life.md](./conways-game-of-life.md) |
+| 局域网大厅 | `/tools/lan-chat` | [lan-chat.md](./lan-chat.md) |
 | 目标大屏 | `/tools/target-text` | [target-text.md](./target-text.md) |
 | DND 人物卡 | `/tools/dnd-character` | [dnd-character.md](./dnd-character.md) |
 | DND 先攻追踪器（遥控器/主屏） | `/tools/initiative-tracker`、`/tools/initiative-tracker/display` | [initiative-tracker-room.md](./initiative-tracker-room.md) |

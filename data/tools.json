@@ -121,6 +121,16 @@
     "createdAt": "2026-08-29"
   },
   {
+    "slug": "lan-chat",
+    "title": "局域网大厅",
+    "description": "局域网公共聊天与文件互发：历史消息、图片视频预览、回复、@ 提及与实时在线状态",
+    "category": "utility",
+    "tags": ["chat", "lan", "files", "wechat", "realtime"],
+    "icon": "💬",
+    "featured": true,
+    "createdAt": "2026-08-31"
+  },
+  {
     "slug": "target-text",
     "title": "目标大屏",
     "description": "把一句重要文字变成全屏焦点：静止、滚动、闪烁、倒计时与多种舞台主题均可配置",

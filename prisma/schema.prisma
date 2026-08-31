@@ -21,6 +21,9 @@ model User {
   savings     SavingsRecord[]
   homePreference HomePreference?
   homeToolUsage  HomeToolUsage[]
+  chatMessages   ChatMessage[]
+  chatAttachments ChatAttachment[]
+  chatReactions  ChatReaction[]
 }
 
 model HomePreference {
@@ -43,6 +46,51 @@ model HomeToolUsage {
 
   @@id([ownerId, toolSlug])
   @@index([ownerId, lastOpenedAt])
+}
+
+model ChatMessage {
+  id          String           @id @default(cuid())
+  authorId    String
+  body        String           @default("")
+  replyToId   String?
+  createdAt   DateTime         @default(now())
+  withdrawnAt DateTime?
+  author      User             @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  replyTo     ChatMessage?     @relation("ChatReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     ChatMessage[]    @relation("ChatReplies")
+  attachments ChatAttachment[]
+  reactions   ChatReaction[]
+
+  @@index([createdAt, id])
+  @@index([authorId, createdAt])
+}
+
+model ChatAttachment {
+  id           String       @id @default(cuid())
+  messageId    String?
+  uploaderId   String
+  storedName   String       @unique
+  originalName String
+  mimeType     String
+  byteSize     Int
+  createdAt    DateTime     @default(now())
+  message      ChatMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploader     User         @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([uploaderId, createdAt])
+}
+
+model ChatReaction {
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime    @default(now())
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId, emoji])
+  @@index([messageId, createdAt])
 }
 
 model UserPermission {

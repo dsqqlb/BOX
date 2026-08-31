@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const { prisma } = require('./db');
 const { TOOL_SLUGS } = require('./config');
+const { unlinkChatAttachmentFiles } = require('./chat-store');
 
 const USERNAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{1,63}$/;
 const PASSWORD_MIN_LENGTH = 8;
@@ -122,15 +123,18 @@ async function updateAccount(actorUsername, targetUsername, input) {
 async function deleteAccount(actorUsername, targetUsername) {
   const username = normalizeUsername(targetUsername);
   if (actorUsername === username) throw new AccountAdminError('不能删除当前登录的管理员账户。', 409);
-  return prisma.$transaction(async (tx) => {
-    const target = await tx.user.findUnique({ where: { username }, include: includePermissions });
+  const attachments = await prisma.$transaction(async (tx) => {
+    const target = await tx.user.findUnique({ where: { username }, include: { ...includePermissions, chatAttachments: { select: { storedName: true } } } });
     if (!target) throw new AccountAdminError('账户不存在。', 404);
     if (target.permissions.some((entry) => entry.permission === '*')) {
       const adminCount = await tx.user.count({ where: { permissions: { some: { permission: '*' } } } });
       if (adminCount <= 1) throw new AccountAdminError('不能删除最后一个管理员账户。', 409);
     }
     await tx.user.delete({ where: { id: target.id } });
+    return target.chatAttachments;
   });
+  // SQLite 外键级联不能删除磁盘二进制；事务成功后再尽力清理，失败时下次运维可按 data/chat/ 盘点。
+  await unlinkChatAttachmentFiles(attachments);
 }
 
 module.exports = { AccountAdminError, isAdmin, listAccounts, createAccount, updateAccount, deleteAccount };

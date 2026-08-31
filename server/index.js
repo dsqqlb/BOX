@@ -39,6 +39,7 @@ const homePreferences = require('./home-preferences');
 const httpUtils = require('./http-utils');
 const { createRoomServer } = require('./rooms');
 const { createKardsRoomServer } = require('./kards-rooms');
+const { createChatServer } = require('./chat-server');
 const { createRequestHandler } = require('./routes');
 
 // ============ 组装 ============
@@ -46,7 +47,8 @@ const { createRequestHandler } = require('./routes');
 const auth = createAuth({ projectRoot: config.PROJECT_ROOT, isProduction: !config.DEV });
 const roomServer = createRoomServer({ auth });
 const kardsRoomServer = createKardsRoomServer({ auth });
-const requestHandler = createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePreferences, roomServer, kardsRoomServer, config });
+const chatServer = createChatServer({ auth });
+const requestHandler = createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePreferences, roomServer, kardsRoomServer, chatServer, config });
 
 // ============ 启动统一服务 ============
 
@@ -98,6 +100,17 @@ async function main() {
         pathname = httpUtils.canonicalizePathname(pathname);
       } catch { pathname = null; }
 
+      if (pathname === '/ws/chat') {
+        const user = await auth.getUserFromRequest(req);
+        if (!httpUtils.isSameOrigin(req) || !user || !auth.hasToolAccess(user, 'lan-chat')) {
+          const status = user ? '403 Forbidden' : '401 Unauthorized';
+          socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+          socket.destroy();
+          return;
+        }
+        chatServer.wss.handleUpgrade(req, socket, head, (ws) => { ws.user = user; chatServer.wss.emit('connection', ws, req); });
+        return;
+      }
       if (pathname === '/ws') {
         const user = await auth.getUserFromRequest(req);
         const toolSlug = isKardsRequest ? 'kards' : 'initiative-tracker';
@@ -145,6 +158,7 @@ async function main() {
     clearInterval(kardsRoomServer.cleanupTimer);
     roomServer.wss.clients.forEach((client) => client.close());
     kardsRoomServer.wss.clients.forEach((client) => client.close());
+    chatServer.wss.clients.forEach((client) => client.close());
     server.close(() => {
       console.log('✅ 服务器已关闭');
       process.exit(0);

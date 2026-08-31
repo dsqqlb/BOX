@@ -123,7 +123,7 @@ npm run db:setup
 
 此命令会创建 `data/box.sqlite`、应用受版本控制的数据库结构，并导入 `data/auth-users.json`、已有 EDH 牌组、DND 人物卡快照和省钱记录。导入前会自动在 `data/backups/` 建立源 JSON 备份，**不会删除原文件**。
 
-之后运行时的账户、权限、EDH 牌组、DND 人物卡、省钱记录，以及首页的收藏、折叠分类、主题、视图偏好和最近使用记录均以 SQLite 为准；新账户首次保存 DND 人物卡会直接创建 SQLite 数据，不会生成 JSON。`data/auth-users.json` 仅用于新机器首次初始化或有计划的数据迁移。务必将 `data/box.sqlite` 与 `.env.local` 一起纳入私密备份，并确保 `data/` 对服务账户可写。
+之后运行时的账户、权限、EDH 牌组、DND 人物卡、省钱记录、局域网大厅的消息/附件元数据，以及首页的收藏、折叠分类、主题、视图偏好和最近使用记录均以 SQLite 为准；局域网聊天附件本体保存于 `data/chat/uploads/`。新账户首次保存 DND 人物卡会直接创建 SQLite 数据，不会生成 JSON。`data/auth-users.json` 仅用于新机器首次初始化或有计划的数据迁移。务必将 `data/box.sqlite`、`data/chat/` 与 `.env.local` 一起纳入私密备份，并确保 `data/` 对服务账户可写。
 
 ### 7. 构建、启动和首次验证
 

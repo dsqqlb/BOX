@@ -2182,3 +2182,25 @@ img {
   background: rgba(255, 255, 255, 0.72);
 }
 .home-paper .home-tool-list article:hover { background: rgba(15, 23, 42, 0.04); }
+
+/* 局域网大厅：默认深色主题；页面按钮可即时切回浅色，局限在聊天容器内。 */
+.lan-chat-dark {
+  background: #091215 !important;
+  color: #dce9e5 !important;
+}
+.lan-chat-dark > div { background: #101b1e !important; }
+.lan-chat-dark .bg-white { background-color: #142126 !important; }
+.lan-chat-dark .bg-slate-50 { background-color: #17242a !important; }
+.lan-chat-dark .bg-slate-100 { background-color: #203138 !important; }
+.lan-chat-dark .bg-\[\#f7faf8\],
+.lan-chat-dark .bg-\[\#edf3ef\] { background-color: #101b1e !important; }
+.lan-chat-dark .border-slate-200 { border-color: rgba(173, 211, 201, 0.15) !important; }
+.lan-chat-dark .text-slate-800,
+.lan-chat-dark .text-slate-600 { color: #dce9e5 !important; }
+.lan-chat-dark .text-slate-500,
+.lan-chat-dark .text-slate-400 { color: #8ba49e !important; }
+.lan-chat-dark .bg-orange-100 { background-color: #31414a !important; }
+.lan-chat-dark .text-orange-700 { color: #e1f0eb !important; }
+.lan-chat-dark .bg-emerald-50 { background-color: rgba(16, 92, 76, 0.38) !important; }
+.lan-chat-dark .text-emerald-700 { color: #8ce7ca !important; }
+.lan-chat-dark .chat-message-tools { filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.25)); }
