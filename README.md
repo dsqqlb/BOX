@@ -95,7 +95,7 @@ BOX_COOKIE_SECURE=true
 }
 ```
 
-当前可用权限为：`claude-code-guide`、`dnd-translator`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`edh-builder`、`dnd-character`、`kards`、`conways-game-of-life`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
+当前可用权限为：`claude-code-guide`、`dnd-translator`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`edh-builder`、`dnd-character`、`kards`、`conways-game-of-life`、`target-text`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
 
 ### 5. 为每个账户生成密码哈希
 
@@ -123,7 +123,7 @@ npm run db:setup
 
 此命令会创建 `data/box.sqlite`、应用受版本控制的数据库结构，并导入 `data/auth-users.json`、已有 EDH 牌组、DND 人物卡快照和省钱记录。导入前会自动在 `data/backups/` 建立源 JSON 备份，**不会删除原文件**。
 
-之后运行时的账户、权限、EDH 牌组、DND 人物卡和省钱记录均以 SQLite 为准；新账户首次保存 DND 人物卡会直接创建 SQLite 数据，不会生成 JSON。`data/auth-users.json` 仅用于新机器首次初始化或有计划的数据迁移。务必将 `data/box.sqlite` 与 `.env.local` 一起纳入私密备份，并确保 `data/` 对服务账户可写。
+之后运行时的账户、权限、EDH 牌组、DND 人物卡、省钱记录，以及首页的收藏、折叠分类、主题、视图偏好和最近使用记录均以 SQLite 为准；新账户首次保存 DND 人物卡会直接创建 SQLite 数据，不会生成 JSON。`data/auth-users.json` 仅用于新机器首次初始化或有计划的数据迁移。务必将 `data/box.sqlite` 与 `.env.local` 一起纳入私密备份，并确保 `data/` 对服务账户可写。
 
 ### 7. 构建、启动和首次验证
 
@@ -191,6 +191,7 @@ npm start
 | Claude Code 学习中心 | `/tools/claude-code-guide` | JSON 驱动的指令、技巧和常见问题参考 | [查看](./docs/claude-code-guide.md) |
 | DND 语言翻译器 | `/tools/dnd-translator` | 中英文翻译、奇幻字体展示与符文图片导出 | [查看](./docs/dnd-translator.md) |
 | 康威生命游戏 | `/tools/conways-game-of-life` | 可绘制、演化、保存快照的赛博元胞自动机实验室 | [查看](./docs/conways-game-of-life.md) |
+| 目标大屏 | `/tools/target-text` | 将一句关键文字以全屏、滚动、闪烁或倒计时形式投屏展示 | [查看](./docs/target-text.md) |
 | DND 人物卡 | `/tools/dnd-character` | 按账户保存角色、装备、法术与日志快照 | [查看](./docs/dnd-character.md) |
 | DND 先攻追踪器（遥控器） | `/tools/initiative-tracker` | 管理角色、回合、状态与骰子 | [查看](./docs/initiative-tracker-room.md) |
 | DND 先攻追踪器（主屏） | `/tools/initiative-tracker/display` | 创建/接管房间并在大屏展示战斗 | [查看](./docs/initiative-tracker-room.md) |

@@ -59,6 +59,7 @@ const TOOL_SLUGS = [
   'dnd-character',
   'kards',
   'conways-game-of-life',
+  'target-text',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 

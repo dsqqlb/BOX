@@ -2122,3 +2122,63 @@ img {
     transition: none !important;
   }
 }
+
+/* Target Display：大屏文字动效；支持 prefers-reduced-motion 降低运动强度。 */
+@keyframes target-scroll-left {
+  from { transform: translateX(115vw); }
+  to { transform: translateX(-115vw); }
+}
+
+@keyframes target-scroll-right {
+  from { transform: translateX(-115vw); }
+  to { transform: translateX(115vw); }
+}
+
+@keyframes target-scroll-up {
+  from { transform: translateY(65vh); }
+  to { transform: translateY(-65vh); }
+}
+
+@keyframes target-scroll-down {
+  from { transform: translateY(-65vh); }
+  to { transform: translateY(65vh); }
+}
+
+@keyframes target-pulse {
+  0%, 100% { opacity: 0.78; transform: scale(0.97); }
+  50% { opacity: 1; transform: scale(1.035); }
+}
+
+@keyframes target-blink {
+  0%, 46%, 100% { opacity: 1; }
+  47%, 67% { opacity: 0.2; }
+}
+
+.target-text { will-change: transform, opacity; }
+.target-left { animation: target-scroll-left var(--target-speed) linear infinite; }
+.target-right { animation: target-scroll-right var(--target-speed) linear infinite; }
+.target-up { animation: target-scroll-up var(--target-speed) linear infinite; }
+.target-down { animation: target-scroll-down var(--target-speed) linear infinite; }
+.target-pulse { animation: target-pulse 2.8s ease-in-out infinite; }
+.target-blink { animation: target-blink 1s steps(1, end) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .target-left, .target-right, .target-up, .target-down, .target-pulse, .target-blink { animation: none; }
+}
+
+/* 首页“纸页晨光”主题需要覆盖共用工具卡的深色默认面板。 */
+.home-paper .home-tool-card {
+  border-color: rgba(15, 23, 42, 0.11);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 10px 35px rgba(15, 23, 42, 0.09);
+}
+.home-paper .home-tool-card:hover { background: rgba(255, 255, 255, 0.94); }
+.home-paper .home-tool-card h3,
+.home-paper .home-tool-list h3 { color: rgb(15, 23, 42); }
+.home-paper .home-tool-card p,
+.home-paper .home-tool-list p { color: rgb(71, 85, 105); }
+.home-paper .home-tool-list {
+  border-color: rgba(15, 23, 42, 0.11);
+  background: rgba(255, 255, 255, 0.72);
+}
+.home-paper .home-tool-list article:hover { background: rgba(15, 23, 42, 0.04); }

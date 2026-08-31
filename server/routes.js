@@ -17,7 +17,7 @@ const edhCards = require('./edh-cards');
 const images = require('./images');
 const kardsDecks = require('./kards-decks');
 
-function createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServer, kardsRoomServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePreferences, roomServer, kardsRoomServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -120,6 +120,38 @@ function createRequestHandler({ auth, userData, edhDecks, accountAdmin, roomServ
       if (pathname.startsWith('/api/')) return httpUtils.sendAuthError(res, 403, '当前账户没有访问此工具的权限。');
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end('403 无权访问此工具');
+    }
+
+    // 首页偏好：按账户保存，但返回和写入都以当前权限的工具集合为边界。
+    if (pathname === '/api/home/preferences') {
+      try {
+        const allowedTools = getAllowedToolSlugs(requestUser);
+        if (req.method === 'GET') return httpUtils.sendJson(res, await homePreferences.getHomePreferences(requestUser.username, allowedTools));
+        if (req.method === 'PATCH') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          return httpUtils.sendJson(res, await homePreferences.saveHomePreferences(requestUser.username, body, allowedTools));
+        }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) {
+        if (error instanceof homePreferences.HomePreferencesError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
+        throw error;
+      }
+    }
+
+    if (pathname === '/api/home/tool-usage') {
+      if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try {
+        const body = await httpUtils.readBody(req);
+        if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+        await homePreferences.recordToolUsage(requestUser.username, body.toolSlug, getAllowedToolSlugs(requestUser));
+        res.writeHead(204, { 'Cache-Control': 'no-store' });
+        return res.end();
+      } catch (error) {
+        if (error instanceof homePreferences.HomePreferencesError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
+        throw error;
+      }
     }
 
     // 管理员账户 API：只返回公开账户信息，密码哈希永不离开服务端。

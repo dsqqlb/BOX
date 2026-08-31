@@ -119,5 +119,15 @@
     "icon": "🎖️",
     "featured": true,
     "createdAt": "2026-08-29"
+  },
+  {
+    "slug": "target-text",
+    "title": "目标大屏",
+    "description": "把一句重要文字变成全屏焦点：静止、滚动、闪烁、倒计时与多种舞台主题均可配置",
+    "category": "utility",
+    "tags": ["display", "fullscreen", "marquee", "goal", "presentation"],
+    "icon": "📣",
+    "featured": true,
+    "createdAt": "2026-08-30"
   }
 ]
