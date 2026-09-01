@@ -30,6 +30,7 @@
 
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const config = require('./config');
 const { createAuth } = require('./auth');
 const userData = require('./user-data');
@@ -51,6 +52,16 @@ const chatServer = createChatServer({ auth });
 const requestHandler = createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePreferences, roomServer, kardsRoomServer, chatServer, config });
 
 // ============ 启动统一服务 ============
+
+// 取本机第一个非回环 IPv4 地址（如 192.168.x.x），用于启动日志展示局域网访问入口。
+function getLanAddress() {
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const entry of list || []) {
+      if ((entry.family === 'IPv4' || entry.family === 4) && !entry.internal) return entry.address;
+    }
+  }
+  return null;
+}
 
 async function main() {
   // 未导入账户时拒绝启动，避免服务意外以无认证状态运行。
@@ -144,6 +155,8 @@ async function main() {
     console.log('');
     console.log(`🚀 BOX 服务已启动（${config.DEV ? '开发' : '生产'}模式，单端口）`);
     console.log(`   本机访问:   http://localhost:${config.PORT}`);
+    const lanAddress = getLanAddress();
+    console.log(lanAddress ? `   局域网访问: http://${lanAddress}:${config.PORT}` : '   局域网访问: 未检测到局域网地址（仅本机可访问）');
     console.log(`   WebSocket:  ws://localhost:${config.PORT}/ws`);
     console.log(`   Kards 对战: ws://localhost:${config.PORT}/ws?kards=1`);
     console.log(`   图片目录:   ${config.IMAGE_DIR}`);
