@@ -8,4 +8,9 @@ process.env.DATABASE_URL ||= 'file:../data/box.sqlite';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executable = process.platform === 'win32' ? path.join(projectRoot, 'node_modules', '.bin', 'prisma.cmd') : path.join(projectRoot, 'node_modules', '.bin', 'prisma');
 const result = spawnSync(executable, process.argv.slice(2), { stdio: 'inherit', env: process.env, shell: process.platform === 'win32' });
+if (result.error) {
+  console.error(`\n❌ 无法执行 Prisma CLI（${executable}）：${result.error.message}`);
+  console.error('   看起来依赖没有安装完整。请先在项目根目录执行：npm install');
+  process.exit(1);
+}
 process.exit(result.status ?? 1);
