@@ -433,7 +433,7 @@ function InitiativeDisplayPageInner() {
   const [criticalEffect, setCriticalEffect] = useState<CriticalEffect | null>(null);
   // 记住这一轮投掷请求带的配方，摇完拿到结果后才用得上；发起新一轮投掷/收起时清空
   const pendingRecipeRef = useRef<FlattenedRecipe | null>(null);
-  // 只有手动收起后的700ms淡出卸载定时器；骰盘不再设置自动隐藏倒计时。
+  // 手动收起后的700ms淡出定时器：只负责清掉本轮状态；3D场景本身保持常驻，不复位、不销毁。
   const diceUnmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 单颗骰子重投："这一次投掷里，哪些骰子(全局id)已经用过唯一一次重投机会"——
@@ -1080,8 +1080,9 @@ function InitiativeDisplayPageInner() {
       <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-slate-800/50 to-transparent" />
 
       {/* 3D掷骰全屏遮罩：铺满全屏暂时盖住角色卡战斗区，投掷动画结束后停留展示结果，再自动淡出收起。
-          rollRequest不为null才挂载3D场景，避免场景一直闲置在DOM里浪费GPU资源。 */}
-      {diceRollRequest && (
+          3D骰盘从房间确定后常驻挂载、提前完成初始化，收起时只隐藏遮罩不卸载场景。
+          这样移动端第二次及以后的投掷不用再重新下载/编译three.js、重建WebGL和物理世界。 */}
+      {roomId && (
         <div
           className={`fixed inset-0 z-[60] bg-slate-950/70 backdrop-blur-[2px] transition-opacity duration-700 ${
             diceOverlayVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'

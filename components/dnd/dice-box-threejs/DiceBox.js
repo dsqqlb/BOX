@@ -82,16 +82,30 @@ class DiceBox {
 		this.lastSoundType = '';
 		this.lastSoundStep = 0;
 		this.lastSound = 0;
-		// 追踪当前正在播放的音效数量，配合maxConcurrentSounds做节流：
-		// 用Set记一下正在播的<audio>元素，播放结束/出错就自动摘掉，countActive()就是当前同时响的声音数
+		// 骰子音效改用 Web Audio：只要页面有一次真实的点击/触摸把 AudioContext resume 成功，
+		// 之后物理引擎在任何时刻触发碰撞声都能正常播放，不再受移动端"必须用户手势才能play"的限制。
+		this.audioCtx = null;          // 真正播放用的 AudioContext，首次手势时才创建/唤醒
+		this.audioUnlocked = false;    // context 是否已处于可发声的 running 状态
+		this._audioClips = [];         // 下载到的音频数据：{data: ArrayBuffer, buffer: AudioBuffer|null}
+		// 追踪当前正在播放的音效节点，配合maxConcurrentSounds做节流：
+		// 用Set记一下正在播的AudioBufferSourceNode，播放结束就自动摘掉。
 		this._activeSounds = new Set()
 		this.playSoundHelpers = {
 			countActive: () => this._activeSounds.size,
-			play: (audioEl) => {
-				this._activeSounds.add(audioEl)
-				const cleanup = () => this._activeSounds.delete(audioEl)
-				audioEl.addEventListener('ended', cleanup, { once: true })
-				audioEl.play().catch(() => cleanup())
+			play: (clip, volume) => {
+				const ctx = this.audioCtx
+				if (!ctx || ctx.state !== 'running') return
+				if (!clip || !clip.buffer) return
+				const source = ctx.createBufferSource()
+				source.buffer = clip.buffer
+				const gain = ctx.createGain()
+				gain.gain.value = Math.max(0, Math.min(1, Number(volume) || 0))
+				source.connect(gain)
+				gain.connect(ctx.destination)
+				const active = { source, gain }
+				this._activeSounds.add(active)
+				source.onended = () => this._activeSounds.delete(active)
+				source.start()
 			}
 		}
 		this.iteration;
@@ -294,38 +308,104 @@ class DiceBox {
 		const diceFiles = ['dicehit_plastic1.mp3', 'dicehit_plastic2.mp3']
 
 		if (!this.sounds_table[surfaceKey]) {
-			this.sounds_table[surfaceKey] = []
-			for (const filename of surfaceFiles) {
-				const clip = await this.loadAudio(this.assetPath + 'sounds/surfaces/' + filename)
-				this.sounds_table[surfaceKey].push(clip)
-			}
+			const clips = await Promise.all(
+				surfaceFiles.map((filename) => this.loadAudio(this.assetPath + 'sounds/surfaces/' + filename))
+			)
+			this.sounds_table[surfaceKey] = clips.filter(Boolean)
 		}
 		// 任何桌面类型都指向保留的两段毛毡撞击声。
 		this.sounds_table[this.surface] = this.sounds_table[surfaceKey]
 
 		if (!this.sounds_dice.default) {
-			this.sounds_dice.default = []
-			for (const filename of diceFiles) {
-				const clip = await this.loadAudio(this.assetPath + 'sounds/dicehit/' + filename)
-				this.sounds_dice.default.push(clip)
-			}
+			const clips = await Promise.all(
+				diceFiles.map((filename) => this.loadAudio(this.assetPath + 'sounds/dicehit/' + filename))
+			)
+			this.sounds_dice.default = clips.filter(Boolean)
 		}
 		// coin / metal / wood / plastic 等所有骰子材质统一映射到保留的两段骰子碰撞声。
 		for (const material of ['coin', 'metal', 'plastic', 'wood']) {
 			this.sounds_dice[material] = this.sounds_dice.default
 		}
+
+		// 如果 AudioContext 已经处于 running（桌面或页面点过屏幕），音频下载完就立刻补齐解码，
+		// 不必等到下一次手势/投掷才出声。
+		if (this.audioCtx?.state === 'running') {
+			await this.decodePendingAudio()
+			const clipsReady = this._audioClips.length > 0 && this._audioClips.every((clip) => clip.buffer)
+			this.audioUnlocked = clipsReady
+			if (this.audioUnlocked) {
+				document.dispatchEvent(new CustomEvent('diceAudioUnlocked'))
+			}
+		}
 	}
 
-	loadAudio(src){
-		return new Promise((resolve, reject) => {
-			let audio = new Audio()
-			audio.oncanplaythrough = () => resolve(audio)
-			audio.crossOrigin = "anonymous";
-			audio.src = src
-			audio.onerror = (error) => reject(error)
-		}).catch(e => {
-			console.error("Unable to load audio")
-		})
+	// 只负责把 mp3 的字节下载回来。移动端浏览器在用户手势前可能根本不会真正加载媒体元素，
+	// 所以这里直接用 fetch 拉 ArrayBuffer，等首次手势解锁 AudioContext 后再统一 decode。
+	async loadAudio(src){
+		try {
+			const res = await fetch(src, { credentials: 'same-origin' })
+			if (!res.ok) throw new Error(`HTTP ${res.status}`)
+			const data = await res.arrayBuffer()
+			const clip = { data, buffer: null }
+			this._audioClips.push(clip)
+			return clip
+		} catch (e) {
+			console.error('Unable to load dice audio:', src, e)
+			return null
+		}
+	}
+
+	getAudioContext(){
+		if (this.audioCtx) return this.audioCtx
+		const Ctor = (typeof window !== 'undefined') && (window.AudioContext || window.webkitAudioContext)
+		if (!Ctor) return null
+		this.audioCtx = new Ctor()
+		return this.audioCtx
+	}
+
+	async decodePendingAudio(){
+		const ctx = this.audioCtx
+		if (!ctx || ctx.state !== 'running') return
+		for (const clip of this._audioClips) {
+			if (clip.buffer || !clip.data) continue
+			try {
+				// decodeAudioData 会消费掉传入的 ArrayBuffer，所以每次重试都传一份拷贝
+				clip.buffer = await ctx.decodeAudioData(clip.data.slice(0))
+			} catch (e) {
+				console.error('Unable to decode dice audio:', e)
+			}
+		}
+	}
+
+	// 必须在主屏页面的真实用户手势里调用一次（DiceRoller 会监听 pointerdown/touchstart/keydown）。
+	// context resume 成功后，骰子碰撞随时触发都算"已解锁"，不会再被移动端自动播放策略拦掉。
+	async unlockAudio(){
+		const ctx = this.getAudioContext()
+		if (!ctx) return false
+		try {
+			if (ctx.state === 'suspended') await ctx.resume()
+		} catch (e) {
+			console.warn('AudioContext resume blocked: this screen needs a tap/click first', e)
+		}
+		if (ctx.state !== 'running') return false
+		// iOS Safari 上播放一段极短静音可以把 Web Audio 从"手势解锁"状态彻底激活，
+		// 之后物理碰撞随时触发都不再受自动播放限制。
+		try {
+			const silentBuffer = ctx.createBuffer(1, 1, Math.max(1, Math.floor(ctx.sampleRate * 0.01)))
+			const silentSource = ctx.createBufferSource()
+			silentSource.buffer = silentBuffer
+			silentSource.connect(ctx.destination)
+			silentSource.start(0)
+		} catch (e) {
+			console.warn('Unable to play silent audio unlock:', e)
+		}
+		await this.decodePendingAudio()
+		const clipsReady = this._audioClips.length > 0 && this._audioClips.every((clip) => clip.buffer)
+		this.audioUnlocked = clipsReady
+		if (this.audioUnlocked) {
+			document.dispatchEvent(new CustomEvent('diceAudioUnlocked'))
+		}
+		return this.audioUnlocked
 	}
 
 	async updateConfig(options = {}){
@@ -747,8 +827,7 @@ class DiceBox {
 				sound = soundlist[Math.floor(Math.random() * soundlist.length)];
 			}
 			if(sound){
-				sound.volume = Math.min(speed / 8000, this.volume/100)
-				this.playSoundHelpers.play(sound)
+				this.playSoundHelpers.play(sound, Math.min(speed / 8000, this.volume / 100))
 			}
 			this.lastSoundType = 'dice';
 
@@ -767,8 +846,7 @@ class DiceBox {
 				? soundlist[Math.floor(Math.random() * soundlist.length)]
 				: null;
 			if(sound){
-				sound.volume = Math.min(speed / 8000, this.volume/100)
-				this.playSoundHelpers.play(sound)
+				this.playSoundHelpers.play(sound, Math.min(speed / 8000, this.volume / 100))
 			}
 			this.lastSoundType = 'table';
 		}

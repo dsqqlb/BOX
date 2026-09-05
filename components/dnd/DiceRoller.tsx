@@ -9,7 +9,7 @@
 // 用法：外部通过 rollRequest 传入一次性的"投掷请求"（骰子表达式+唯一ID），
 // 组件监测到 rollRequest.id 变化就触发一次新的投掷，动画结束后回调 onRollComplete。
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FlattenedRecipe } from '@/lib/diceExpression';
 
 export interface DiceRollRequest {
@@ -54,6 +54,23 @@ export interface DiceRerollRequest {
   dieIds: number[];
 }
 
+// 只挑出这次投掷真正用到的骰形纹理，避免为一次 d20 检定把 d4~d12 的贴图也全部下载。
+function neededShapeTextures(req: DiceRollRequest | null): Partial<Record<string, string>> {
+  const all = req?.shapeTextures || {};
+  const sides = new Set<number>();
+  for (const recipe of req?.recipe?.recipes || []) sides.add(recipe.sides);
+  if (sides.size === 0 && req?.notation) {
+    for (const match of req.notation.matchAll(/d(\d+)/g)) sides.add(Number(match[1]));
+  }
+  if (sides.size === 0) return all; // 解析不出来就退回全量，保证有贴图可显示
+  const picked: Partial<Record<string, string>> = {};
+  for (const side of sides) {
+    const key = `d${side}`;
+    if (all[key]) picked[key] = all[key];
+  }
+  return picked;
+}
+
 interface DiceRollerProps {
   rollRequest: DiceRollRequest | null;
   onRollComplete?: (result: DiceRollResult) => void;
@@ -78,14 +95,53 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
   const lastRerollRequestIdRef = useRef<string | null>(null);
   const rerollingRef = useRef(false); // 同一时刻只处理一次重投，避免同一颗骰子的动画还没播完就又叠加一次
   const [ready, setReady] = useState(false);
+  // DiceBox 只在初始化时保存一次 onRollComplete；现在组件常驻后回调props会随每轮投掷变化，
+  // 必须用ref转发"最新"的回调，否则动画播完调用到的还是挂载时那版（那时 diceRollRequest 还是空）。
+  const onRollCompleteRef = useRef(onRollComplete);
+  // 移动端声音解锁：DiceBox 用 Web Audio 播放骰子碰撞声，但 AudioContext 必须由真实手势唤醒。
+  // 组件负责监听主屏第一次点击/触摸/键盘，并提示用户点一下屏幕开启音效。
+  const audioSupportRef = useRef(
+    typeof window !== 'undefined' && Boolean((window as any).AudioContext || (window as any).webkitAudioContext)
+  );
+  // 只有触摸设备才需要在骰子面板上提示"点一下屏幕开声音"；桌面浏览器点过页面后通常自动放行。
+  const touchInputRef = useRef(
+    typeof window !== 'undefined' && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
+  );
+  const audioUnlockInFlightRef = useRef(false);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [configuringTextures, setConfiguringTextures] = useState(false);
   // 纹理配置：组件挂载时的初始快照，仅用于DiceBox构造函数的初始参数。
-  // 注意——实际渲染时<DiceRoller>并不会每次投掷都重新挂载：display/page.tsx让结果展示停留
-  // 120秒才收起，只要用户在这个窗口内换了骰子外观预设再投下一轮，diceRollRequest只是被替换成
-  // 新对象，组件实例是同一个，不会重新走这段挂载逻辑。所以每次真正投掷前必须用下面的effect
-  // 把最新的shapeTextures同步给已存在的DiceBox实例(updateConfig)，不能只依赖这个挂载时的快照。
+  // 注意——<DiceRoller>在主屏连上房间后常驻挂载、收起骰盘也不销毁。因此每次真正投掷前必须
+  // 用下面的effect把这次请求的shapeTextures同步给已存在的DiceBox实例(updateConfig)，
+  // 不能只依赖这个挂载时的快照。
   // colorset固定用'white'当基础颜色方案——纹理图本身会盖住骰子表面，颜色方案对最终视觉没有影响，
   // 只是dice-box-threejs内部仍然需要一个有效的colorset来算文字/描边等辅助信息，随便给个默认值即可。
   const shapeTexturesRef = useRef(rollRequest?.shapeTextures || {});
+
+  const attemptAudioUnlock = useCallback(() => {
+    const box = boxRef.current;
+    if (!readyRef.current || !box?.unlockAudio || audioUnlockInFlightRef.current) return;
+    audioUnlockInFlightRef.current = true;
+    // 个别浏览器在非手势时机调用 resume() 会让 Promise 一直不结束；加超时兜底，
+    // 避免 inFlight 卡死导致之后真正的点击也无法再尝试解锁。
+    const timeoutId = window.setTimeout(() => {
+      audioUnlockInFlightRef.current = false;
+    }, 2500);
+    box.unlockAudio().then((ok: boolean) => {
+      window.clearTimeout(timeoutId);
+      audioUnlockInFlightRef.current = false;
+      if (ok) {
+        setAudioUnlocked(true);
+      }
+    }).catch(() => {
+      window.clearTimeout(timeoutId);
+      audioUnlockInFlightRef.current = false;
+    });
+  }, []);
+
+  useEffect(() => {
+    onRollCompleteRef.current = onRollComplete;
+  }, [onRollComplete]);
 
   // 初始化DiceBox（只在挂载时做一次）
   useEffect(() => {
@@ -111,7 +167,7 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
         shadows: true,
         strength: 1.4, // 投掷力度稍强一点，动效更有冲击力
         onRollComplete: (result: DiceRollResult) => {
-          onRollComplete?.(result);
+          onRollCompleteRef.current?.(result);
         },
       });
 
@@ -135,8 +191,13 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
         pendingRequestRef.current = null;
         lastRolledIdRef.current = req.id;
         onRollStart?.();
-        box.updateConfig({ theme_shapeTextures: req.shapeTextures || {} }).then(() => {
+        if (!touchInputRef.current) attemptAudioUnlock();
+        setConfiguringTextures(true);
+        box.updateConfig({ theme_shapeTextures: neededShapeTextures(req) }).then(() => {
+          setConfiguringTextures(false);
           box.roll(req.notation);
+        }).catch(() => {
+          setConfiguringTextures(false);
         });
       }
     });
@@ -161,10 +222,35 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
 
     lastRolledIdRef.current = rollRequest.id;
     onRollStart?.();
-    boxRef.current.updateConfig({ theme_shapeTextures: rollRequest.shapeTextures || {} }).then(() => {
+    if (!touchInputRef.current) attemptAudioUnlock();
+    setConfiguringTextures(true);
+    boxRef.current.updateConfig({ theme_shapeTextures: neededShapeTextures(rollRequest) }).then(() => {
+      setConfiguringTextures(false);
       boxRef.current.roll(rollRequest.notation);
+    }).catch(() => {
+      setConfiguringTextures(false);
     });
-  }, [rollRequest, onRollStart]);
+  }, [rollRequest, onRollStart, attemptAudioUnlock]);
+
+  // 主屏的真实手势（点击/触摸/键盘）里调用 unlockAudio，把 AudioContext 唤醒；
+  // 移动端浏览器只认这种"用户真的碰过这个页面"的信号，WebSocket 消息不算。
+  useEffect(() => {
+    if (!ready) return;
+    const handleGesture = () => attemptAudioUnlock();
+    const handleUnlocked = () => {
+      setAudioUnlocked(true);
+    };
+    window.addEventListener('pointerdown', handleGesture, { passive: true });
+    window.addEventListener('touchstart', handleGesture, { passive: true });
+    window.addEventListener('keydown', handleGesture, { passive: true });
+    document.addEventListener('diceAudioUnlocked', handleUnlocked);
+    return () => {
+      window.removeEventListener('pointerdown', handleGesture);
+      window.removeEventListener('touchstart', handleGesture);
+      window.removeEventListener('keydown', handleGesture);
+      document.removeEventListener('diceAudioUnlocked', handleUnlocked);
+    };
+  }, [ready, attemptAudioUnlock]);
 
   // 直接缩放引擎内的骰子网格；画布/骰盘容器保持全尺寸自适应。
   useEffect(() => {
@@ -173,7 +259,8 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
   }, [diceScale]);
 
   // kh/kl高亮：结果算完后父组件才会给highlights传值，这里直接转发给3D引擎去加发光描边。
-  // 组件每次投掷都是全新挂载（见display/page.tsx），所以不用担心"上一轮"残留高亮混进这一轮。
+  // 组件现在是常驻的，但父组件每轮开始/收骰时都会把highlights清空，该effect随之调用
+  // applyHighlights([])清理引擎内残留发光，所以不用担心上一轮高亮混进这一轮。
   useEffect(() => {
     if (!readyRef.current || !boxRef.current) return;
     boxRef.current.applyHighlights(highlights || []);
@@ -188,6 +275,7 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
     rerollingRef.current = true;
     const { requestId, dieIds } = rerollRequest;
 
+    if (!touchInputRef.current) attemptAudioUnlock();
     boxRef.current.reroll(dieIds).then((results: { value: number }[]) => {
       rerollingRef.current = false;
       const completed = dieIds.flatMap((dieId, index) => {
@@ -198,14 +286,19 @@ export default function DiceRoller({ rollRequest, onRollComplete, onRollStart, h
     }).catch(() => {
       rerollingRef.current = false;
     });
-  }, [rerollRequest, onRerollComplete]);
+  }, [rerollRequest, onRerollComplete, attemptAudioUnlock]);
 
   return (
     <div className="absolute inset-0 w-full h-full">
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
-      {!ready && (
+      {(!ready || configuringTextures) && (
         <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
           骰盘加载中...
+        </div>
+      )}
+      {ready && rollRequest && !audioUnlocked && touchInputRef.current && audioSupportRef.current && (
+        <div className="pointer-events-none absolute bottom-12 left-1/2 z-10 -translate-x-1/2 rounded-full border border-white/20 bg-black/60 px-4 py-2 text-sm font-bold text-amber-200 shadow-lg backdrop-blur-sm whitespace-nowrap">
+          🔊 点一下屏幕开启骰子音效
         </div>
       )}
     </div>
