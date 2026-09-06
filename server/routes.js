@@ -19,7 +19,7 @@ const images = require('./images');
 const kardsDecks = require('./kards-decks');
 const chatStore = require('./chat-store');
 
-function createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePreferences, roomServer, kardsRoomServer, chatServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, roomServer, kardsRoomServer, chatServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -362,6 +362,37 @@ function createRequestHandler({ auth, userData, edhDecks, accountAdmin, homePref
       }
       if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
       return httpUtils.sendJson(res, await userData.listSavings(requestUser.username));
+    }
+
+    // 卡卡颂计分存档：SQLite 按账户隔离；页面保存快照，历史列表与删除都在同一接口下。
+    if (pathname === '/api/carcassonne/saves') {
+      if (req.method === 'POST') {
+        if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+        const body = await httpUtils.readBody(req);
+        if (!body || typeof body.state !== 'object' || body.state === null || Array.isArray(body.state)) {
+          return httpUtils.sendAuthError(res, 400, '缺少有效的游戏状态。');
+        }
+        const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, 80) : '未命名存档';
+        const now = new Date().toISOString();
+        const save = await carcassonneSaves.createSave(requestUser.username, {
+          id: randomId(),
+          title,
+          state: body.state,
+          createdAt: now,
+        });
+        return httpUtils.sendJson(res, save, 201);
+      }
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      return httpUtils.sendJson(res, await carcassonneSaves.listSaves(requestUser.username));
+    }
+
+    const carcassonneDeleteMatch = /^\/api\/carcassonne\/saves\/([^/]+)$/.exec(pathname);
+    if (carcassonneDeleteMatch && req.method === 'DELETE') {
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      if (!(await carcassonneSaves.deleteSave(requestUser.username, carcassonneDeleteMatch[1]))) {
+        return httpUtils.sendAuthError(res, 404, '存档不存在。');
+      }
+      return httpUtils.sendJson(res, { success: true });
     }
 
     // EDH 卡牌搜索：只读接口，卡牌数据库对所有已授权账户共享（不区分 owner）。

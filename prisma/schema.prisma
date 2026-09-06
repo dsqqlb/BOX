@@ -19,6 +19,7 @@ model User {
   kardsDecks  KardsDeck[]
   dndSave     DndSave?
   savings     SavingsRecord[]
+  carcassonneSaves CarcassonneSave[]
   homePreference HomePreference?
   homeToolUsage  HomeToolUsage[]
   chatMessages   ChatMessage[]
@@ -153,6 +154,18 @@ model SavingsRecord {
   item      String
   amount    Float
   createdAt DateTime
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+}
+
+model CarcassonneSave {
+  id        String   @id @default(cuid())
+  ownerId   String
+  title     String
+  stateJson String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([ownerId, createdAt])

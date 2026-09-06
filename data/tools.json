@@ -111,6 +111,16 @@
     "createdAt": "2026-08-21"
   },
   {
+    "slug": "carcassonne",
+    "title": "卡卡颂计分台",
+    "description": "双人卡卡颂桌游记分：±1/±10 快速计分、酒粮布结算、国王与盗贼争夺、1D6，存档写入 SQLite",
+    "category": "game",
+    "tags": ["carcassonne", "boardgame", "score", "tabletop", "two-player"],
+    "icon": "🏰",
+    "featured": true,
+    "createdAt": "2026-09-06"
+  },
+  {
     "slug": "kards",
     "title": "Kards 二战卡牌",
     "description": "Kards 二战卡牌：1600+ 全卡图组卡器 + 双人房间号联机对战桌，像桌游模拟器一样自由操作，规则由玩家掌握",

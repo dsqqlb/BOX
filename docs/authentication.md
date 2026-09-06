@@ -53,6 +53,7 @@ BOX 默认拒绝未登录访问。除 `/login` 与登录接口外，页面、业
 
 可用权限 slug：
 
+- `carcassonne`
 - `claude-code-guide`
 - `dnd-translator`
 - `initiative-tracker`

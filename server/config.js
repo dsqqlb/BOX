@@ -53,6 +53,7 @@ const CHAT_MAX_UPLOAD_BYTES = Number.isFinite(configuredChatUploadBytes)
 
 // 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
 const TOOL_SLUGS = [
+  'carcassonne',
   'claude-code-guide',
   'dnd-translator',
   'initiative-tracker',

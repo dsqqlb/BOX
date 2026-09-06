@@ -83,6 +83,7 @@ function toolSlugForPath(pathname) {
 function requiredToolForApi(pathname) {
   if (pathname === '/api/enemies' || pathname === '/api/player-images' || pathname === '/api/rooms') return 'initiative-tracker';
   if (pathname === '/api/savings') return 'savings-tracker';
+  if (pathname.startsWith('/api/carcassonne/')) return 'carcassonne';
   if (pathname.startsWith('/api/edh/')) return 'edh-builder';
   if (pathname === '/api/dnd/save') return 'dnd-character';
   if (pathname.startsWith('/api/kards/')) return 'kards';
@@ -95,6 +96,7 @@ function requiredToolForStaticAsset(pathname) {
   if (pathname.startsWith('/image/tarot/')) return 'tarot-reading';
   if (pathname.startsWith('/image/Kards/')) return 'kards';
   if (pathname.startsWith('/dnd/')) return 'dnd-character';
+  if (pathname.startsWith('/carcassonne-assets/')) return 'carcassonne';
   return null;
 }
 

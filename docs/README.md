@@ -13,6 +13,7 @@
 | 工具 | 路径 | 说明文档 |
 | --- | --- | --- |
 | Claude Code 学习中心 | `/tools/claude-code-guide` | [claude-code-guide.md](./claude-code-guide.md) |
+| 卡卡颂计分台 | `/tools/carcassonne` | [carcassonne.md](./carcassonne.md) |
 | DND 语言翻译器 | `/tools/dnd-translator` | [dnd-translator.md](./dnd-translator.md) |
 | 康威生命游戏 | `/tools/conways-game-of-life` | [conways-game-of-life.md](./conways-game-of-life.md) |
 | 局域网大厅 | `/tools/lan-chat` | [lan-chat.md](./lan-chat.md) |
