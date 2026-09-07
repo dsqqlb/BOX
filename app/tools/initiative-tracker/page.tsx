@@ -583,6 +583,10 @@ export default function InitiativeTrackerPage() {
   
   const [draggedChar, setDraggedChar] = useState<Character | null>(null);
   const [dragPreviewInit, setDragPreviewInit] = useState<number | null>(null); // 拖拽预览先攻值
+  const [dragGhostPos, setDragGhostPos] = useState<{ x: number; y: number } | null>(null); // 移动端拖拽时跟随手指的卡片位置
+  // 真正的移动端拖拽：记录按下的指针，然后由 window 级 move/up 驱动，卡片全程跟着手指走。
+  const mobileDragPointerRef = useRef<{ id: number; char: Character; x: number; y: number; startTime: number } | null>(null);
+  const mobileDragActiveRef = useRef(false);
   const [displayConnected, setDisplayConnected] = useState(true); // 主屏幕是否在线
   const [showOverlapModal, setShowOverlapModal] = useState(false); // 显示重叠弹窗
   const [overlapCharacters, setOverlapCharacters] = useState<Character[]>([]); // 重叠的角色
@@ -1527,8 +1531,9 @@ export default function InitiativeTrackerPage() {
   };
 
   // 核心放置逻辑：从鼠标/触摸坐标计算先攻值并放入战斗区，供拖拽和触摸两种输入共用
-  const processDrop = (clientX: number) => {
-    if (!draggedChar || !combatZoneRef.current) return;
+  const processDrop = (clientX: number, charOverride?: Character) => {
+    const dragChar = charOverride || draggedChar;
+    if (!dragChar || !combatZoneRef.current) return;
 
     const zone = combatZoneRef.current.getBoundingClientRect();
     const x = clientX - zone.left - 32;
@@ -1539,18 +1544,18 @@ export default function InitiativeTrackerPage() {
 
     // 复制模式：如果从备选区拖拽，创建新的副本
     let updatedChar: Character;
-    if (!draggedChar.inCombat) {
+    if (!dragChar.inCombat) {
       // 从备选区拖拽：创建战斗角色副本，生成新的combatId
       const combatId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       updatedChar = {
-        ...draggedChar,
+        ...dragChar,
         id: combatId, // 新的唯一ID
         initiative: newInit,
         inCombat: true,
       };
     } else {
       // 从战斗区拖拽：只更新先攻值
-      updatedChar = { ...draggedChar, initiative: newInit, inCombat: true };
+      updatedChar = { ...dragChar, initiative: newInit, inCombat: true };
     }
 
     // 检查是否有重叠
@@ -1564,22 +1569,22 @@ export default function InitiativeTrackerPage() {
       setSortedOverlapChars(allOverlap); // 初始化排序列表
       setShowOverlapModal(true);
 
-      if (!draggedChar.inCombat) {
+      if (!dragChar.inCombat) {
         // 从备选区：添加新副本
         setCharacters(prev => [...prev, updatedChar]);
       } else {
         // 从战斗区：更新现有角色
-        setCharacters(prev => prev.map(c => c.id === draggedChar.id ? updatedChar : c));
+        setCharacters(prev => prev.map(c => c.id === dragChar.id ? updatedChar : c));
       }
     } else {
       setCharacters(prev => {
         let newChars: Character[];
-        if (!draggedChar.inCombat) {
+        if (!dragChar.inCombat) {
           // 从备选区：添加新副本（不删除原角色）
           newChars = [...prev, updatedChar];
         } else {
           // 从战斗区：更新现有角色
-          newChars = prev.map(c => c.id === draggedChar.id ? updatedChar : c);
+          newChars = prev.map(c => c.id === dragChar.id ? updatedChar : c);
         }
 
         // 同步到房间（通过WebSocket）
@@ -1623,36 +1628,87 @@ export default function InitiativeTrackerPage() {
     }
   };
 
-  // ===== 手机端触摸拖拽：HTML5 Drag API 在移动端不工作，用 touch 事件做等效实现 =====
-
-  // 触摸开始（在卡片上触发）：标记当前拖拽的角色
-  const handleCardTouchStart = (char: Character, e: React.TouchEvent) => {
-    e.stopPropagation();
-    setDraggedChar(char);
+  // ===== 移动端真正的按住拖动：HTML5 Drag API 在 iPad/手机不工作，
+  // 这里用 pointer 事件 + window 级监听，让卡片全程跟随手指，拖进战斗区实时显示先攻值。=====
+  const isPointInCombatZone = (x: number, y: number) => {
+    if (!combatZoneRef.current) return false;
+    const rect = combatZoneRef.current.getBoundingClientRect();
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
   };
 
-  // 触摸移动（在战斗区容器上触发）：实时计算先攻值预览
-  const handleCombatZoneTouchMove = (e: React.TouchEvent) => {
-    if (!draggedChar || !combatZoneRef.current) return;
-    e.preventDefault(); // 阻止页面跟随手指滚动
-
-    const touch = e.touches[0];
+  const updateDragPreviewFromPointer = (clientX: number) => {
+    if (!combatZoneRef.current) return;
     const zone = combatZoneRef.current.getBoundingClientRect();
-    const x = touch.clientX - zone.left - 32;
+    const x = clientX - zone.left - 32;
     const percentage = Math.max(0, Math.min(1, x / (zone.width - 64)));
-    const previewInit = Math.round((1 - percentage) * 30);
-    setDragPreviewInit(previewInit);
+    setDragPreviewInit(Math.round((1 - percentage) * 30));
   };
 
-  // 触摸结束（在战斗区容器上触发）：执行放置
-  const handleCombatZoneTouchEnd = (e: React.TouchEvent) => {
-    if (!draggedChar) {
-      setDraggedChar(null);
-      setDragPreviewInit(null);
-      return;
-    }
-    const touch = e.changedTouches[0];
-    processDrop(touch.clientX);
+  const handleCardPointerDown = (char: Character, e: React.PointerEvent) => {
+    // 桌面鼠标继续用原生拖拽；这里只接管触摸/手写笔。
+    if (e.pointerType === 'mouse') return;
+    e.stopPropagation();
+    if (mobileDragPointerRef.current) return;
+    // 卡片上的删除/操作按钮按下时不要触发拖拽。
+    if ((e.target as HTMLElement).closest('button')) return;
+
+    mobileDragPointerRef.current = { id: e.pointerId, char, x: e.clientX, y: e.clientY, startTime: Date.now() };
+    mobileDragActiveRef.current = false;
+
+    const handleMove = (event: PointerEvent) => {
+      const pointer = mobileDragPointerRef.current;
+      if (!pointer || event.pointerId !== pointer.id) return;
+      const distance = Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y);
+
+      // 手指明显移动（或按住超过0.45秒）才算"拿起卡片"，普通点按留给状态面板等操作。
+      if (!mobileDragActiveRef.current && distance < 10 && Date.now() - pointer.startTime < 450) return;
+      if (!mobileDragActiveRef.current) {
+        mobileDragActiveRef.current = true;
+        setDraggedChar(pointer.char);
+        setDragPreviewInit(null);
+      }
+      if (event.cancelable) event.preventDefault();
+      setDragGhostPos({ x: event.clientX, y: event.clientY });
+      if (isPointInCombatZone(event.clientX, event.clientY)) {
+        updateDragPreviewFromPointer(event.clientX);
+      } else {
+        setDragPreviewInit(null);
+      }
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+      mobileDragPointerRef.current = null;
+      mobileDragActiveRef.current = false;
+      setDragGhostPos(null);
+    };
+
+    const handleUp = (event: PointerEvent) => {
+      const pointer = mobileDragPointerRef.current;
+      if (!pointer || event.pointerId !== pointer.id) return;
+      const wasDragging = mobileDragActiveRef.current;
+      cleanup();
+      if (!wasDragging) {
+        // 简单点按：清掉可能残留的预览，让卡片正常触发点击。
+        setDraggedChar(null);
+        setDragPreviewInit(null);
+        return;
+      }
+      if (event.cancelable) event.preventDefault();
+      if (isPointInCombatZone(event.clientX, event.clientY)) {
+        processDrop(event.clientX, pointer.char);
+      } else {
+        // 松手位置不在战斗区：取消这次拖拽。
+        setDraggedChar(null);
+        setDragPreviewInit(null);
+      }
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
   };
 
   const combatCharacters = characters.filter(c => c.inCombat).sort((a, b) => b.initiative - a.initiative);
@@ -1660,6 +1716,15 @@ export default function InitiativeTrackerPage() {
 
   return (
     <div className="min-h-screen rc-chassis flex flex-col items-center py-6 px-3 sm:px-6 pb-24">
+      {/* 移动端拖拽时跟随手指的卡片残影 */}
+      {draggedChar && dragGhostPos && (
+        <div
+          className="pointer-events-none fixed z-[100] opacity-80"
+          style={{ left: dragGhostPos.x, top: dragGhostPos.y, transform: 'translate(-50%, -120%) scale(0.9)' }}
+        >
+          <CharacterCard char={draggedChar} isCombat={false} isCurrent={false} />
+        </div>
+      )}
 
       {/* ========== 共同信息面板：房间号 / 信号状态 / 断开连接，放在遥控器画面最上面，
           不属于任何一个CONSOLE，是跨越DICE CONSOLE和INITIATIVE CONSOLE的全局状态展示。 ========== */}
@@ -2366,8 +2431,6 @@ export default function InitiativeTrackerPage() {
               ref={combatZoneRef}
               onDragOver={handleDragOver}
               onDrop={handleDropToCombat}
-              onTouchMove={handleCombatZoneTouchMove}
-              onTouchEnd={handleCombatZoneTouchEnd}
               className="rc-screen rc-scanline relative h-[320px] min-h-[320px] sm:h-[380px] sm:min-h-[380px] md:h-[400px] md:min-h-[400px] rounded-2xl mb-3 overflow-hidden"
               style={{ touchAction: 'none' }}
             >
@@ -2398,7 +2461,7 @@ export default function InitiativeTrackerPage() {
                         key={char.id}
                         draggable
                         onDragStart={() => handleDragStart(char)}
-                        onTouchStart={(e) => handleCardTouchStart(char, e)}
+                        onPointerDown={(e) => handleCardPointerDown(char, e)}
                         className="relative cursor-move transition-all duration-300"
                         style={{
                           transform: `scale(${isCurrent ? 1.15 : 1})`,
@@ -2501,7 +2564,7 @@ export default function InitiativeTrackerPage() {
                       key={char.id}
                       draggable
                       onDragStart={() => handleDragStart(char)}
-                      onTouchStart={(e) => handleCardTouchStart(char, e)}
+                      onPointerDown={(e) => handleCardPointerDown(char, e)}
                       className="relative cursor-move hover:scale-110 transition-all"
                       style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' as any }}
                     >

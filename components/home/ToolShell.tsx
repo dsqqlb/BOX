@@ -116,7 +116,8 @@ export default function ToolShell() {
   const toggleFavorite = (slug: string) => setFavorites((current) => current.includes(slug) ? current.filter((item) => item !== slug) : [...current, slug]);
   const toggleCategory = (category: string) => setCollapsedCategories((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category]);
   const recordToolUsage = (slug: string) => {
-    setRecentSlugs((current) => [slug, ...current.filter((item) => item !== slug)].slice(0, 8));
+    // 只把使用记录写进服务器，不在当前页面立刻改“最近使用”区：
+    // 否则点击卡片后首页会在跳转前先重排，出现卡片“突然和别的卡片换位置”的感觉。
     void fetch('/api/home/tool-usage', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ toolSlug: slug }), keepalive: true });
   };
   const openFromCommand = (slug: string) => { recordToolUsage(slug); window.location.assign(`/tools/${slug}`); };
