@@ -56,6 +56,11 @@ const configuredMedicineUploadBytes = Number(process.env.MEDICINE_MAX_UPLOAD_BYT
 const MEDICINE_MAX_UPLOAD_BYTES = Number.isFinite(configuredMedicineUploadBytes)
   ? Math.min(Math.max(configuredMedicineUploadBytes, 256 * 1024), 50 * 1024 * 1024)
   : 10 * 1024 * 1024;
+const INITIATIVE_SCENE_DIR = path.join(PROJECT_ROOT, 'data', 'initiative-scenes');
+const INITIATIVE_SCENE_UPLOAD_DIR = path.join(INITIATIVE_SCENE_DIR, 'uploads');
+const INITIATIVE_SCENE_IMAGE_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const INITIATIVE_SCENE_AUDIO_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const INITIATIVE_SCENE_VIDEO_MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 // 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
 const TOOL_SLUGS = [
@@ -95,6 +100,11 @@ module.exports = {
   MEDICINE_DIR,
   MEDICINE_UPLOAD_DIR,
   MEDICINE_MAX_UPLOAD_BYTES,
+  INITIATIVE_SCENE_DIR,
+  INITIATIVE_SCENE_UPLOAD_DIR,
+  INITIATIVE_SCENE_IMAGE_MAX_UPLOAD_BYTES,
+  INITIATIVE_SCENE_AUDIO_MAX_UPLOAD_BYTES,
+  INITIATIVE_SCENE_VIDEO_MAX_UPLOAD_BYTES,
   TOOL_SLUGS,
   TOOL_SLUG_SET,
 };

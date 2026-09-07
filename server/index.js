@@ -39,6 +39,7 @@ const carcassonneSaves = require('./carcassonne-saves');
 const accountAdmin = require('./account-admin');
 const homePreferences = require('./home-preferences');
 const medicineStore = require('./medicine-store');
+const sceneMedia = require('./scene-media');
 const httpUtils = require('./http-utils');
 const { createRoomServer } = require('./rooms');
 const { createKardsRoomServer } = require('./kards-rooms');
@@ -51,7 +52,7 @@ const auth = createAuth({ projectRoot: config.PROJECT_ROOT, isProduction: !confi
 const roomServer = createRoomServer({ auth });
 const kardsRoomServer = createKardsRoomServer({ auth });
 const chatServer = createChatServer({ auth });
-const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, roomServer, kardsRoomServer, chatServer, config });
+const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, roomServer, kardsRoomServer, chatServer, config });
 
 // ============ 启动统一服务 ============
 

@@ -115,8 +115,15 @@ interface RoomState {
   displayRoomInfoVisible?: boolean; // 主屏幕房间号与二维码是否展示
   displayDiceHistoryVisible?: boolean; // 主屏幕历史掷骰面板是否展示
   displayRoundVisible?: boolean; // 主屏幕回合数是否展示
+  displayCharactersVisible?: boolean;
+  scene?: SceneState;
   diceHistory?: DiceHistoryEntry[]; // 房间内本次会话共享的骰子历史
 }
+
+type SceneMedia = { id: string; originalName: string; mimeType: string; kind: 'image' | 'audio' | 'video'; byteSize: number; url: string; uploader?: string };
+type SceneReference = Pick<SceneMedia, 'id' | 'url' | 'kind' | 'originalName'>;
+type SceneState = { visible: boolean; immersive: boolean; background: SceneReference | null; playlist: SceneReference[]; playlistIndex: number; imageIntervalSeconds: number; backgroundPlaying: boolean; backgroundLoop: boolean; backgroundVolume: number; music: SceneReference | null; musicPlaying: boolean; musicLoop: boolean; musicVolume: number; };
+const DEFAULT_SCENE: SceneState = { visible: true, immersive: false, background: null, playlist: [], playlistIndex: 0, imageIntervalSeconds: 10, backgroundPlaying: true, backgroundLoop: true, backgroundVolume: 0, music: null, musicPlaying: false, musicLoop: true, musicVolume: 0.5 };
 
 // 非当前回合压暗强度的localStorage key + 默认值
 const DIM_INTENSITY_KEY = 'dnd-initiative-dim-intensity';
@@ -609,9 +616,13 @@ export default function InitiativeTrackerPage() {
   const [displayRoomInfoVisible, setDisplayRoomInfoVisible] = useState(true);
   const [displayDiceHistoryVisible, setDisplayDiceHistoryVisible] = useState(true);
   const [displayRoundVisible, setDisplayRoundVisible] = useState(true);
+  const [displayCharactersVisible, setDisplayCharactersVisible] = useState(true);
+  const [scene, setScene] = useState<SceneState>(DEFAULT_SCENE);
+  const [sceneMedia, setSceneMedia] = useState<SceneMedia[]>([]);
+  const [sceneLoading, setSceneLoading] = useState(false);
 
-  // 先攻、骰子和主屏显示设置是三个独立sheet页，切换入口固定在屏幕最下面。
-  const [activeSheet, setActiveSheet] = useState<'initiative' | 'dice' | 'settings'>('initiative');
+  // 先攻、骰子、场景和主屏显示设置是独立sheet页，切换入口固定在屏幕最下面。
+  const [activeSheet, setActiveSheet] = useState<'initiative' | 'dice' | 'scene' | 'settings'>('initiative');
 
   // ===== 3D掷骰：遥控器只负责"发起投掷请求+展示结果文字"，3D动画只在主屏幕上播放 =====
   // 骰子板块现在是摊开常驻的独立区块(不再是按钮唤起的弹窗)，所以不再需要"是否显示弹窗"这个状态
@@ -769,6 +780,8 @@ export default function InitiativeTrackerPage() {
         if (typeof roomData.displayRoomInfoVisible === 'boolean') setDisplayRoomInfoVisible(roomData.displayRoomInfoVisible);
         if (typeof roomData.displayDiceHistoryVisible === 'boolean') setDisplayDiceHistoryVisible(roomData.displayDiceHistoryVisible);
         if (typeof roomData.displayRoundVisible === 'boolean') setDisplayRoundVisible(roomData.displayRoundVisible);
+        if (typeof roomData.displayCharactersVisible === 'boolean') setDisplayCharactersVisible(roomData.displayCharactersVisible);
+        if (roomData.scene && typeof roomData.scene === 'object') setScene({ ...DEFAULT_SCENE, ...roomData.scene });
         if (typeof roomData.displayConnected === 'boolean') {
           setDisplayConnected(roomData.displayConnected);
         }
@@ -909,6 +922,36 @@ export default function InitiativeTrackerPage() {
       payload: { roomId, updates },
     });
   }, [isConnected, roomId, sendMessage]);
+
+  const loadSceneMedia = useCallback(async () => {
+    setSceneLoading(true);
+    try {
+      const response = await fetch('/api/initiative/scenes');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || '加载媒体库失败。');
+      setSceneMedia(payload.media || []);
+    } catch (error) { alert(error instanceof Error ? error.message : '加载媒体库失败。'); }
+    finally { setSceneLoading(false); }
+  }, []);
+
+  const updateScene = useCallback((patch: Partial<SceneState>) => {
+    const next = { ...scene, ...patch };
+    setScene(next);
+    updateRoom({ scene: next });
+  }, [scene, updateRoom]);
+
+  const uploadSceneMedia = useCallback(async (file: File) => {
+    const response = await fetch('/api/initiative/scenes/uploads', { method: 'POST', headers: { 'Content-Type': file.type, 'X-Scene-File-Name': encodeURIComponent(file.name) }, body: file });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || '上传失败。');
+    await loadSceneMedia();
+    return payload as SceneMedia;
+  }, [loadSceneMedia]);
+
+  const playSceneEffect = useCallback((media: SceneMedia) => {
+    if (!roomId || !isConnected) return;
+    sendMessage({ type: 'SCENE_EFFECT_PLAY', payload: { roomId, media: { id: media.id, url: media.url, kind: media.kind, originalName: media.originalName } } });
+  }, [roomId, isConnected, sendMessage]);
 
   // 从localStorage加载掷骰预设 + 上次的自定义表达式文本（初始化时执行一次）
   useEffect(() => {
@@ -1192,6 +1235,12 @@ export default function InitiativeTrackerPage() {
     setDisplayRoundVisible(next);
     updateRoom({ displayRoundVisible: next });
   }, [displayRoundVisible, updateRoom]);
+
+  const toggleDisplayCharacters = useCallback(() => {
+    const next = !displayCharactersVisible;
+    setDisplayCharactersVisible(next);
+    updateRoom({ displayCharactersVisible: next });
+  }, [displayCharactersVisible, updateRoom]);
 
   // 连接成功后（或重连后），把本地记住的压暗强度+结果面板不透明度推给房间，让主屏幕立即生效一次
   // （不依赖首次挂载时的连接状态，wsConnected变为true时才有意义推送）
@@ -2255,6 +2304,29 @@ export default function InitiativeTrackerPage() {
         </div>
       )}
 
+      {/* ========== 场景sheet页：共享媒体库控制主屏背景、轮播、背景音乐与即时音效。 ========== */}
+      {isConnected && activeSheet === 'scene' && (
+        <div className="w-full max-w-5xl rc-chassis-edge rounded-[28px] p-3 sm:p-5 relative mb-4">
+          <div className="absolute top-4 left-4 rc-screw" /><div className="absolute top-4 right-4 rc-screw" />
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 mb-4">
+            <div><div className="text-emerald-100 font-black text-sm sm:text-base tracking-widest">SCENE CONSOLE</div><div className="rc-label">主屏背景 · 轮播 · 音乐 · 音效</div></div>
+            <button onClick={() => void loadSceneMedia()} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-slate-700">{sceneLoading ? '加载中…' : '刷新媒体库'}</button>
+          </div>
+          <div className="rc-screen rounded-2xl p-4 sm:p-5 space-y-5">
+            <section className="rounded-xl border border-emerald-500/25 bg-slate-950/40 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-bold text-emerald-100">上传到共享场景媒体库</div><p className="mt-1 text-[11px] text-slate-400">图片≤20MiB · 音频≤50MiB · 视频≤500MiB；文件仅保存在服务器，不会进入 Git。</p></div><label className="cursor-pointer rounded-lg bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-500"><input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif,audio/mpeg,audio/wav,audio/ogg,audio/webm,audio/aac,audio/mp4,video/mp4,video/webm,video/ogg,video/quicktime" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadSceneMedia(file).catch((error) => alert(error instanceof Error ? error.message : '上传失败。')); event.currentTarget.value = ''; }} />上传媒体</label></div>
+            </section>
+            <section className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3 space-y-3">
+              <div className="flex flex-wrap gap-2"><button onClick={() => updateScene({ visible: !scene.visible })} className={`rounded-lg px-3 py-2 text-xs font-bold ${scene.visible ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>{scene.visible ? '▣ 场景背景：显示' : '□ 场景背景：隐藏'}</button><button onClick={() => updateScene({ immersive: !scene.immersive })} className={`rounded-lg px-3 py-2 text-xs font-bold ${scene.immersive ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-400'}`}>{scene.immersive ? '▣ 沉浸模式（隐藏HUD）' : '□ 沉浸模式'}</button></div>
+              <label className="flex items-center gap-3 text-xs text-slate-300"><span className="w-20">轮播间隔</span><input type="range" min="3" max="120" value={scene.imageIntervalSeconds} onChange={(e) => updateScene({ imageIntervalSeconds: Number(e.target.value) })} className="flex-1 accent-emerald-500"/><span className="w-10 font-mono">{scene.imageIntervalSeconds}s</span></label>
+            </section>
+            <section><div className="mb-2 flex items-center justify-between"><div className="rc-label">背景图片 / 视频（点击选择）</div><button onClick={() => updateScene({ background: null, playlist: [], playlistIndex: 0 })} className="text-xs text-slate-500 hover:text-rose-300">清空背景</button></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{sceneMedia.filter((media) => media.kind === 'image' || media.kind === 'video').map((media) => <button key={media.id} onClick={() => updateScene({ background: { id: media.id, url: media.url, kind: media.kind, originalName: media.originalName }, playlist: media.kind === 'image' ? scene.playlist : [], playlistIndex: 0 })} className={`overflow-hidden rounded-lg border text-left transition ${scene.background?.id === media.id ? 'border-emerald-400 ring-2 ring-emerald-400/40' : 'border-slate-700 hover:border-slate-500'}`}>{media.kind === 'image' ? <img src={media.url} alt="" className="h-20 w-full object-cover"/> : <video src={media.url} muted className="h-20 w-full object-cover"/>}<div className="truncate px-2 py-1.5 text-[11px] text-slate-300">{media.kind === 'video' ? '▶ ' : '▧ '}{media.originalName}</div></button>)}</div></section>
+            <section><div className="mb-2 rc-label">图片轮播队列（点击图片加入/移除）</div><div className="flex gap-2 overflow-x-auto pb-1">{sceneMedia.filter((media) => media.kind === 'image').map((media) => { const included = scene.playlist.some((item) => item.id === media.id); return <button key={media.id} onClick={() => updateScene({ playlist: included ? scene.playlist.filter((item) => item.id !== media.id) : [...scene.playlist, { id: media.id, url: media.url, kind: media.kind, originalName: media.originalName }], playlistIndex: 0 })} className={`shrink-0 rounded-lg border px-3 py-2 text-xs ${included ? 'border-amber-400 bg-amber-500/15 text-amber-100' : 'border-slate-700 bg-slate-900 text-slate-400'}`}>{included ? '✓ ' : '+ '}{media.originalName}</button>; })}</div></section>
+            <section className="grid gap-4 lg:grid-cols-2"><div className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3"><div className="rc-label mb-2">背景音乐（视频播放时自动暂停）</div><select value={scene.music?.id || ''} onChange={(e) => { const media = sceneMedia.find((item) => item.id === e.target.value); updateScene({ music: media ? { id: media.id, url: media.url, kind: media.kind, originalName: media.originalName } : null, musicPlaying: !!media }); }} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-white"><option value="">不使用背景音乐</option>{sceneMedia.filter((media) => media.kind === 'audio').map((media) => <option key={media.id} value={media.id}>{media.originalName}</option>)}</select><div className="mt-3 flex gap-2"><button onClick={() => updateScene({ musicPlaying: !scene.musicPlaying })} disabled={!scene.music} className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">{scene.musicPlaying ? '暂停音乐' : '播放音乐'}</button><button onClick={() => updateScene({ musicLoop: !scene.musicLoop })} className="rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-300">{scene.musicLoop ? '循环中' : '不循环'}</button></div><label className="mt-3 flex gap-2 text-xs text-slate-300">音量<input type="range" min="0" max="1" step="0.05" value={scene.musicVolume} onChange={(e) => updateScene({ musicVolume: Number(e.target.value) })} className="flex-1 accent-indigo-500"/></label></div><div className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3"><div className="rc-label mb-2">即时音效（可与音乐叠加）</div><div className="max-h-36 space-y-1 overflow-y-auto">{sceneMedia.filter((media) => media.kind === 'audio').map((media) => <button key={media.id} onClick={() => playSceneEffect(media)} className="flex w-full items-center justify-between rounded-lg bg-slate-900 px-3 py-2 text-left text-xs text-slate-200 hover:bg-violet-900/50"><span className="truncate">🔊 {media.originalName}</span><span>播放</span></button>)}</div></div></section>
+          </div>
+        </div>
+      )}
+
       {/* ========== 显示设置sheet页：所有跨先攻/骰子的主屏幕控制集中在这里。 ========== */}
       {isConnected && activeSheet === 'settings' && (
         <div className="w-full max-w-5xl rc-chassis-edge rounded-[28px] p-3 sm:p-5 relative mb-4">
@@ -2320,7 +2392,7 @@ export default function InitiativeTrackerPage() {
             </section>
             <section className="space-y-3">
               <div className="rc-label">主屏幕面板</div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <button onClick={toggleDisplayRoomInfo} className={`rounded-xl border p-3 text-left transition-colors ${displayRoomInfoVisible ? 'border-cyan-400/50 bg-cyan-500/10 text-cyan-100' : 'border-slate-700 bg-slate-950/40 text-slate-400'}`}>
                   <div className="text-sm font-black">{displayRoomInfoVisible ? '▣ 房间号与二维码：展示中' : '□ 房间号与二维码：已收起'}</div>
                   <div className="mt-1 text-[11px] opacity-75">点击{displayRoomInfoVisible ? '收起' : '展示'}主屏幕左上角房间信息</div>
@@ -2332,6 +2404,10 @@ export default function InitiativeTrackerPage() {
                 <button onClick={toggleDisplayRound} className={`rounded-xl border p-3 text-left transition-colors ${displayRoundVisible ? 'border-amber-400/50 bg-amber-500/10 text-amber-100' : 'border-slate-700 bg-slate-950/40 text-slate-400'}`}>
                   <div className="text-sm font-black">{displayRoundVisible ? '▣ 回合数：展示中' : '□ 回合数：已收起'}</div>
                   <div className="mt-1 text-[11px] opacity-75">点击{displayRoundVisible ? '收起' : '展示'}主屏幕顶部回合数</div>
+                </button>
+                <button onClick={toggleDisplayCharacters} className={`rounded-xl border p-3 text-left transition-colors ${displayCharactersVisible ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-100' : 'border-slate-700 bg-slate-950/40 text-slate-400'}`}>
+                  <div className="text-sm font-black">{displayCharactersVisible ? '▣ 角色卡：展示中' : '□ 角色卡：已收起'}</div>
+                  <div className="mt-1 text-[11px] opacity-75">点击{displayCharactersVisible ? '收起' : '展示'}主屏幕中央角色卡</div>
                 </button>
               </div>
             </section>
@@ -2644,7 +2720,7 @@ export default function InitiativeTrackerPage() {
           fixed固定在屏幕最下面，留出安全间距(pb-24给页面内容)避免被这个tab条挡住。 */}
       {isConnected && (
         <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent">
-          <div className="w-full max-w-5xl rc-chassis-edge rounded-2xl p-1.5 grid grid-cols-3 gap-1.5">
+          <div className="w-full max-w-5xl rc-chassis-edge rounded-2xl p-1.5 grid grid-cols-4 gap-1.5">
             <button
               onClick={() => setActiveSheet('initiative')}
               className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 rounded-xl font-bold transition-all ${
@@ -2665,6 +2741,15 @@ export default function InitiativeTrackerPage() {
                 <path d="M12 2 L12 22 M3 7 L12 12 L21 7 M3 17 L12 12" strokeLinejoin="round" strokeLinecap="round" opacity="0.5" />
               </svg>
               <span className="text-[11px] tracking-wide">骰子</span>
+            </button>
+            <button
+              onClick={() => setActiveSheet('scene')}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 rounded-xl font-bold transition-all ${
+                activeSheet === 'scene' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-lg leading-none">🎬</span>
+              <span className="text-[11px] tracking-wide">场景</span>
             </button>
             <button
               onClick={() => setActiveSheet('settings')}

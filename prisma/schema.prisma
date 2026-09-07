@@ -27,6 +27,7 @@ model User {
   chatReactions  ChatReaction[]
   createdMedicineProducts MedicineProduct[] @relation("MedicineProductCreator")
   medicineUseLogs MedicineUseLog[]
+  uploadedSceneMedia DndSceneMedia[]
 }
 
 model HomePreference {
@@ -169,6 +170,21 @@ model MedicinePhoto {
   product      MedicineProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId, createdAt])
+}
+
+model DndSceneMedia {
+  id           String   @id @default(cuid())
+  uploaderId   String
+  storedName   String   @unique
+  originalName String
+  mimeType     String
+  kind         String
+  byteSize     Int
+  createdAt    DateTime @default(now())
+  uploader     User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([kind, createdAt])
+  @@index([uploaderId, createdAt])
 }
 
 model UserPermission {

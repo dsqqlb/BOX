@@ -48,6 +48,9 @@ function getTokenFontSizeClass(token: string): string {
   return 'text-sm';
 }
 
+interface SceneReference { id: string; url: string; kind: 'image' | 'audio' | 'video'; originalName?: string; }
+interface SceneState { visible: boolean; immersive: boolean; background: SceneReference | null; playlist: SceneReference[]; playlistIndex: number; imageIntervalSeconds: number; backgroundPlaying: boolean; backgroundLoop: boolean; backgroundVolume: number; music: SceneReference | null; musicPlaying: boolean; musicLoop: boolean; musicVolume: number; }
+
 interface RoomState {
   roomId: string;
   characters: Character[];
@@ -62,6 +65,8 @@ interface RoomState {
   displayRoomInfoVisible?: boolean;
   displayDiceHistoryVisible?: boolean;
   displayRoundVisible?: boolean;
+  displayCharactersVisible?: boolean;
+  scene?: SceneState;
   diceHistory?: DiceHistoryEntry[];
 }
 
@@ -421,6 +426,13 @@ function InitiativeDisplayPageInner() {
   const [leavingCharIds, setLeavingCharIds] = useState<Set<string>>(new Set());
   const [prevCharacterIds, setPrevCharacterIds] = useState<Set<string>>(new Set());
 
+  const [scenePlaylistIndex, setScenePlaylistIndex] = useState(0);
+  const [sceneImage, setSceneImage] = useState<SceneReference | null>(null);
+  const [fadingSceneImage, setFadingSceneImage] = useState<SceneReference | null>(null);
+  const sceneCrossfadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backgroundVideoRef = useRef<HTMLVideoElement | null>(null);
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
+
   // ===== 3D掷骰：主屏幕当骰盘用，铺满全屏播放投掷动画，结果出来后停留几秒再自动收起 =====
   const [diceRollRequest, setDiceRollRequest] = useState<DiceRollRequest | null>(null);
   const [diceOverlayVisible, setDiceOverlayVisible] = useState(false); // 控制淡入淡出的全屏遮罩
@@ -586,6 +598,10 @@ function InitiativeDisplayPageInner() {
           diceEngineResultRef.current = null;
           pendingRecipeRef.current = null;
         }, 700);
+      } else if (message.type === 'SCENE_EFFECT_PLAY') {
+        // 一次性音效可与背景音乐叠加；由遥控器的用户手势触发的 WS 事件尽力播放。
+        const media = message.payload?.media as SceneReference | undefined;
+        if (media?.kind === 'audio' && media.url) { const effect = new Audio(media.url); effect.play().catch(() => {}); }
       } else if (message.type === 'ERROR') {
         console.error('❌ 服务器错误:', message.payload.message);
       }
@@ -750,11 +766,51 @@ function InitiativeDisplayPageInner() {
     }
   }, [roomState.characters, prevCharacterIds]);
 
-  const sortedCharacters = roomState.characters.sort((a, b) => b.initiative - a.initiative);
+  // 场景轮播仅在主屏本地推进，避免每几秒广播一整份房间状态；手动场景更改会重置到首图。
+  useEffect(() => {
+    const scene = roomState.scene;
+    setScenePlaylistIndex(scene?.playlistIndex || 0);
+  }, [roomState.scene?.background?.id, roomState.scene?.playlist.length, roomState.scene?.playlistIndex]);
+  useEffect(() => {
+    const scene = roomState.scene;
+    if (!scene || !scene.visible || scene.playlist.length < 2) return;
+    const interval = window.setInterval(() => setScenePlaylistIndex((current) => (current + 1) % scene.playlist.length), scene.imageIntervalSeconds * 1000);
+    return () => window.clearInterval(interval);
+  }, [roomState.scene?.visible, roomState.scene?.playlist, roomState.scene?.imageIntervalSeconds]);
+  useEffect(() => {
+    const scene = roomState.scene;
+    const music = musicAudioRef.current;
+    const video = backgroundVideoRef.current;
+    if (video) { video.loop = scene?.backgroundLoop !== false; if (scene?.backgroundPlaying !== false) video.play().catch(() => {}); else video.pause(); }
+    if (!music) return;
+    music.volume = scene?.musicVolume ?? 0.5;
+    music.loop = scene?.musicLoop !== false;
+    // 有视频背景时按确认的规则停掉背景音乐；音效不受影响。
+    const videoActive = scene?.background?.kind === 'video' && scene.visible && scene.backgroundPlaying;
+    if (scene?.music && scene.musicPlaying && !videoActive) music.play().catch(() => {}); else music.pause();
+  }, [roomState.scene]);
+
+  const sortedCharacters = roomState.characters.slice().sort((a, b) => b.initiative - a.initiative);
   
   // 根据当前回合角色的阵营，决定背景主题色
   const currentChar = sortedCharacters[roomState.currentTurn];
   const theme = currentChar ? TURN_THEMES[currentChar.type] : TURN_THEMES.default;
+  const activeSceneImage = roomState.scene?.playlist?.length ? roomState.scene.playlist[scenePlaylistIndex % roomState.scene.playlist.length] : (roomState.scene?.background?.kind === 'image' ? roomState.scene.background : null);
+  const activeSceneVideo = roomState.scene?.background?.kind === 'video' ? roomState.scene.background : null;
+
+  useEffect(() => {
+    if (!activeSceneImage || activeSceneImage.id === sceneImage?.id) return;
+    if (sceneCrossfadeTimerRef.current) clearTimeout(sceneCrossfadeTimerRef.current);
+    if (sceneImage) setFadingSceneImage(sceneImage);
+    setSceneImage(activeSceneImage);
+    sceneCrossfadeTimerRef.current = setTimeout(() => setFadingSceneImage(null), 1100);
+  }, [activeSceneImage?.id]);
+  useEffect(() => () => { if (sceneCrossfadeTimerRef.current) clearTimeout(sceneCrossfadeTimerRef.current); }, []);
+
+  const sceneMotionClass = (media: SceneReference) => {
+    const variant = [...media.id].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 3;
+    return `scene-image-motion-${variant}`;
+  };
 
   // 房间选择器：只在URL没带房间号时出现（首次打开主屏幕，或者断线/设备没电后重新打开）。
   // 展示"服务器上还活着的房间"，可以选择回到之前的战斗，也可以直接新建一个空房间。
@@ -821,8 +877,18 @@ function InitiativeDisplayPageInner() {
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col overflow-hidden relative">
+      {/* 场景媒体层：永远在主屏的HUD与角色卡之下，沉浸模式再隐藏上层信息。 */}
+      {roomState.scene?.visible !== false && (sceneImage || fadingSceneImage || activeSceneVideo) && (
+        <div className="absolute inset-0 z-0 overflow-hidden bg-black">
+          {fadingSceneImage && <img src={fadingSceneImage.url} alt="" aria-hidden className={`scene-image-layer ${sceneMotionClass(fadingSceneImage)} scene-image-fade-out`} />}
+          {sceneImage && <img src={sceneImage.url} alt="场景背景" className={`scene-image-layer ${sceneMotionClass(sceneImage)} scene-image-fade-in`} />}
+          {activeSceneVideo && <video ref={backgroundVideoRef} src={activeSceneVideo.url} autoPlay={roomState.scene?.backgroundPlaying !== false} loop={roomState.scene?.backgroundLoop !== false} muted playsInline className="h-full w-full object-cover" />}
+          <div className="absolute inset-0 bg-slate-950/30" />
+        </div>
+      )}
+      {roomState.scene?.music && <audio ref={musicAudioRef} src={roomState.scene.music.url} preload="auto" />}
       {/* 高级背景 - 战场紧张感，随当前回合阵营变换色调 */}
-      <div className="absolute inset-0">
+      <div className={`absolute inset-0 transition-opacity duration-700 ${(activeSceneImage || activeSceneVideo) && roomState.scene?.visible !== false ? 'opacity-35' : 'opacity-100'}`}>
         {/* 深色径向渐变 */}
         <div className="absolute inset-0 bg-gradient-radial from-slate-900 via-slate-950 to-black" />
         
@@ -929,7 +995,7 @@ function InitiativeDisplayPageInner() {
       )}
       
       {/* 房间ID与二维码；二维码会直达带房间号的遥控器链接。 */}
-      {roomState.displayRoomInfoVisible !== false && (
+      {!roomState.scene?.immersive && roomState.displayRoomInfoVisible !== false && (
         <>
       {sortedCharacters.length === 0 ? (
         /* 无角色时：大显示房间号（唯一一处显示，之前"等待玩家加入战斗"文案下面还重复显示了一次，
@@ -982,7 +1048,7 @@ function InitiativeDisplayPageInner() {
       )}
 
       {/* 回合数独立于房间信息面板：即使房间号/二维码被隐藏，仍可单独展示。 */}
-      {roomState.displayRoundVisible !== false && (
+      {!roomState.scene?.immersive && roomState.displayRoundVisible !== false && (
         <div className="absolute top-8 left-1/2 -translate-x-1/2 z-50">
           <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl px-8 py-3 border border-amber-600/30 shadow-2xl">
             <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 text-center tracking-wide">
@@ -994,7 +1060,7 @@ function InitiativeDisplayPageInner() {
 
       {/* 主战斗区域 */}
       <div className="flex-1 flex items-center justify-center p-4 relative z-10 overflow-hidden">
-        {sortedCharacters.length === 0 ? (
+        {roomState.displayCharactersVisible !== false && !roomState.scene?.immersive && (sortedCharacters.length === 0 ? (
           <div className="text-center">
             <div className="text-7xl mb-8">⚔️</div>
             <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-slate-400 via-amber-400 to-slate-400 mb-6 tracking-wide">
@@ -1040,11 +1106,11 @@ function InitiativeDisplayPageInner() {
               </div>
             </div>
           </>
-        )}
+        ))}
       </div>
 
       {/* 主屏幕历史掷骰：来自房间共享状态，在初次结果和每次重投后即时更新。 */}
-      {roomState.displayDiceHistoryVisible !== false && (roomState.diceHistory?.length || 0) > 0 && (
+      {!roomState.scene?.immersive && roomState.displayDiceHistoryVisible !== false && (roomState.diceHistory?.length || 0) > 0 && (
         <aside className="absolute right-6 bottom-6 z-50 w-[min(22rem,calc(100vw-3rem))] overflow-hidden rounded-xl border border-purple-500/35 bg-slate-950/80 shadow-2xl backdrop-blur-xl" style={{ transform: `scale(${roomState.diceHistoryScale ?? DEFAULT_DICE_HISTORY_SCALE})`, transformOrigin: 'bottom right' }}>
           <div className="flex items-center justify-between border-b border-purple-500/20 px-3 py-2">
             <span className="text-xs font-black tracking-widest text-purple-200">历史掷骰</span>

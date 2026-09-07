@@ -43,13 +43,29 @@ function createRoomServer({ auth }) {
     'characters', 'currentTurn', 'roundNumber', 'dimIntensity', 'resultPanelOpacity',
     'characterScale', 'diceDisplayScale', 'roomInfoScale', 'diceHistoryScale',
     'displayRoomInfoVisible', 'displayDiceHistoryVisible', 'displayRoundVisible',
+    'displayCharactersVisible', 'scene',
   ]);
+
+  function sanitizeMediaRef(value, allowedKinds) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.id !== 'string' || typeof value.url !== 'string' || !allowedKinds.includes(value.kind)) return null;
+    if (value.id.length > 64 || value.url.length > 240) return null;
+    return { id: value.id, url: value.url, kind: value.kind, originalName: typeof value.originalName === 'string' ? value.originalName.slice(0, 180) : '' };
+  }
+
+  function sanitizeScene(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const background = value.background ? sanitizeMediaRef(value.background, ['image', 'video']) : null;
+    const music = value.music ? sanitizeMediaRef(value.music, ['audio']) : null;
+    const playlist = Array.isArray(value.playlist) ? value.playlist.map((item) => sanitizeMediaRef(item, ['image'])).filter(Boolean).slice(0, 40) : [];
+    return { visible: value.visible !== false, immersive: value.immersive === true, background, playlist, playlistIndex: Math.max(0, Math.min(Number.isInteger(value.playlistIndex) ? value.playlistIndex : 0, Math.max(playlist.length - 1, 0))), imageIntervalSeconds: Math.max(3, Math.min(Number(value.imageIntervalSeconds) || 10, 120)), backgroundPlaying: value.backgroundPlaying !== false, backgroundLoop: value.backgroundLoop !== false, backgroundVolume: Math.max(0, Math.min(Number(value.backgroundVolume) || 0, 1)), music, musicPlaying: value.musicPlaying === true, musicLoop: value.musicLoop !== false, musicVolume: Math.max(0, Math.min(Number(value.musicVolume) || 0.5, 1)) };
+  }
 
   function sanitizeRoomUpdates(updates) {
     if (!updates || typeof updates !== 'object' || Array.isArray(updates)) return null;
     const safe = {};
     for (const [key, value] of Object.entries(updates)) {
-      if (ROOM_UPDATE_FIELDS.has(key)) safe[key] = value;
+      if (key === 'scene') { const scene = sanitizeScene(value); if (scene) safe.scene = scene; }
+      else if (ROOM_UPDATE_FIELDS.has(key)) safe[key] = value;
     }
     return safe;
   }
@@ -67,8 +83,6 @@ function createRoomServer({ auth }) {
           ws.close(1008, 'Unauthorized');
           return;
         }
-
-        console.log('📨 收到消息:', type, payload);
 
         switch (type) {
           case 'CREATE_ROOM': {
@@ -97,6 +111,8 @@ function createRoomServer({ auth }) {
                 displayRoomInfoVisible: true,
                 displayDiceHistoryVisible: true,
                 displayRoundVisible: true,
+                displayCharactersVisible: true,
+                scene: { visible: true, immersive: false, background: null, playlist: [], playlistIndex: 0, imageIntervalSeconds: 10, backgroundPlaying: true, backgroundLoop: true, backgroundVolume: 0, music: null, musicPlaying: false, musicLoop: true, musicVolume: 0.5 },
                 characterScale: 1,
                 diceDisplayScale: 1,
                 roomInfoScale: 1,
@@ -175,8 +191,6 @@ function createRoomServer({ auth }) {
             Object.assign(room, safeUpdates);
             room.lastActivity = Date.now();
 
-            console.log(`🔄 房间更新: ${roomId}`, Object.keys(safeUpdates));
-
             broadcastToRoom(roomId, { type: 'ROOM_STATE', payload: room });
             break;
           }
@@ -229,7 +243,6 @@ function createRoomServer({ auth }) {
               return;
             }
             rooms.get(roomId).lastActivity = Date.now();
-            console.log(`🎲 掷骰请求: ${roomId} ${notation}`);
             broadcastToRoom(roomId, { type: 'DICE_ROLL', payload: { id, notation, shapeTextures, recipe, label, expression } });
             break;
           }
@@ -255,7 +268,6 @@ function createRoomServer({ auth }) {
               return;
             }
             rooms.get(roomId).lastActivity = Date.now();
-            console.log(`🎲 重投请求: ${roomId} 骰子#${Array.isArray(dieIds) ? dieIds.join(', ') : ''}`);
             broadcastToRoom(roomId, { type: 'DICE_DIE_REROLL', payload: { rollId, requestId, dieIds } });
             break;
           }
@@ -283,6 +295,19 @@ function createRoomServer({ auth }) {
             }
             rooms.get(roomId).lastActivity = Date.now();
             broadcastToRoom(roomId, { type: 'DICE_ROLL_DISMISS', payload: { id } });
+            break;
+          }
+
+          case 'SCENE_EFFECT_PLAY': {
+            // 音效是一次性事件，可与背景音乐叠加；不写入 ROOM_STATE，重连时不会重放。
+            const { roomId, media } = payload || {};
+            const safeMedia = sanitizeMediaRef(media, ['audio']);
+            if (!isCurrentRoomMember(ws, roomId) || ws.isDisplay || !safeMedia) {
+              sendWsError(ws, '无权播放该场景音效。');
+              return;
+            }
+            rooms.get(roomId).lastActivity = Date.now();
+            broadcastToRoom(roomId, { type: 'SCENE_EFFECT_PLAY', payload: { media: safeMedia } });
             break;
           }
 

@@ -19,7 +19,7 @@ const images = require('./images');
 const kardsDecks = require('./kards-decks');
 const chatStore = require('./chat-store');
 
-function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, roomServer, kardsRoomServer, chatServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, roomServer, kardsRoomServer, chatServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -185,6 +185,28 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
         if (error instanceof homePreferences.HomePreferencesError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
         throw error;
       }
+    }
+
+    // 先攻场景媒体：共享资源库在 SQLite 记录元数据，字节只通过受保护的 Range 流接口读取。
+    if (pathname === '/api/initiative/scenes') {
+      try {
+        if (req.method === 'GET') return httpUtils.sendJson(res, await sceneMedia.list());
+        return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      } catch (error) { if (error instanceof sceneMedia.SceneMediaError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    if (pathname === '/api/initiative/scenes/uploads') {
+      if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try { return httpUtils.sendJson(res, await sceneMedia.upload(req, requestUser), 201); }
+      catch (error) { if (error instanceof sceneMedia.SceneMediaError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    const sceneMediaFileMatch = /^\/api\/initiative\/scenes\/files\/([^/]+)$/.exec(pathname);
+    if (sceneMediaFileMatch) {
+      try {
+        if (req.method === 'GET' || req.method === 'HEAD') { const resource = await sceneMedia.get(sceneMediaFileMatch[1]); return sendChatAttachment(req, res, resource.media, resource.filePath); }
+        if (req.method === 'DELETE') { if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。'); return httpUtils.sendJson(res, await sceneMedia.remove(sceneMediaFileMatch[1])); }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) { if (error instanceof sceneMedia.SceneMediaError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
     }
 
     // 家庭药箱：库存供具有 medicine-inventory 权限的家庭账户共享；图片只通过本受保护端点读取。

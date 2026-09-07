@@ -2225,3 +2225,30 @@ img {
 .lan-chat-dark .bg-emerald-50 { background-color: rgba(16, 92, 76, 0.38) !important; }
 .lan-chat-dark .text-emerald-700 { color: #8ce7ca !important; }
 .lan-chat-dark .chat-message-tools { filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.25)); }
+
+/* DND 场景图：缓慢的镜头呼吸与焦点漂移；切图以两层透明度交叉淡化。 */
+.scene-image-layer {
+  position: absolute;
+  inset: -3%;
+  width: 106%;
+  height: 106%;
+  max-width: none;
+  object-fit: cover;
+  will-change: opacity, transform, object-position;
+}
+.scene-image-fade-in { animation: scene-image-fade-in 1.1s ease-in-out both; }
+.scene-image-fade-out { animation: scene-image-fade-out 1.1s ease-in-out both; }
+.scene-image-motion-0 { animation: scene-image-fade-in 1.1s ease-in-out both, scene-image-drift-a 22s ease-in-out infinite alternate; }
+.scene-image-motion-1 { animation: scene-image-fade-in 1.1s ease-in-out both, scene-image-drift-b 26s ease-in-out infinite alternate; }
+.scene-image-motion-2 { animation: scene-image-fade-in 1.1s ease-in-out both, scene-image-drift-c 24s ease-in-out infinite alternate; }
+.scene-image-fade-out.scene-image-motion-0,
+.scene-image-fade-out.scene-image-motion-1,
+.scene-image-fade-out.scene-image-motion-2 { animation: scene-image-fade-out 1.1s ease-in-out both; }
+@keyframes scene-image-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scene-image-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes scene-image-drift-a { from { transform: scale(1.02) translate3d(-0.6%, -0.4%, 0); object-position: 46% 48%; } to { transform: scale(1.075) translate3d(0.7%, 0.5%, 0); object-position: 54% 52%; } }
+@keyframes scene-image-drift-b { from { transform: scale(1.07) translate3d(0.5%, -0.6%, 0); object-position: 57% 43%; } to { transform: scale(1.025) translate3d(-0.6%, 0.6%, 0); object-position: 48% 57%; } }
+@keyframes scene-image-drift-c { from { transform: scale(1.035) translate3d(-0.4%, 0.6%, 0); object-position: 44% 56%; } to { transform: scale(1.08) translate3d(0.6%, -0.5%, 0); object-position: 55% 45%; } }
+@media (prefers-reduced-motion: reduce) {
+  .scene-image-layer, .scene-image-fade-in, .scene-image-fade-out, .scene-image-motion-0, .scene-image-motion-1, .scene-image-motion-2 { animation: none !important; }
+}
