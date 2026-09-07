@@ -25,6 +25,8 @@ model User {
   chatMessages   ChatMessage[]
   chatAttachments ChatAttachment[]
   chatReactions  ChatReaction[]
+  createdMedicineProducts MedicineProduct[] @relation("MedicineProductCreator")
+  medicineUseLogs MedicineUseLog[]
 }
 
 model HomePreference {
@@ -92,6 +94,81 @@ model ChatReaction {
 
   @@id([messageId, userId, emoji])
   @@index([messageId, createdAt])
+}
+
+model MedicineProduct {
+  id           String          @id @default(cuid())
+  name         String
+  genericName  String?
+  brand        String?
+  category     String
+  dosageForm   String?
+  specification String?
+  manufacturer String?
+  origin       String?
+  approvalNumber String?
+  purpose      String?
+  precautions  String?
+  notes        String?
+  creatorId    String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  creator      User            @relation("MedicineProductCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  batches      MedicineBatch[]
+  photos       MedicinePhoto[]
+
+  @@index([updatedAt])
+  @@index([category, updatedAt])
+}
+
+model MedicineBatch {
+  id              String          @id @default(cuid())
+  productId       String
+  batchNumber     String?
+  productionDate  DateTime?
+  expiryDate      DateTime?
+  initialQuantity Float
+  remainingQuantity Float
+  unit            String
+  storageLocation String?
+  receivedAt      DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  product         MedicineProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  useLogs         MedicineUseLog[]
+
+  @@index([productId, expiryDate])
+  @@index([expiryDate])
+}
+
+model MedicineUseLog {
+  id           String        @id @default(cuid())
+  batchId      String
+  operatorId   String
+  usedQuantity Float
+  usedAt       DateTime      @default(now())
+  recipient    String?
+  reason       String?
+  note         String?
+  createdAt    DateTime      @default(now())
+  batch        MedicineBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  operator     User          @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, usedAt])
+  @@index([usedAt])
+}
+
+model MedicinePhoto {
+  id           String          @id @default(cuid())
+  productId    String
+  storedName   String          @unique
+  originalName String
+  mimeType     String
+  byteSize     Int
+  createdAt    DateTime        @default(now())
+  product      MedicineProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, createdAt])
 }
 
 model UserPermission {

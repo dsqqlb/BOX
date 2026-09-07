@@ -141,6 +141,16 @@
     "createdAt": "2026-08-31"
   },
   {
+    "slug": "medicine-inventory",
+    "title": "家庭药箱",
+    "description": "共享记录家庭药品库存、批次效期、用药流水与药品图片，及时发现临期和低库存药品",
+    "category": "life",
+    "tags": ["medicine", "inventory", "expiry", "health", "household"],
+    "icon": "💊",
+    "featured": true,
+    "createdAt": "2026-09-07"
+  },
+  {
     "slug": "target-text",
     "title": "目标大屏",
     "description": "把一句重要文字变成全屏焦点：静止、滚动、闪烁、倒计时与多种舞台主题均可配置",

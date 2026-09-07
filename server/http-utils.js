@@ -88,6 +88,7 @@ function requiredToolForApi(pathname) {
   if (pathname === '/api/dnd/save') return 'dnd-character';
   if (pathname.startsWith('/api/kards/')) return 'kards';
   if (pathname.startsWith('/api/chat/')) return 'lan-chat';
+  if (pathname.startsWith('/api/medicine/')) return 'medicine-inventory';
   return null;
 }
 

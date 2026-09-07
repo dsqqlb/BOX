@@ -19,7 +19,7 @@ const images = require('./images');
 const kardsDecks = require('./kards-decks');
 const chatStore = require('./chat-store');
 
-function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, roomServer, kardsRoomServer, chatServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, roomServer, kardsRoomServer, chatServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -185,6 +185,64 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
         if (error instanceof homePreferences.HomePreferencesError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
         throw error;
       }
+    }
+
+    // 家庭药箱：库存供具有 medicine-inventory 权限的家庭账户共享；图片只通过本受保护端点读取。
+    if (pathname === '/api/medicine/products') {
+      try {
+        if (req.method === 'GET') return httpUtils.sendJson(res, await medicineStore.listProducts({ q: requestUrl.searchParams.get('q') || '', category: requestUrl.searchParams.get('category') || '', filter: requestUrl.searchParams.get('filter') || '', days: requestUrl.searchParams.get('days') || '' }));
+        if (req.method === 'POST') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          return httpUtils.sendJson(res, await medicineStore.createProduct(requestUser, await httpUtils.readBody(req)), 201);
+        }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) { if (error instanceof medicineStore.MedicineError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    const medicinePhotoMatch = /^\/api\/medicine\/photos\/([^/]+)$/.exec(pathname);
+    if (medicinePhotoMatch) {
+      try {
+        if (req.method === 'GET' || req.method === 'HEAD') { const resource = await medicineStore.getPhoto(medicinePhotoMatch[1]); return sendChatAttachment(req, res, resource.photo, resource.filePath); }
+        if (req.method === 'DELETE') { if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。'); return httpUtils.sendJson(res, await medicineStore.deletePhoto(medicinePhotoMatch[1])); }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) { if (error instanceof medicineStore.MedicineError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    const medicineProductMatch = /^\/api\/medicine\/products\/([^/]+)$/.exec(pathname);
+    const medicinePhotoUploadMatch = /^\/api\/medicine\/products\/([^/]+)\/photos$/.exec(pathname);
+    const medicineBatchCreateMatch = /^\/api\/medicine\/products\/([^/]+)\/batches$/.exec(pathname);
+    const medicineBatchMatch = /^\/api\/medicine\/batches\/([^/]+)$/.exec(pathname);
+    const medicineUseMatch = /^\/api\/medicine\/batches\/([^/]+)\/use$/.exec(pathname);
+    if (medicinePhotoUploadMatch) {
+      if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try { return httpUtils.sendJson(res, await medicineStore.uploadPhoto(req, medicinePhotoUploadMatch[1]), 201); }
+      catch (error) { if (error instanceof medicineStore.MedicineError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    if (medicineBatchCreateMatch) {
+      if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try { return httpUtils.sendJson(res, await medicineStore.createBatch(medicineBatchCreateMatch[1], await httpUtils.readBody(req)), 201); }
+      catch (error) { if (error instanceof medicineStore.MedicineError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    if (medicineUseMatch) {
+      if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try { return httpUtils.sendJson(res, await medicineStore.recordUse(requestUser, medicineUseMatch[1], await httpUtils.readBody(req)), 201); }
+      catch (error) { if (error instanceof medicineStore.MedicineError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    if (medicineBatchMatch) {
+      try {
+        if (req.method === 'PUT') { if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。'); return httpUtils.sendJson(res, await medicineStore.updateBatch(medicineBatchMatch[1], await httpUtils.readBody(req))); }
+        if (req.method === 'DELETE') { if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。'); return httpUtils.sendJson(res, await medicineStore.deleteBatch(medicineBatchMatch[1])); }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) { if (error instanceof medicineStore.MedicineError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    if (medicineProductMatch) {
+      try {
+        if (req.method === 'GET') return httpUtils.sendJson(res, await medicineStore.getProduct(medicineProductMatch[1]));
+        if (req.method === 'PUT') { if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。'); return httpUtils.sendJson(res, await medicineStore.updateProduct(medicineProductMatch[1], await httpUtils.readBody(req))); }
+        if (req.method === 'DELETE') { if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。'); return httpUtils.sendJson(res, await medicineStore.deleteProduct(medicineProductMatch[1])); }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) { if (error instanceof medicineStore.MedicineError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
     }
 
     // 局域网大厅：消息与元数据保存在 SQLite，附件仅由受保护端点读取，绝不作为公开静态目录暴露。

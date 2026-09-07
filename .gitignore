@@ -100,3 +100,6 @@ scripts/shots/
 
 # 局域网聊天附件：仅保留在服务器数据卷中，须与 SQLite 一起备份
 data/chat/
+
+# 家庭药箱照片：服务器私有运行数据，须与 SQLite 一起备份
+data/medicine/

@@ -50,6 +50,12 @@ const configuredChatUploadBytes = Number(process.env.CHAT_MAX_UPLOAD_BYTES || 10
 const CHAT_MAX_UPLOAD_BYTES = Number.isFinite(configuredChatUploadBytes)
   ? Math.min(Math.max(configuredChatUploadBytes, 1024 * 1024), 2147483647)
   : 1073741824;
+const MEDICINE_DIR = path.join(PROJECT_ROOT, 'data', 'medicine');
+const MEDICINE_UPLOAD_DIR = path.join(MEDICINE_DIR, 'uploads');
+const configuredMedicineUploadBytes = Number(process.env.MEDICINE_MAX_UPLOAD_BYTES || 10 * 1024 * 1024);
+const MEDICINE_MAX_UPLOAD_BYTES = Number.isFinite(configuredMedicineUploadBytes)
+  ? Math.min(Math.max(configuredMedicineUploadBytes, 256 * 1024), 50 * 1024 * 1024)
+  : 10 * 1024 * 1024;
 
 // 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
 const TOOL_SLUGS = [
@@ -68,6 +74,7 @@ const TOOL_SLUGS = [
   'conways-game-of-life',
   'target-text',
   'lan-chat',
+  'medicine-inventory',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 
@@ -85,6 +92,9 @@ module.exports = {
   CHAT_DIR,
   CHAT_UPLOAD_DIR,
   CHAT_MAX_UPLOAD_BYTES,
+  MEDICINE_DIR,
+  MEDICINE_UPLOAD_DIR,
+  MEDICINE_MAX_UPLOAD_BYTES,
   TOOL_SLUGS,
   TOOL_SLUG_SET,
 };
