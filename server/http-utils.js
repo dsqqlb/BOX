@@ -89,6 +89,7 @@ function requiredToolForApi(pathname) {
   if (pathname.startsWith('/api/kards/')) return 'kards';
   if (pathname.startsWith('/api/chat/')) return 'lan-chat';
   if (pathname.startsWith('/api/medicine/')) return 'medicine-inventory';
+  if (pathname.startsWith('/api/holdem/')) return 'texas-holdem';
   return null;
 }
 

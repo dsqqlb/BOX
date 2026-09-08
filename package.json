@@ -25,6 +25,7 @@
     "css-tree": "^3.2.1",
     "html2canvas": "^1.4.1",
     "next": "15.1.7",
+    "pokersolver": "2.1.4",
     "prismjs": "^1.30.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

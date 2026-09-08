@@ -61,6 +61,12 @@ const INITIATIVE_SCENE_UPLOAD_DIR = path.join(INITIATIVE_SCENE_DIR, 'uploads');
 const INITIATIVE_SCENE_IMAGE_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const INITIATIVE_SCENE_AUDIO_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const INITIATIVE_SCENE_VIDEO_MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+// 德州扑克筹码：纯娱乐虚拟币。新账户赠送初始筹码，余额低于最小买入时可自助补充。
+const configuredHoldemStartingChips = Number(process.env.HOLDEM_STARTING_CHIPS || 10000);
+const HOLDEM_STARTING_CHIPS = Number.isFinite(configuredHoldemStartingChips)
+  ? Math.min(Math.max(Math.trunc(configuredHoldemStartingChips), 1000), 10000000)
+  : 10000;
+const HOLDEM_MIN_BUY_IN = 100;
 
 // 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
 const TOOL_SLUGS = [
@@ -80,6 +86,7 @@ const TOOL_SLUGS = [
   'target-text',
   'lan-chat',
   'medicine-inventory',
+  'texas-holdem',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 
@@ -105,6 +112,8 @@ module.exports = {
   INITIATIVE_SCENE_IMAGE_MAX_UPLOAD_BYTES,
   INITIATIVE_SCENE_AUDIO_MAX_UPLOAD_BYTES,
   INITIATIVE_SCENE_VIDEO_MAX_UPLOAD_BYTES,
+  HOLDEM_STARTING_CHIPS,
+  HOLDEM_MIN_BUY_IN,
   TOOL_SLUGS,
   TOOL_SLUG_SET,
 };

@@ -40,10 +40,12 @@ const accountAdmin = require('./account-admin');
 const homePreferences = require('./home-preferences');
 const medicineStore = require('./medicine-store');
 const sceneMedia = require('./scene-media');
+const holdemStore = require('./holdem-store');
 const httpUtils = require('./http-utils');
 const { createRoomServer } = require('./rooms');
 const { createKardsRoomServer } = require('./kards-rooms');
 const { createChatServer } = require('./chat-server');
+const { createHoldemRoomServer } = require('./holdem-rooms');
 const { createRequestHandler } = require('./routes');
 
 // ============ 组装 ============
@@ -52,7 +54,8 @@ const auth = createAuth({ projectRoot: config.PROJECT_ROOT, isProduction: !confi
 const roomServer = createRoomServer({ auth });
 const kardsRoomServer = createKardsRoomServer({ auth });
 const chatServer = createChatServer({ auth });
-const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, roomServer, kardsRoomServer, chatServer, config });
+const holdemRoomServer = createHoldemRoomServer({ auth });
+const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config });
 
 // ============ 启动统一服务 ============
 
@@ -105,12 +108,14 @@ async function main() {
     void (async () => {
       let pathname = '/';
       let isKardsRequest = false;
+      let isHoldemRequest = false;
       try {
         const requestUrl = new URL(req.url, 'http://localhost');
         pathname = requestUrl.pathname;
-        // Kards 客户端固定用同一个 /ws 通道（带 ?kards=1 标记），
+        // Kards 与德州扑克客户端都复用同一个 /ws 通道（带 ?kards=1 / ?holdem=1 标记），
         // 这样只需要在代理/隧道里转发 /ws 一个路径，和先攻追踪器保持一致。
         isKardsRequest = requestUrl.searchParams.get('kards') === '1';
+        isHoldemRequest = requestUrl.searchParams.get('holdem') === '1';
         pathname = httpUtils.canonicalizePathname(pathname);
       } catch { pathname = null; }
 
@@ -127,14 +132,14 @@ async function main() {
       }
       if (pathname === '/ws') {
         const user = await auth.getUserFromRequest(req);
-        const toolSlug = isKardsRequest ? 'kards' : 'initiative-tracker';
+        const toolSlug = isHoldemRequest ? 'texas-holdem' : isKardsRequest ? 'kards' : 'initiative-tracker';
         if (!httpUtils.isSameOrigin(req) || !user || !auth.hasToolAccess(user, toolSlug)) {
           const status = user ? '403 Forbidden' : '401 Unauthorized';
           socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
           socket.destroy();
           return;
         }
-        const targetServer = isKardsRequest ? kardsRoomServer : roomServer;
+        const targetServer = isHoldemRequest ? holdemRoomServer : isKardsRequest ? kardsRoomServer : roomServer;
         targetServer.wss.handleUpgrade(req, socket, head, (ws) => { ws.user = user; targetServer.wss.emit('connection', ws, req); });
         return;
       }
@@ -162,6 +167,7 @@ async function main() {
     console.log(lanAddress ? `   局域网访问: http://${lanAddress}:${config.PORT}` : '   局域网访问: 未检测到局域网地址（仅本机可访问）');
     console.log(`   WebSocket:  ws://localhost:${config.PORT}/ws`);
     console.log(`   Kards 对战: ws://localhost:${config.PORT}/ws?kards=1`);
+    console.log(`   德州扑克:   ws://localhost:${config.PORT}/ws?holdem=1`);
     console.log(`   图片目录:   ${config.IMAGE_DIR}`);
     if (!config.DEV) console.log(`   静态产物:   ${config.STATIC_DIR}`);
     console.log('');
@@ -172,9 +178,11 @@ async function main() {
     console.log('\n👋 正在关闭服务器...');
     clearInterval(roomServer.cleanupTimer);
     clearInterval(kardsRoomServer.cleanupTimer);
+    clearInterval(holdemRoomServer.cleanupTimer);
     roomServer.wss.clients.forEach((client) => client.close());
     kardsRoomServer.wss.clients.forEach((client) => client.close());
     chatServer.wss.clients.forEach((client) => client.close());
+    holdemRoomServer.wss.clients.forEach((client) => client.close());
     server.close(() => {
       console.log('✅ 服务器已关闭');
       process.exit(0);

@@ -24,6 +24,7 @@
 | Kards 二战卡牌 | `/tools/kards` | [kards.md](./kards.md) |
 | JSON 星系 | `/tools/json-visualizer` | [json-visualizer.md](./json-visualizer.md) |
 | EDH 指挥官组卡台 | `/tools/edh-builder` | [edh-builder.md](./edh-builder.md) |
+| 德州扑克 | `/tools/texas-holdem` | [texas-holdem.md](./texas-holdem.md) |
 | 塔罗牌占卜 | `/tools/tarot-reading` | [tarot-reading.md](./tarot-reading.md) |
 | 省钱网页 | `/tools/savings-tracker` | [savings-tracker.md](./savings-tracker.md) |
 | CSS 层叠解释器 | `/tools/css-cascade` | [css-cascade.md](./css-cascade.md) |

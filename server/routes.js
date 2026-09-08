@@ -19,7 +19,7 @@ const images = require('./images');
 const kardsDecks = require('./kards-decks');
 const chatStore = require('./chat-store');
 
-function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, roomServer, kardsRoomServer, chatServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -185,6 +185,29 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
         if (error instanceof homePreferences.HomePreferencesError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
         throw error;
       }
+    }
+
+    // 德州扑克：筹码账户与房间大厅。牌局本身走 WebSocket，这里只提供余额、流水与房间列表。
+    if (pathname === '/api/holdem/account') {
+      try {
+        if (req.method === 'GET') return httpUtils.sendJson(res, await holdemStore.getAccount(requestUser.username));
+        if (req.method === 'POST') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          if (!body || body.action !== 'reset') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+          return httpUtils.sendJson(res, await holdemStore.resetChips(requestUser.username));
+        }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) { if (error instanceof holdemStore.HoldemStoreError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    if (pathname === '/api/holdem/ledger') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      try { return httpUtils.sendJson(res, { entries: await holdemStore.listLedger(requestUser.username) }); }
+      catch (error) { if (error instanceof holdemStore.HoldemStoreError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+    if (pathname === '/api/holdem/rooms') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      return httpUtils.sendJson(res, { rooms: holdemRoomServer.lobbyList() });
     }
 
     // 先攻场景媒体：共享资源库在 SQLite 记录元数据，字节只通过受保护的 Range 流接口读取。

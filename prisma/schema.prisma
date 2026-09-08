@@ -28,6 +28,31 @@ model User {
   createdMedicineProducts MedicineProduct[] @relation("MedicineProductCreator")
   medicineUseLogs MedicineUseLog[]
   uploadedSceneMedia DndSceneMedia[]
+  holdemBalance  HoldemBalance?
+  holdemLedger   HoldemLedger[]
+}
+
+model HoldemBalance {
+  ownerId     String   @id
+  chips       Int      @default(10000)
+  handsPlayed Int      @default(0)
+  handsWon    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model HoldemLedger {
+  id        String   @id @default(cuid())
+  ownerId   String
+  delta     Int
+  balance   Int
+  kind      String
+  roomId    String?
+  note      String?
+  createdAt DateTime @default(now())
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
 }
 
 model HomePreference {
