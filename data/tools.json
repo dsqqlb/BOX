@@ -141,6 +141,16 @@
     "createdAt": "2026-08-31"
   },
   {
+    "slug": "static-sites",
+    "title": "静态站点挂载",
+    "description": "把写好的 HTML/CSS/JS 文件夹或 zip 拖上来即上线，独立域名对外访问，可设为公开或仅登录可见",
+    "category": "utility",
+    "tags": ["hosting", "static", "html", "deploy", "pages"],
+    "icon": "🌐",
+    "featured": true,
+    "createdAt": "2026-09-10"
+  },
+  {
     "slug": "texas-holdem",
     "title": "德州扑克",
     "description": "经典绿呢牌桌：房间号联机对战、可加机器人陪玩、筹码与账户绑定，服务端权威发牌与边池结算",

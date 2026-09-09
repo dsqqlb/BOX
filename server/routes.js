@@ -19,7 +19,7 @@ const images = require('./images');
 const kardsDecks = require('./kards-decks');
 const chatStore = require('./chat-store');
 
-function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -77,6 +77,12 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
     pathname = httpUtils.canonicalizePathname(pathname);
     if (!pathname) {
       return httpUtils.sendAuthError(res, 400, '请求路径无效。');
+    }
+
+    // 静态站点域名：与主站不同源，且公开站点允许匿名访问，因此必须在认证网关之前分流。
+    // 站点托管自己完成全部访问控制（公开直接放行，仅登录可见的走跨源授权握手）。
+    if (siteHosting.isSitesHost(req)) {
+      return siteHosting.handle(req, res, requestUrl, pathname);
     }
 
     // 登录页和认证接口是唯一允许匿名访问的 HTTP 入口；它们不依赖 Next.js，生产静态导出也可用。
@@ -185,6 +191,104 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
         if (error instanceof homePreferences.HomePreferencesError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
         throw error;
       }
+    }
+
+    // 静态站点管理：站点文件托管在独立域名上，这里只提供受权限保护的管理接口。
+    // 授权端点例外——它服务的是「访客要看仅登录可见的站点」，只需要登录，不需要管理权限。
+    if (pathname === '/api/sites/grant') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      const target = requestUrl.searchParams.get('return') || '';
+      let returnUrl;
+      try { returnUrl = new URL(target); } catch { return httpUtils.sendAuthError(res, 400, '回跳地址无效。'); }
+      // 防开放重定向：只允许跳回已配置的站点域名，且必须是 http/https。
+      const allowedHost = config.SITES_HOSTS.includes(returnUrl.host.toLowerCase());
+      if (!allowedHost || !['http:', 'https:'].includes(returnUrl.protocol)) {
+        return httpUtils.sendAuthError(res, 400, '回跳地址不在允许的站点域名内。');
+      }
+      const grantToken = auth.createSiteGrantToken(requestUser.username);
+      const authUrl = `${returnUrl.origin}${siteHosting.SITE_AUTH_PATH}?token=${encodeURIComponent(grantToken)}&next=${encodeURIComponent(`${returnUrl.pathname}${returnUrl.search}`)}`;
+      res.writeHead(302, { Location: authUrl, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+
+    if (pathname === '/api/sites') {
+      try {
+        if (req.method === 'GET') {
+          return httpUtils.sendJson(res, {
+            sites: await siteStore.listSites(),
+            sitesHosts: config.SITES_HOSTS,
+            primaryHost: config.PRIMARY_HOST,
+            limits: {
+              maxFileBytes: config.SITES_MAX_FILE_BYTES,
+              maxArchiveBytes: config.SITES_MAX_ARCHIVE_BYTES,
+              maxTotalBytes: config.SITES_MAX_TOTAL_BYTES,
+            },
+          });
+        }
+        if (req.method === 'POST') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+          return httpUtils.sendJson(res, await siteStore.createSite(body.name, body.config), 201);
+        }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) { if (error instanceof siteStore.SiteStoreError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+
+    const siteFilesMatch = /^\/api\/sites\/([^/]+)\/files$/.exec(pathname);
+    const siteArchiveMatch = /^\/api\/sites\/([^/]+)\/archive$/.exec(pathname);
+    const siteConfigMatch = /^\/api\/sites\/([^/]+)\/config$/.exec(pathname);
+    const siteDetailMatch = /^\/api\/sites\/([^/]+)$/.exec(pathname);
+
+    if (siteFilesMatch) {
+      try {
+        const siteName = decodeURIComponent(siteFilesMatch[1]);
+        if (req.method === 'GET') return httpUtils.sendJson(res, { files: await siteStore.listSiteFiles(siteName) });
+        if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+        if (req.method === 'POST') {
+          // 单个文件上传：原始请求体是文件内容，站内相对路径由请求头携带。
+          const saved = await siteStore.saveUploadedFile(siteName, req.headers['x-site-file-path'], req);
+          return httpUtils.sendJson(res, saved, 201);
+        }
+        if (req.method === 'DELETE') {
+          const target = requestUrl.searchParams.get('path');
+          if (target) return httpUtils.sendJson(res, await siteStore.deleteSiteFile(siteName, target));
+          return httpUtils.sendJson(res, await siteStore.clearSiteFiles(siteName));
+        }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) { if (error instanceof siteStore.SiteStoreError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+
+    if (siteArchiveMatch) {
+      if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try {
+        const siteName = decodeURIComponent(siteArchiveMatch[1]);
+        const replace = requestUrl.searchParams.get('replace') === '1';
+        return httpUtils.sendJson(res, await siteStore.extractUploadedArchive(siteName, req, { replace }), 201);
+      } catch (error) { if (error instanceof siteStore.SiteStoreError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+
+    if (siteConfigMatch) {
+      if (req.method !== 'PUT') return httpUtils.sendAuthError(res, 405, '只支持 PUT。');
+      if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      try {
+        const body = await httpUtils.readBody(req);
+        if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+        return httpUtils.sendJson(res, await siteStore.writeConfig(decodeURIComponent(siteConfigMatch[1]), body));
+      } catch (error) { if (error instanceof siteStore.SiteStoreError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+    }
+
+    if (siteDetailMatch) {
+      try {
+        const siteName = decodeURIComponent(siteDetailMatch[1]);
+        if (req.method === 'GET') return httpUtils.sendJson(res, await siteStore.siteSummary(siteName));
+        if (req.method === 'DELETE') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          return httpUtils.sendJson(res, await siteStore.deleteSite(siteName));
+        }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) { if (error instanceof siteStore.SiteStoreError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
     }
 
     // 德州扑克：筹码账户与房间大厅。牌局本身走 WebSocket，这里只提供余额、流水与房间列表。

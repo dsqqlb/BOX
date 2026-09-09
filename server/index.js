@@ -41,6 +41,8 @@ const homePreferences = require('./home-preferences');
 const medicineStore = require('./medicine-store');
 const sceneMedia = require('./scene-media');
 const holdemStore = require('./holdem-store');
+const siteStore = require('./site-store');
+const { createSiteHosting } = require('./site-hosting');
 const httpUtils = require('./http-utils');
 const { createRoomServer } = require('./rooms');
 const { createKardsRoomServer } = require('./kards-rooms');
@@ -55,7 +57,8 @@ const roomServer = createRoomServer({ auth });
 const kardsRoomServer = createKardsRoomServer({ auth });
 const chatServer = createChatServer({ auth });
 const holdemRoomServer = createHoldemRoomServer({ auth });
-const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config });
+const siteHosting = createSiteHosting({ auth });
+const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config });
 
 // ============ 启动统一服务 ============
 

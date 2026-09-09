@@ -4,6 +4,7 @@
 
 ## 认证与运行
 
+- [部署指南](./deployment.md)：Linux / Windows / macOS 从克隆到跑起来的完整步骤、常驻运行、反向代理、备份与故障排查。
 - [认证与授权](./authentication.md)：SQLite 账户、密码哈希、工具权限、管理员账户管理与 Cookie。
 
 完整应用运行时必须使用 `server/index.js`：它负责认证、受保护 API、WebSocket 和生产静态文件托管。不要把 `out/` 单独部署为完整应用。
@@ -25,6 +26,7 @@
 | JSON 星系 | `/tools/json-visualizer` | [json-visualizer.md](./json-visualizer.md) |
 | EDH 指挥官组卡台 | `/tools/edh-builder` | [edh-builder.md](./edh-builder.md) |
 | 德州扑克 | `/tools/texas-holdem` | [texas-holdem.md](./texas-holdem.md) |
+| 静态站点挂载 | `/tools/static-sites` | [static-sites.md](./static-sites.md) |
 | 塔罗牌占卜 | `/tools/tarot-reading` | [tarot-reading.md](./tarot-reading.md) |
 | 省钱网页 | `/tools/savings-tracker` | [savings-tracker.md](./savings-tracker.md) |
 | CSS 层叠解释器 | `/tools/css-cascade` | [css-cascade.md](./css-cascade.md) |

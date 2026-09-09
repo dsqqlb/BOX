@@ -4,6 +4,8 @@ BOX 是一个带账户登录和按工具授权的私人工具箱。它使用 Nex
 
 > `next.config.ts` 虽然会生成 `out/` 静态产物，但完整功能**不能**只部署到静态托管：登录、权限控制、WebSocket 房间和省钱记录 API 都需要运行 `server/index.js`。
 
+> 想要一份覆盖 Linux / Windows / macOS、从克隆到常驻运行（含反向代理、备份与故障排查）的完整分步指南，请看 **[部署指南](./docs/deployment.md)**。下面是精简版的新机器配置流程。
+
 ## 新机器部署与首次认证配置
 
 以下步骤适用于将项目复制、克隆或部署到一台**没有现有私密配置**的新机器。`.env.local` 和 `data/auth-users.json` 不应从 Git 获取；必须在目标机器上重新创建。请在项目根目录执行。
@@ -95,7 +97,7 @@ BOX_COOKIE_SECURE=true
 }
 ```
 
-当前可用权限为：`carcassonne`、`claude-code-guide`、`dnd-translator`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`edh-builder`、`dnd-character`、`kards`、`conways-game-of-life`、`lan-chat`、`medicine-inventory`、`texas-holdem`、`target-text`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
+当前可用权限为：`carcassonne`、`claude-code-guide`、`dnd-translator`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`edh-builder`、`dnd-character`、`kards`、`conways-game-of-life`、`lan-chat`、`medicine-inventory`、`texas-holdem`、`static-sites`、`target-text`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
 
 ### 5. 为每个账户生成密码哈希
 

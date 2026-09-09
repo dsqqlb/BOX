@@ -30,8 +30,38 @@ const MIME_TYPES = {
   '.ttf': 'font/ttf',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
+  '.eot': 'application/vnd.ms-fontobject',
   '.mp3': 'audio/mpeg',
+  // 静态站点常用的音视频与其他类型：缺失时浏览器会拿到 octet-stream 而无法播放/执行。
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.mov': 'video/quicktime',
+  '.vtt': 'text/vtt; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.apng': 'image/apng',
+  '.pdf': 'application/pdf',
+  '.csv': 'text/csv; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.zip': 'application/zip',
+  '.gz': 'application/gzip',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
 };
+
+/** 按扩展名取 MIME，未知类型回落到 octet-stream（配合 nosniff 避免被浏览器猜成可执行类型）。 */
+function mimeTypeFor(filePath) {
+  return MIME_TYPES[path.extname(String(filePath || '')).toLowerCase()] || 'application/octet-stream';
+}
 
 // 这些文本类型压缩收益明显（json-visualizer 打包后有250KB+），二进制/图片不压缩
 const GZIP_EXT = new Set(['.html', '.js', '.mjs', '.css', '.json', '.map', '.webmanifest', '.txt', '.xml', '.svg']);
@@ -109,4 +139,4 @@ function sendNotFound(req, res) {
   res.end('404 Not Found');
 }
 
-module.exports = { resolveStaticFile, cacheControlFor, sendStaticFile, sendNotFound };
+module.exports = { MIME_TYPES, GZIP_EXT, mimeTypeFor, resolveStaticFile, cacheControlFor, sendStaticFile, sendNotFound };

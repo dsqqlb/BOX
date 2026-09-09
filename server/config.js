@@ -68,6 +68,28 @@ const HOLDEM_STARTING_CHIPS = Number.isFinite(configuredHoldemStartingChips)
   : 10000;
 const HOLDEM_MIN_BUY_IN = 100;
 
+// ---- 静态站点挂载 ----
+// data/sites/<站点名>/ 一个文件夹就是一个独立静态网页，运行时数据，不进 Git。
+const SITES_DIR = path.join(PROJECT_ROOT, 'data', 'sites');
+// 静态站点使用与 BOX 主站不同的域名（例如 pages.example.com）。
+// 必须不同源：否则站点里的 JS 能以访客的 BOX 登录身份发同源请求调用 BOX 接口。
+// 逗号分隔可配多个，便于同时支持生产域名与本地调试（如 pages.localhost:9999）。
+const SITES_HOSTS = String(process.env.BOX_SITES_HOST || '')
+  .split(',')
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
+function clampBytes(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(Math.max(Math.trunc(parsed), min), max) : fallback;
+}
+// 单个文件、单个 zip 包与单个站点总体积的上限。
+const SITES_MAX_FILE_BYTES = clampBytes(process.env.BOX_SITES_MAX_FILE_BYTES, 50 * 1024 * 1024, 64 * 1024, 500 * 1024 * 1024);
+const SITES_MAX_ARCHIVE_BYTES = clampBytes(process.env.BOX_SITES_MAX_ARCHIVE_BYTES, 200 * 1024 * 1024, 64 * 1024, 2 * 1024 * 1024 * 1024);
+const SITES_MAX_TOTAL_BYTES = clampBytes(process.env.BOX_SITES_MAX_TOTAL_BYTES, 1024 * 1024 * 1024, 1024 * 1024, 20 * 1024 * 1024 * 1024);
+// BOX 主站域名（如 box.example.com）。「仅登录可见」的站点需要跳回主站完成授权，
+// 因为会话 Cookie 只属于主站域名，不会发送到站点域名。
+const PRIMARY_HOST = String(process.env.BOX_PRIMARY_HOST || '').trim().toLowerCase();
+
 // 所有受保护工具的稳定路由标识。权限配置只使用这些标识，不使用可变的页面标题。
 const TOOL_SLUGS = [
   'carcassonne',
@@ -87,6 +109,7 @@ const TOOL_SLUGS = [
   'lan-chat',
   'medicine-inventory',
   'texas-holdem',
+  'static-sites',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 
@@ -114,6 +137,12 @@ module.exports = {
   INITIATIVE_SCENE_VIDEO_MAX_UPLOAD_BYTES,
   HOLDEM_STARTING_CHIPS,
   HOLDEM_MIN_BUY_IN,
+  SITES_DIR,
+  SITES_HOSTS,
+  PRIMARY_HOST,
+  SITES_MAX_FILE_BYTES,
+  SITES_MAX_ARCHIVE_BYTES,
+  SITES_MAX_TOTAL_BYTES,
   TOOL_SLUGS,
   TOOL_SLUG_SET,
 };

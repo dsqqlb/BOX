@@ -90,6 +90,10 @@ function requiredToolForApi(pathname) {
   if (pathname.startsWith('/api/chat/')) return 'lan-chat';
   if (pathname.startsWith('/api/medicine/')) return 'medicine-inventory';
   if (pathname.startsWith('/api/holdem/')) return 'texas-holdem';
+  // 静态站点管理需要 static-sites 权限；但 /api/sites/grant 是访客查看「仅登录可见」站点的
+  // 授权入口，只要求登录，不要求管理权限，因此单独排除。
+  if (pathname === '/api/sites/grant') return null;
+  if (pathname === '/api/sites' || pathname.startsWith('/api/sites/')) return 'static-sites';
   return null;
 }
 
