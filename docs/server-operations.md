@@ -295,7 +295,7 @@ ssh box-prod "ls -lh ~/box-backups/"
 ├─ box-shared/
 │  ├─ .env.local
 │  └─ data/
-├─ box-upload/                 # 上传的 zip，之后可定期清理
+├─ box-upload/                 # 上传的 tar.gz，之后可定期清理
 └─ box-ops/                    # 服务器上的发布/回滚脚本
 ```
 
@@ -345,15 +345,15 @@ ssh box-prod "readlink -f ~/box-releases/current; systemctl status box --no-page
 
 1. 运行 `npm run build`；
 2. 使用 `时间-Git短提交号` 创建版本号；
-3. 打包代码、`out/`、Prisma migrations 和必要配置模板；
+3. 打包代码、`out/`、Prisma migrations 和必要配置模板为跨平台 `.tar.gz`；
 4. **明确排除** `.git`、`node_modules`、`.env.local`、`data/`；
-5. 上传 zip 和三个服务器脚本到 `box-prod`；
+5. 上传 tar.gz 和三个服务器脚本到 `box-prod`；
 6. 输出下一条要执行的部署命令。
 
 上传本身不会停止、重启或修改网站。确认上传版本后，按脚本输出的版本执行：
 
 ```powershell
-ssh box-prod "~/box-ops/deploy-release.sh ~/box-upload/box-<VERSION>.zip"
+ssh box-prod "~/box-ops/deploy-release.sh ~/box-upload/box-<VERSION>.tar.gz"
 ```
 
 部署脚本会先在新 release 中安装依赖、生成 Prisma Client、构建页面；只有构建成功后才会短暂停机、备份共享数据、应用迁移、切换 `current` 并启动服务。默认保留最新 5 个 release。

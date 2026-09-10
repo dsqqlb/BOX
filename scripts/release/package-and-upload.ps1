@@ -16,9 +16,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$RequiredDirectories = @('app', 'components', 'lib', 'prisma', 'public', 'scripts', 'server')
+$RequiredDirectories = @('app', 'components', 'content', 'lib', 'prisma', 'public', 'scripts', 'server', 'types')
 $OptionalDirectories = @('docs')
-$RequiredFiles = @('.env.example', '.gitignore', 'next.config.ts', 'package.json', 'package-lock.json', 'postcss.config.mjs', 'tailwind.config.ts', 'tsconfig.json')
+$RequiredFiles = @('.env.example', '.gitignore', 'next.config.ts', 'package.json', 'package-lock.json', 'postcss.config.js', 'tailwind.config.ts', 'tsconfig.json')
 
 function Copy-ReleaseItem {
   param([string]$Path, [string]$Destination)
@@ -43,7 +43,7 @@ try {
   $version = "$timestamp-$revision"
   $releaseRoot = Join-Path $ProjectRoot '.release'
   $stage = Join-Path $releaseRoot "stage-$version"
-  $package = Join-Path $releaseRoot "box-$version.zip"
+  $package = Join-Path $releaseRoot "box-$version.tar.gz"
 
   Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -65,7 +65,8 @@ try {
   $manifest = @{ version = $version; revision = $revision; builtAt = (Get-Date).ToUniversalTime().ToString('o') } | ConvertTo-Json
   Set-Content -LiteralPath (Join-Path $stage 'release-manifest.json') -Value $manifest -Encoding utf8
   Remove-Item -LiteralPath $package -Force -ErrorAction SilentlyContinue
-  Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $package -CompressionLevel Optimal -Force
+  & tar.exe -czf $package -C $stage .
+  if ($LASTEXITCODE -ne 0) { throw 'Release archive creation failed.' }
   if (!(Test-Path -LiteralPath $package)) { throw 'Release archive was not created.' }
 
   Write-Host '==> Uploading archive and release scripts...' -ForegroundColor Cyan
@@ -83,7 +84,7 @@ try {
 
   Write-Host "`nUpload complete. Version: $version" -ForegroundColor Green
   Write-Host 'Next step, after release bootstrap is complete:' -ForegroundColor Yellow
-  Write-Host ("ssh {0} '~/box-ops/deploy-release.sh {1}/box-{2}.zip'" -f $Server, $RemoteUploadDirectory, $version)
+  Write-Host ("ssh {0} '~/box-ops/deploy-release.sh {1}/box-{2}.tar.gz'" -f $Server, $RemoteUploadDirectory, $version)
   Write-Host 'Upload alone does not stop, restart, or change the running website.'
 
   if (!$KeepPackage) {

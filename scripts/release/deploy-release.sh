@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy a previously uploaded BOX release archive. Run as the non-root deployment user.
-# Usage: ~/box-ops/deploy-release.sh ~/box-upload/box-YYYYMMDD-HHMMSS-revision.zip
+# Usage: ~/box-ops/deploy-release.sh ~/box-upload/box-YYYYMMDD-HHMMSS-revision.tar.gz
 set -Eeuo pipefail
 
 RELEASE_ROOT="${BOX_RELEASE_ROOT:-$HOME/box-releases}"
@@ -11,16 +11,16 @@ ARCHIVE="${1:-}"
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 info() { printf '\n==> %s\n' "$*"; }
-[[ -n "$ARCHIVE" ]] || fail "usage: $0 /path/to/box-<version>.zip"
+[[ -n "$ARCHIVE" ]] || fail "usage: $0 /path/to/box-<version>.tar.gz"
 [[ -f "$ARCHIVE" ]] || fail "archive not found: $ARCHIVE"
-command -v unzip >/dev/null || fail "unzip is required"
+command -v tar >/dev/null || fail "tar is required"
 command -v npm >/dev/null || fail "npm is required"
 [[ -L "$RELEASE_ROOT/current" ]] || fail "release layout is not initialized; run bootstrap-releases.sh first"
 [[ -f "$SHARED_ROOT/.env.local" ]] || fail "missing shared .env.local"
 [[ -d "$SHARED_ROOT/data" ]] || fail "missing shared data directory"
 
-VERSION="$(basename "$ARCHIVE" | sed -nE 's/^box-(.+)\.zip$/\1/p')"
-[[ "$VERSION" =~ ^[A-Za-z0-9._-]+$ ]] || fail "archive name must be box-<safe-version>.zip"
+VERSION="$(basename "$ARCHIVE" | sed -nE 's/^box-(.+)\.tar\.gz$/\1/p')"
+[[ "$VERSION" =~ ^[A-Za-z0-9._-]+$ ]] || fail "archive name must be box-<safe-version>.tar.gz"
 TARGET="$RELEASE_ROOT/$VERSION"
 [[ ! -e "$TARGET" ]] || fail "release already exists: $TARGET"
 
@@ -49,7 +49,8 @@ trap cleanup EXIT
 
 info "Extracting $VERSION"
 mkdir -p "$RELEASE_ROOT" "$BACKUP_DIR"
-unzip -q "$ARCHIVE" -d "$TMP_TARGET"
+mkdir "$TMP_TARGET"
+tar -xzf "$ARCHIVE" -C "$TMP_TARGET"
 [[ -f "$TMP_TARGET/release-manifest.json" ]] || fail "release manifest missing"
 [[ -f "$TMP_TARGET/package.json" ]] || fail "package.json missing"
 [[ -d "$TMP_TARGET/server" ]] || fail "server directory missing"
