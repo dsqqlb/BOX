@@ -269,3 +269,118 @@ ssh box-prod "ls -lh ~/box-backups/"
 3. 长期应该用域名 + HTTPS 反向代理，BOX 只监听本机 `127.0.0.1:9999`；不要长期裸露公网 HTTP 的 `9999` 端口。
 4. 确认至少两台电脑都能用 SSH 密钥登录后，再考虑关闭密码 SSH 登录和 root SSH 登录；操作前保留一个已登录的 SSH 窗口，防止把自己锁在服务器外。
 5. `.env.local`、`data/box.sqlite`、整个 `data/` 和备份压缩包都属于敏感数据，应定期异地备份。
+
+
+---
+
+## 11. 无 Git 网络时的版本发布
+
+服务器不需要访问 GitHub 或其他 Git 平台。版本管理分为两层：
+
+- **开发电脑**：本地 Git 是源码和提交历史的唯一来源；
+- **服务器**：只保存多个带版本号的 release，并用 `current` 软链接决定运行哪一个版本。
+
+发布包经 SSH/SCP 上传，因此服务器完全不需要 Git 网络。
+
+### 11.1 最终服务器目录结构
+
+完成一次性初始化后，建议结构如下：
+
+```text
+/home/ubuntu/
+├─ box-releases/
+│  ├─ 20260910-153000-a1b2c3d/
+│  ├─ 20260912-211500-e4f5a6b/
+│  └─ current -> 20260912-211500-e4f5a6b/
+├─ box-shared/
+│  ├─ .env.local
+│  └─ data/
+├─ box-upload/                 # 上传的 zip，之后可定期清理
+└─ box-ops/                    # 服务器上的发布/回滚脚本
+```
+
+- 每个 release 是一份独立、不可修改的代码和构建产物；
+- `box-releases/current` 指向当前运行版本；
+- `.env.local`、SQLite 与上传文件放在 `box-shared/`，不随版本切换而覆盖；
+- systemd 的 `WorkingDirectory` 指向 `box-releases/current`。
+
+### 11.2 一次性初始化 release 目录
+
+> 这是线上结构迁移，会停止服务、移动 `.env.local` 与 `data/`、修改 `box.service`。先做异地备份并选择维护窗口。不要在未确认脚本预检结果时执行 `--execute`。
+
+本地先将发布脚本上传一次：
+
+```powershell
+scp .\scripts\release\bootstrap-releases.sh box-prod:~/box-ops/bootstrap-releases.sh
+ssh box-prod "chmod 700 ~/box-ops/bootstrap-releases.sh"
+```
+
+先运行**预检**，它不修改服务器：
+
+```powershell
+ssh box-prod "~/box-ops/bootstrap-releases.sh"
+```
+
+确认预检中 `source app`、`release root`、`shared secrets` 和服务名都正确，且你已备份后，才执行：
+
+```powershell
+ssh box-prod "~/box-ops/bootstrap-releases.sh --execute"
+```
+
+初始化完成后验证：
+
+```powershell
+ssh box-prod "readlink -f ~/box-releases/current; systemctl status box --no-pager; curl -I http://127.0.0.1:9999/"
+```
+
+### 11.3 每次发布：本机打包、上传、服务器部署
+
+在本机完成代码修改和 Git 提交后，PowerShell 执行：
+
+```powershell
+.\scripts\release\package-and-upload.ps1
+```
+
+这个脚本会：
+
+1. 运行 `npm run build`；
+2. 使用 `时间-Git短提交号` 创建版本号；
+3. 打包代码、`out/`、Prisma migrations 和必要配置模板；
+4. **明确排除** `.git`、`node_modules`、`.env.local`、`data/`；
+5. 上传 zip 和三个服务器脚本到 `box-prod`；
+6. 输出下一条要执行的部署命令。
+
+上传本身不会停止、重启或修改网站。确认上传版本后，按脚本输出的版本执行：
+
+```powershell
+ssh box-prod "~/box-ops/deploy-release.sh ~/box-upload/box-<VERSION>.zip"
+```
+
+部署脚本会先在新 release 中安装依赖、生成 Prisma Client、构建页面；只有构建成功后才会短暂停机、备份共享数据、应用迁移、切换 `current` 并启动服务。默认保留最新 5 个 release。
+
+### 11.4 查看与回滚版本
+
+查看 release：
+
+```powershell
+ssh box-prod "readlink -f ~/box-releases/current; ls -lah ~/box-releases/"
+```
+
+回滚到指定目录（例如 `20260910-153000-a1b2c3d`）：
+
+```powershell
+ssh -t box-prod "~/box-ops/rollback-release.sh 20260910-153000-a1b2c3d"
+```
+
+`-t` 用于让服务器显示确认输入。回滚只切换代码版本；**数据库 migration 是向前执行的，不会自动回退**。在迁移过数据库后回滚旧代码前，应先确认旧代码兼容当前数据库。
+
+### 11.5 发布脚本的位置
+
+| 文件 | 作用 |
+| --- | --- |
+| `scripts/release/package-and-upload.ps1` | Windows：构建、打包、SCP 上传 |
+| `scripts/release/bootstrap-releases.sh` | Ubuntu：一次性将旧目录转换为 release + shared 布局 |
+| `scripts/release/deploy-release.sh` | Ubuntu：解压、构建、备份、迁移、切版本 |
+| `scripts/release/rollback-release.sh` | Ubuntu：确认后切回旧 release |
+
+所有脚本均不会读取或上传私钥；发布包也不会包含真实 `.env.local` 与 `data/`。
