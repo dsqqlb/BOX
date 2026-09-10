@@ -20,7 +20,7 @@ const holdemStore = require('./holdem-store');
 const { HOLDEM_MIN_BUY_IN } = require('./config');
 
 const ROOM_TTL_MS = 2 * 60 * 60 * 1000;
-const THINK_SECONDS = [10, 15, 30];
+const THINK_SECONDS = [10, 15, 30, 40];
 const BOT_LEVELS = new Set(['easy', 'normal', 'hard']);
 const MIN_SEATS = 2;
 const MAX_SEATS = 6;
@@ -282,7 +282,7 @@ function createHoldemRoomServer({ auth }) {
     if (!Number.isFinite(smallBlind) || smallBlind < 1 || smallBlind > 100000) throw new Error('小盲注需在 1–100000 之间。');
     if (!Number.isFinite(bigBlind) || bigBlind <= smallBlind || bigBlind > 200000) throw new Error('大盲注必须大于小盲注。');
     if (!Number.isFinite(buyIn) || buyIn < Math.max(HOLDEM_MIN_BUY_IN, bigBlind * 2) || buyIn > 10000000) throw new Error(`买入至少为 ${Math.max(HOLDEM_MIN_BUY_IN, bigBlind * 2)} 筹码。`);
-    if (!THINK_SECONDS.includes(thinkSeconds)) throw new Error('思考时长只能是 10、15 或 30 秒。');
+    if (!THINK_SECONDS.includes(thinkSeconds)) throw new Error('思考时长只能是 10、15、30 或 40 秒。');
     if (!Number.isFinite(maxSeats) || maxSeats < MIN_SEATS || maxSeats > MAX_SEATS) throw new Error(`座位数需在 ${MIN_SEATS}–${MAX_SEATS} 之间。`);
     return { smallBlind, bigBlind, buyIn, thinkSeconds, maxSeats };
   }

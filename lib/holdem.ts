@@ -122,7 +122,7 @@ export type HoldemRoomView = {
   log: { at: number; seat: number | null; text: string }[];
 };
 
-export const THINK_SECOND_OPTIONS = [10, 15, 30] as const;
+export const THINK_SECOND_OPTIONS = [10, 15, 30, 40] as const;
 export const BOT_LEVEL_OPTIONS = [
   { value: 'easy', label: '新手', hint: '跟得松、几乎不加注' },
   { value: 'normal', label: '普通', hint: '按底池赔率决策' },

@@ -101,7 +101,7 @@ async function recordHandResult(username, won, roomId) {
 async function resetChips(username) {
   const account = await getAccount(username);
   if (account.chips >= HOLDEM_MIN_BUY_IN) throw new HoldemStoreError(`余额仍有 ${account.chips} 筹码，暂不需要补充。`, 409);
-  return adjustChips(username, { delta: HOLDEM_STARTING_CHIPS - account.chips, kind: 'reset', note: '余额不足自助补充' });
+  return adjustChips(username, { delta: HOLDEM_STARTING_CHIPS - account.chips, kind: 'reset', note: '模拟支付：余额不足筹码补给' });
 }
 
 async function listLedger(username) {
