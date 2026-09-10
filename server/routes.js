@@ -161,6 +161,17 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
       return res.end('403 无权访问此工具');
     }
 
+    // 个人中心汇总：使用记录、热力图和里程碑都由当前会话的账户与权限边界计算。
+    if (pathname === '/api/profile/summary') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      try {
+        return httpUtils.sendJson(res, await homePreferences.getProfileSummary(requestUser.username, getAllowedToolSlugs(requestUser)));
+      } catch (error) {
+        if (error instanceof homePreferences.HomePreferencesError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
+        throw error;
+      }
+    }
+
     // 首页偏好：按账户保存，但返回和写入都以当前权限的工具集合为边界。
     if (pathname === '/api/home/preferences') {
       try {

@@ -274,7 +274,7 @@ npm run db:setup
 | 子步骤 | 作用 |
 | --- | --- |
 | `db:generate` | 生成 Prisma 客户端 |
-| `db:migrate` | 创建 `data/box.sqlite` 并应用 `prisma/migrations/` 下的全部结构（当前 10 个） |
+| `db:migrate` | 创建 `data/box.sqlite` 并应用 `prisma/migrations/` 下的全部结构（当前 11 个） |
 | `db:import-json` | 把 `data/auth-users.json` 的账户导入数据库；导入前自动备份到 `data/backups/` |
 | `db:migrate-runtime-json` | 增量导入历史的 DND / 省钱 JSON；全新部署没有这些文件，会显示 0 条，属正常 |
 

@@ -2191,13 +2191,62 @@ img {
 .home-paper .home-tool-card {
   border-color: rgba(15, 23, 42, 0.11);
   background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 10px 35px rgba(15, 23, 42, 0.09);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
 }
 .home-paper .home-tool-card:hover { background: rgba(255, 255, 255, 0.94); }
 .home-paper .home-tool-card h3,
 .home-paper .home-tool-list h3 { color: rgb(15, 23, 42); }
 .home-paper .home-tool-card p,
+.home-paper .home-tool-card .home-tool-desc,
 .home-paper .home-tool-list p { color: rgb(71, 85, 105); }
+
+/* 收藏 / 最近使用入口条：胶囊换行排列，纸页主题下需要更深的文字色。 */
+.home-paper .home-quick-pill { box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06); }
+
+/* 首页表头：入场上浮、时段光晕漂移、打字机光标、时钟冒号与标题流光。 */
+.home-hero-rise { animation: home-hero-rise 0.62s cubic-bezier(0.22, 0.68, 0.32, 1) both; }
+@keyframes home-hero-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+.home-hero-blob { animation: home-hero-drift 19s ease-in-out infinite; }
+@keyframes home-hero-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.85; }
+  50% { transform: translate3d(-26px, 18px, 0) scale(1.12); opacity: 1; }
+}
+.home-hero-caret { animation: home-hero-caret 1.05s steps(1, end) infinite; }
+@keyframes home-hero-caret {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.home-hero-colon { animation: home-hero-colon 1s steps(1, end) infinite; }
+@keyframes home-hero-colon {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0.22; }
+}
+.home-hero-sheen { background-size: 220% 100%; animation: home-hero-sheen 9s ease-in-out infinite; }
+@keyframes home-hero-sheen {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.home-hero::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.05) 50%, transparent 58%);
+  background-size: 260% 100%;
+  animation: home-hero-sweep 11s ease-in-out infinite;
+}
+@keyframes home-hero-sweep {
+  0%, 100% { background-position: 120% 50%; }
+  50% { background-position: -20% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-rise, .home-hero-blob, .home-hero-caret, .home-hero-colon, .home-hero-sheen, .home-hero::after { animation: none !important; }
+  .home-hero-caret { opacity: 1; }
+}
 .home-paper .home-tool-list {
   border-color: rgba(15, 23, 42, 0.11);
   background: rgba(255, 255, 255, 0.72);
