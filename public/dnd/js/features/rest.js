@@ -273,7 +273,13 @@ function importBackup(file) {
         }
         existing.forEach(k => localStorage.removeItem(k));
         keys.forEach(k => localStorage.setItem(k, data[k]));
-        location.reload();
+        /* 导入后要先把整份备份推到服务器落库再刷新，
+           否则刷新时会被服务器上的旧存档覆盖回去（导入等于白做）。 */
+        if (typeof window.__dndPushSave === 'function') {
+          window.__dndPushSave().then(() => location.reload(), () => location.reload());
+        } else {
+          location.reload();
+        }
       },
     });
   };

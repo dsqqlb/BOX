@@ -27,25 +27,39 @@
     return data;
   }
 
-  function push() {
+  /* opts.keepalive 只在「关页面来不及等响应」时使用。
+     ⚠ 浏览器对 keepalive 请求体有 64KiB 上限，超限会被静默拒绝；
+     存档快照会随跑团日志变大，所以常规防抖保存不带它。 */
+  function push(opts) {
     dirty = false;
     if (timer) { clearTimeout(timer); timer = null; }
+    var req = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ data: snapshot() }),
+    };
+    if (opts && opts.keepalive) req.keepalive = true;
     try {
-      fetch('/api/dnd/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        keepalive: true,
-        body: JSON.stringify({ data: snapshot() }),
-      }).catch(function () { /* 网络失败：静默，下次改动再试 */ });
-    } catch (e) { /* 忽略 */ }
+      return fetch('/api/dnd/save', req)
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return true; })
+        .catch(function () { return false; }); /* 网络/服务端失败：静默，下次改动再试 */
+    } catch (e) {
+      return Promise.resolve(false);
+    }
   }
 
   function schedule() {
     dirty = true;
     if (timer) clearTimeout(timer);
-    timer = setTimeout(push, DEBOUNCE_MS);
+    timer = setTimeout(function () { push(); }, DEBOUNCE_MS);
   }
+
+  /* 供「改完立刻刷新页面」的路径（角色配置保存 / 恢复默认 / 导入备份）使用：
+     必须先把新数据推到服务器并等它落库，再刷新。否则新页面启动时会从服务器
+     拉到旧存档、覆盖刚改的本地数据，改动就被永久回滚了。 */
+  window.__dndPushSave = function () { return push(); };
+
 
   /* 拦截 dnd_* 的写入，统一触发自动保存。setItem/removeItem 是 save()、
      撤销、导入备份等所有持久化路径的最终落点，一处覆盖即可全覆盖。 */
@@ -63,6 +77,6 @@
 
   /* 关页面前尽量把最后的改动推上去（keepalive 保证请求能发出去）。 */
   window.addEventListener('beforeunload', function () {
-    if (dirty) push();
+    if (dirty) push({ keepalive: true });
   });
 })();

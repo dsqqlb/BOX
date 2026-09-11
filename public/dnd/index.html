@@ -16,6 +16,10 @@
      然后刷新一次让状态以服务器数据为准；未登录或服务器无存档则保持本地不变。 */
   (function () {
     try {
+      /* 用「原生」setItem 写入：sync.js 会拦截 dnd_* 的写入并回推服务器。
+         这里若用被拦截的版本，就会把刚被覆盖掉的旧数据再 POST 回服务器，
+         导致刚保存的改动被永久回滚（本地延迟低时不明显，公网延迟下必现）。*/
+      var nativeSetItem = localStorage.setItem.bind(localStorage);
       fetch('/api/dnd/save', { credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) return null; return r.json(); })
         .then(function (save) {
@@ -25,7 +29,7 @@
             if (localStorage.getItem('dnd_' + k) !== save.data[k]) { changed = true; break; }
           }
           if (!changed) return;
-          for (k in save.data) localStorage.setItem('dnd_' + k, save.data[k]);
+          for (k in save.data) nativeSetItem('dnd_' + k, save.data[k]);
           location.reload();
         })
         .catch(function () { /* 网络失败：静默，保持本地 */ });

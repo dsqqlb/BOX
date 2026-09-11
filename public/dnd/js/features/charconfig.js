@@ -426,6 +426,15 @@
   $('charcfg-cancel').addEventListener('click', closeEditor);
   modal.addEventListener('click', e => { if (e.target === modal) closeEditor(); });
 
+  /* 改完立刻刷新时，必须先把最新快照推到服务器并等它落库，再刷新。
+     否则新页面启动时 index.html 会从服务器拉到旧存档覆盖本地，
+     刚做的改动会被永久回滚（这正是丢数据的根因）。 */
+  function reloadAfterPush() {
+    const go = () => location.reload();
+    if (typeof window.__dndPushSave === 'function') window.__dndPushSave().then(go, go);
+    else go();
+  }
+
   /* ──── 保存 ──── */
   $('charcfg-save').addEventListener('click', () => {
     const { overlay, error } = collectOverlay();
@@ -437,7 +446,7 @@
     const existing = load('charConfig', {}) || {};
     save('charConfig', Object.assign({}, existing, overlay));
     /* 重载让 state 初始化 / reconcile / DERIVED / 全部渲染重新按新配置生效 */
-    location.reload();
+    reloadAfterPush();
   });
 
   /* ──── 恢复默认（清除覆盖层）──── */
@@ -448,7 +457,7 @@
       confirmText: '恢复默认', cancelText: '取消',
       onConfirm: () => {
         localStorage.removeItem('dnd_charConfig');
-        location.reload();
+        reloadAfterPush();   /* 同上：等"已清除覆盖层"的快照落库后再刷新 */
       },
     });
   });
