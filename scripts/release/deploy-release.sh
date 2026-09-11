@@ -18,6 +18,7 @@ command -v npm >/dev/null || fail "npm is required"
 [[ -L "$RELEASE_ROOT/current" ]] || fail "release layout is not initialized; run bootstrap-releases.sh first"
 [[ -f "$SHARED_ROOT/.env.local" ]] || fail "missing shared .env.local"
 [[ -d "$SHARED_ROOT/data" ]] || fail "missing shared data directory"
+[[ -d "$SHARED_ROOT/public-image" ]] || fail "missing shared public-image directory"
 
 VERSION="$(basename "$ARCHIVE" | sed -nE 's/^box-(.+)\.tar\.gz$/\1/p')"
 [[ "$VERSION" =~ ^[A-Za-z0-9._-]+$ ]] || fail "archive name must be box-<safe-version>.tar.gz"
@@ -54,8 +55,13 @@ tar -xzf "$ARCHIVE" -C "$TMP_TARGET"
 [[ -f "$TMP_TARGET/release-manifest.json" ]] || fail "release manifest missing"
 [[ -f "$TMP_TARGET/package.json" ]] || fail "package.json missing"
 [[ -d "$TMP_TARGET/server" ]] || fail "server directory missing"
+[[ -d "$TMP_TARGET/public" ]] || fail "public directory missing"
+# Archives must never supply persistent runtime data or server-managed image assets.
+# Remove only the unactivated staging paths, then create top-level shared links.
+rm -rf -- "$TMP_TARGET/data" "$TMP_TARGET/public/image"
 ln -s "$SHARED_ROOT/.env.local" "$TMP_TARGET/.env.local"
 ln -s "$SHARED_ROOT/data" "$TMP_TARGET/data"
+ln -s "$SHARED_ROOT/public-image" "$TMP_TARGET/public/image"
 
 info "Installing dependencies and building before downtime"
 (
@@ -69,7 +75,7 @@ info "Stopping service and creating a consistent data backup"
 sudo systemctl stop "$SERVICE_NAME"
 SERVICE_STOPPED=1
 tar -czf "$BACKUP_DIR/box-before-$VERSION-$(date +%Y%m%d-%H%M%S).tar.gz" \
-  -C "$SHARED_ROOT" .env.local data
+  -C "$SHARED_ROOT" .env.local data public-image
 
 info "Applying database migrations"
 (
