@@ -1,4 +1,4 @@
-import tarotCardsData from '@/data/tarot-cards.json';
+import tarotCardsData from '@/content/tarot-cards.json';
 
 // 塔罗牌花色（小阿卡纳）
 export type TarotSuit = 'wands' | 'cups' | 'swords' | 'pentacles';

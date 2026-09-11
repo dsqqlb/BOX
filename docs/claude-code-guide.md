@@ -3,7 +3,7 @@
 路径：`/tools/claude-code-guide`
 所需权限：`claude-code-guide`
 
-这是项目内置的 Claude Code 学习参考页。页面将 `data/claude-code-guide.json` 中的内容按章节渲染为说明、命令卡片、技巧、高级主题和常见问题。
+这是项目内置的 Claude Code 学习参考页。页面将 `content/claude-code-guide.json` 中的内容按章节渲染为说明、命令卡片、技巧、高级主题和常见问题。
 
 ## 使用
 
@@ -15,7 +15,7 @@
 
 ## 内容维护
 
-学习资料的唯一数据源是 `data/claude-code-guide.json`。更新已有条目或新增章节时，请保持现有 `sections` 数组结构：
+学习资料的唯一数据源是 `content/claude-code-guide.json`。更新已有条目或新增章节时，请保持现有 `sections` 数组结构：
 
 ```json
 {

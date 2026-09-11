@@ -46,7 +46,7 @@
 npm run build:kards
 ```
 
-该命令扫描 `public/image/Kards`，输出 `data/kards/cards.json`（id/名称/阵营/费用/图片路径）。新增或改名卡图后重新运行一次即可。
+该命令扫描 `public/image/Kards`，输出 `content/kards/cards.json`（id/名称/阵营/费用/图片路径）。新增或改名卡图后重新运行一次即可。
 
 牌组存 SQLite，运行 `npm run db:setup`（或至少 `db:generate` + `db:migrate`）后生效。
 

@@ -55,13 +55,6 @@ try {
   foreach ($file in $RequiredFiles) { Copy-ReleaseItem -Path $file -Destination $stage }
   Copy-ReleaseItem -Path 'out' -Destination $stage
 
-  $template = Join-Path $ProjectRoot 'data\auth-users.example.json'
-  if (Test-Path -LiteralPath $template) {
-    $dataStage = Join-Path $stage 'data'
-    New-Item -ItemType Directory -Path $dataStage -Force | Out-Null
-    Copy-Item -LiteralPath $template -Destination $dataStage -Force
-  }
-
   $manifest = @{ version = $version; revision = $revision; builtAt = (Get-Date).ToUniversalTime().ToString('o') } | ConvertTo-Json
   Set-Content -LiteralPath (Join-Path $stage 'release-manifest.json') -Value $manifest -Encoding utf8
   Remove-Item -LiteralPath $package -Force -ErrorAction SilentlyContinue

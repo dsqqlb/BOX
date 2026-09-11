@@ -1,5 +1,5 @@
 import ToolHeader from '@/components/common/ToolHeader';
-import guideData from '@/data/claude-code-guide.json';
+import guideData from '@/content/claude-code-guide.json';
 import CopyButton from '@/components/CopyButton';
 import Link from 'next/link';
 

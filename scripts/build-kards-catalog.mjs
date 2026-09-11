@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 扫描 public/image/Kards 的卡图目录结构，生成 data/kards/cards.json 目录。
+ * 扫描 public/image/Kards 的卡图目录结构，生成 content/kards/cards.json 目录。
  *
  * 目录约定（与资源本身的组织方式一致）：
  *   <阵营>/<Nk>/<中文名>[_<英文名>]_<slug>.png
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const kardsRoot = path.join(projectRoot, 'public', 'image', 'Kards');
-const outFile = path.join(projectRoot, 'data', 'kards', 'cards.json');
+const outFile = path.join(projectRoot, 'content', 'kards', 'cards.json');
 
 const FACTION_ORDER = [
   '美国', '德国', '苏联', '英国', '日本',

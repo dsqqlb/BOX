@@ -24,7 +24,7 @@
 
 **换服务器后的最小原则**：保留 SSH 别名 `box-prod`，只更新本机 `~/.ssh/config` 中的 `HostName`、`User` 和需要时的 `Port`。后文所有 `ssh box-prod ...` 命令都继续可用。
 
-`data/` 和 `.env.local` 非常重要：更新项目、构建页面时都不能删除或覆盖它们。
+内容目录 `content/`（工具定义、内置卡牌与页面资料）随代码进入 Git 和发布包；`data/` 仅保存 SQLite、账户文件、上传、缓存、备份和用户站点，整体不进入 Git。
 
 ---
 

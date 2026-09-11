@@ -24,14 +24,14 @@ PowerShell：
 
 ```powershell
 Copy-Item .env.example .env.local
-Copy-Item data/auth-users.example.json data/auth-users.json
+Copy-Item content/auth-users.example.json data/auth-users.json
 ```
 
 macOS / Linux shell：
 
 ```bash
 cp .env.example .env.local
-cp data/auth-users.example.json data/auth-users.json
+cp content/auth-users.example.json data/auth-users.json
 ```
 
 若目标机器上已经有正在使用的 `.env.local` 或 `data/auth-users.json`，不要执行覆盖复制；先备份并在原文件上增量修改。两份模板文件可以提交，两个实际文件包含密钥或账户哈希，均不得提交到 Git 或发送给他人。
@@ -67,7 +67,7 @@ BOX_COOKIE_SECURE=true
 
 ### 4. 配置 `data/auth-users.json`
 
-`data/auth-users.example.json` 只是可复制的结构示例。实际的 `data/auth-users.json` 至少需要一个账户，每个账户必须有：
+`content/auth-users.example.json` 只是可复制的结构示例。实际的 `data/auth-users.json` 至少需要一个账户，每个账户必须有：
 
 - `username`：2–64 个字符，只能使用字母、数字、`.`、`_`、`-`；
 - `passwordHash`：由下一步脚本生成的完整 `scrypt$...` 字符串，不能填明文密码；
@@ -152,7 +152,7 @@ npm install
 
 ```powershell
 Copy-Item .env.example .env.local
-Copy-Item data/auth-users.example.json data/auth-users.json
+Copy-Item content/auth-users.example.json data/auth-users.json
 node server/create-password-hash.js
 ```
 
@@ -162,7 +162,7 @@ node server/create-password-hash.js
 
 ```bat
 copy .env.example .env.local
-copy data\auth-users.example.json data\auth-users.json
+copy content\auth-users.example.json data\auth-users.json
 ```
 
 `data/auth-users.json` 含真实账户配置，已被 Git 忽略，不能提交。完整账户、权限和会话说明见[认证与授权](./docs/authentication.md)。
@@ -219,7 +219,8 @@ npm run lint     # 运行项目的 lint 脚本
 ```text
 app/                    Next.js 页面与工具路由
 components/             可复用界面组件
-data/                   工具数据与本地持久化数据
+content/                受版本控制的工具定义、内置卡牌、页面资料与配置模板
+data/                   Git 忽略的运行时数据：SQLite、账户文件、上传、缓存与用户站点
 docs/                   项目、认证和每个工具的说明
 lib/                    客户端工具逻辑与 WebSocket 工具
 public/                 字体与图片等静态资源
@@ -228,4 +229,4 @@ server/                 自定义服务、认证、API 与 WebSocket
 
 ## 文档
 
-文档索引和维护约定位于 [docs/README.md](./docs/README.md)。新增工具时，请同时更新 `data/tools.json`、服务端权限白名单（如需要）和对应的 `docs/<tool>.md`。
+文档索引和维护约定位于 [docs/README.md](./docs/README.md)。新增工具时，请同时更新 `content/tools.json`、服务端权限白名单（如需要）和对应的 `docs/<tool>.md`。

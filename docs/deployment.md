@@ -203,13 +203,13 @@ node -e "require('./server/config'); console.log('密钥长度', Buffer.byteLeng
 **Linux / macOS**
 
 ```bash
-cp data/auth-users.example.json data/auth-users.json
+cp content/auth-users.example.json data/auth-users.json
 ```
 
 **Windows（PowerShell）**
 
 ```powershell
-Copy-Item data/auth-users.example.json data/auth-users.json
+Copy-Item content/auth-users.example.json data/auth-users.json
 ```
 
 ### 5.2 生成密码哈希
@@ -548,7 +548,7 @@ pm2 startup        # 按它输出的命令再执行一次，实现开机自启
 | 内容 | 命令 | 说明 |
 | --- | --- | --- |
 | EDH 卡牌库 | `npm run sync:edh-cards` | 从 Scryfall 下载，约 100 MB，需联网。不同步时 EDH 组卡台的搜索会返回 503 |
-| Kards 卡牌目录 | `npm run build:kards` | 仓库已带 `data/kards/cards.json`，只有自己新增卡图时才需要重跑 |
+| Kards 卡牌目录 | `npm run build:kards` | 仓库已带 `content/kards/cards.json`，只有自己新增卡图时才需要重跑 |
 | DND 图片 | — | `public/image/` 已被 `.gitignore` 排除，但历史已跟踪的约 200 个 PNG 会随克隆带下来。要加新图就直接放进 `public/image/enemies/` 或 `public/image/player/<种族>/`，然后重新 `npm run build` |
 
 ## 10.1 可选：静态站点挂载的域名

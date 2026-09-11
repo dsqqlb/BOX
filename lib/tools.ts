@@ -1,4 +1,4 @@
-import tools from '@/data/tools.json';
+import tools from '@/content/tools.json';
 import { Tool } from './types';
 
 export function getAllTools(): Tool[] {

@@ -5,7 +5,7 @@ BOX 默认拒绝未登录访问。除 `/login` 与登录接口外，页面、业
 ## 首次初始化
 
 1. 从 `.env.example` 创建 `.env.local`，设置至少 32 字节的随机 `BOX_SESSION_SECRET`。
-2. 从 `data/auth-users.example.json` 创建 `data/auth-users.json`，用 `node server/create-password-hash.js` 为每个账户生成 `scrypt$...` 密码哈希，并填写权限。
+2. 从 `content/auth-users.example.json` 创建 `data/auth-users.json`，用 `node server/create-password-hash.js` 为每个账户生成 `scrypt$...` 密码哈希，并填写权限。
 3. 执行：
 
    ```powershell

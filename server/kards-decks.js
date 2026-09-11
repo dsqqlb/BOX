@@ -3,7 +3,7 @@
 /**
  * Kards 牌组：SQLite 按账户隔离，cardsJson 存"卡牌 id 数组（含重复=多张）"。
  *
- * 目录 data/kards/cards.json 是纯展示元数据（名称/阵营/费用/图片路径），
+ * 目录 content/kards/cards.json 是随代码发布的展示元数据（名称/阵营/费用/图片路径），
  * 卡图上的数值与效果文本不参与服务端逻辑——规则由玩家自己掌握（TTS 式桌游）。
  */
 
