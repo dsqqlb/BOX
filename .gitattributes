@@ -1,0 +1,31 @@
+# 统一行尾：Windows 上 checkout 也不会把 shell 脚本变成 CRLF。
+#
+# 背景：scripts/release/*.sh 会被 scp 上传到 Linux 服务器直接执行，
+# 一旦带上 CR 行尾，shebang 会变成 "#!/usr/bin/env bash\r"，
+# 服务器报 `env: 'bash\r': No such file or directory`，发布脚本直接跑不起来。
+# 这个坑真实发生过一次，所以在这里用 git 属性钉死。
+
+# Shell 与其它在类 Unix 上执行的脚本：永远 LF
+*.sh   text eol=lf
+*.bash text eol=lf
+
+# Node 脚本：也让 Git 统一成 LF，避免混用
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.js   text eol=lf
+
+# 需要保留原样的二进制资源
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.gif  binary
+*.ico  binary
+*.mp3  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.zip  binary
+*.gz   binary
+*.sqlite binary
