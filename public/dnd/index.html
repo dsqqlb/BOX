@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -173,6 +173,12 @@
         <button class="hp-btn" id="hp-plus5">＋ 5</button>
       </div>
 
+      <!-- 任意数值掉血 / 回血：打开计算器式键盘弹窗 -->
+      <div class="hp-controls hp-controls-custom">
+        <button class="hp-btn" id="hp-custom-damage">－ 任意</button>
+        <button class="hp-btn" id="hp-custom-heal">＋ 任意</button>
+      </div>
+
       <div id="hitdice-row">
         <span class="hitdice-lbl">生命骰</span>
         <span id="hitdice-count" class="hitdice-count"></span>
@@ -181,6 +187,41 @@
     </div><!-- /#panel-survival -->
 
   </div><!-- /#page-combat -->
+
+  <!-- HP 计算器弹窗：数字键盘输入任意掉血 / 回血数值 -->
+  <div id="hp-calc-modal" class="hidden">
+    <div id="hp-calc-panel">
+      <div id="hp-calc-head">
+        <span class="cinzel" id="hp-calc-title">受到伤害</span>
+        <button id="hp-calc-close">✕</button>
+      </div>
+
+      <div id="hp-calc-display">
+        <span id="hp-calc-amount">0</span>
+        <div id="hp-calc-preview"></div>
+      </div>
+
+      <div id="hp-calc-pad">
+        <button class="hp-btn hp-calc-key" data-key="7">7</button>
+        <button class="hp-btn hp-calc-key" data-key="8">8</button>
+        <button class="hp-btn hp-calc-key" data-key="9">9</button>
+        <button class="hp-btn hp-calc-key" data-key="4">4</button>
+        <button class="hp-btn hp-calc-key" data-key="5">5</button>
+        <button class="hp-btn hp-calc-key" data-key="6">6</button>
+        <button class="hp-btn hp-calc-key" data-key="1">1</button>
+        <button class="hp-btn hp-calc-key" data-key="2">2</button>
+        <button class="hp-btn hp-calc-key" data-key="3">3</button>
+        <button class="hp-btn hp-calc-key" data-key="back" title="退格">⌫</button>
+        <button class="hp-btn hp-calc-key" data-key="0">0</button>
+        <button class="hp-btn hp-calc-key" data-key="clear" title="清零">C</button>
+      </div>
+
+      <div id="hp-calc-actions">
+        <button id="hp-calc-cancel" class="hp-calc-action">取消</button>
+        <button id="hp-calc-confirm" class="hp-calc-action hp-calc-ok" disabled>确认</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ══ 第二页：角色 ══ -->
   <div class="page" id="page-character">

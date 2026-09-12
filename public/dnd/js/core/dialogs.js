@@ -812,6 +812,101 @@ $('hp-plus').addEventListener('click',   () => applyHeal(1));
 $('hp-minus5').addEventListener('click', () => applyDamage(5));
 $('hp-plus5').addEventListener('click',  () => applyHeal(5));
 
+/* ── 任意数值掉血 / 回血：计算器式弹窗 ──
+   点「－ 任意 / ＋ 任意」打开数字键盘，输入任意数值后确认；
+   实际结算仍走 applyDamage / applyHeal，保证日志与专注检定逻辑一致。 */
+const HP_CALC_MAX_DIGITS = 4;    /* 最多 4 位，够到 9999，避免误触出一串数字 */
+let hpCalcMode = 'damage';       /* 'damage' = 掉血, 'heal' = 回血 */
+let hpCalcEntry = '';            /* 当前输入的原始字符串（空串表示 0）*/
+
+function hpCalcAmount() {
+  return hpCalcEntry === '' ? 0 : parseInt(hpCalcEntry, 10);
+}
+
+function renderHpCalc() {
+  const amount = hpCalcAmount();
+  const isHeal = hpCalcMode === 'heal';
+
+  $('hp-calc-title').textContent = isHeal ? '恢复生命' : '受到伤害';
+  $('hp-calc-amount').textContent = String(amount);
+  $('hp-calc-confirm').disabled = amount <= 0;
+
+  /* 预览结算结果：掉血先被临时 HP 吸收；回血不超过最大 HP */
+  const preview = $('hp-calc-preview');
+  let text, cls;
+  if (amount <= 0) {
+    text = `当前 ${state.hp} / ${state.maxHp}`;
+    cls = 'is-noop';
+  } else if (isHeal) {
+    const after = Math.min(state.maxHp, state.hp + amount);
+    const actual = after - state.hp;
+    text = `${state.hp} → ${after}${actual < amount ? `（已满，只恢复 ${actual}）` : ''}`;
+    cls = actual > 0 ? 'is-heal' : 'is-noop';
+  } else {
+    const absorbed = Math.min(state.tempHp, amount);
+    const after = Math.max(0, state.hp - (amount - absorbed));
+    text = `${state.hp} → ${after}${absorbed > 0 ? `（临时HP吸收 ${absorbed}）` : ''}`;
+    cls = 'is-damage';
+  }
+  preview.textContent = text;
+  preview.className = cls;
+}
+
+function openHpCalc(mode) {
+  hpCalcMode = mode;
+  hpCalcEntry = '';
+  renderHpCalc();
+  $('hp-calc-modal').classList.remove('hidden');
+}
+
+function closeHpCalc() {
+  $('hp-calc-modal').classList.add('hidden');
+}
+
+function hpCalcInput(key) {
+  if (key === 'back') {
+    hpCalcEntry = hpCalcEntry.slice(0, -1);
+  } else if (key === 'clear') {
+    hpCalcEntry = '';
+  } else if (/^[0-9]$/.test(key)) {
+    if (hpCalcEntry === '' && key === '0') return;       /* 不产生前导 0 */
+    if (hpCalcEntry.length >= HP_CALC_MAX_DIGITS) return;
+    hpCalcEntry += key;
+  }
+  renderHpCalc();
+}
+
+function confirmHpCalc() {
+  const amount = hpCalcAmount();
+  closeHpCalc();
+  if (amount <= 0) return;
+  if (hpCalcMode === 'heal') applyHeal(amount);
+  else applyDamage(amount);
+}
+
+$('hp-custom-damage').addEventListener('click', () => openHpCalc('damage'));
+$('hp-custom-heal').addEventListener('click',   () => openHpCalc('heal'));
+
+$('hp-calc-pad').addEventListener('click', e => {
+  const key = e.target.closest('[data-key]');
+  if (key) hpCalcInput(key.dataset.key);
+});
+
+$('hp-calc-confirm').addEventListener('click', confirmHpCalc);
+$('hp-calc-cancel').addEventListener('click', closeHpCalc);
+$('hp-calc-close').addEventListener('click', closeHpCalc);
+$('hp-calc-modal').addEventListener('click', e => { if (e.target === $('hp-calc-modal')) closeHpCalc(); });
+
+/* 键盘也能用：数字 / 退格 / 回车 / Esc（仅弹窗打开时接管）*/
+document.addEventListener('keydown', e => {
+  if ($('hp-calc-modal').classList.contains('hidden')) return;
+  if (/^[0-9]$/.test(e.key)) { hpCalcInput(e.key); e.preventDefault(); }
+  else if (e.key === 'Backspace') { hpCalcInput('back'); e.preventDefault(); }
+  else if (e.key === 'Delete') { hpCalcInput('clear'); e.preventDefault(); }
+  else if (e.key === 'Enter') { confirmHpCalc(); e.preventDefault(); }
+  else if (e.key === 'Escape') { closeHpCalc(); e.preventDefault(); }
+});
+
 /* 血条拖拽 / 点击 */
 function setHpFromBarX(clientX) {
   const track = $('hp-bar-track');
