@@ -10,27 +10,58 @@
   逻辑 → character_sheet.js
 -->
 <link rel="stylesheet" href="css/character_sheet.css">
+<script src="js/features/sync-merge.js"></script>
 <script>
-  /* 账户云同步（读取）：启动时从 /api/dnd/save 拉取该账户的存档。
-     服务器有存档且与本地不同时，用服务器数据覆盖本地（服务器优先），
-     然后刷新一次让状态以服务器数据为准；未登录或服务器无存档则保持本地不变。 */
+  /* 账户云同步（读取 + 冲突判定）：启动时把【本地】【服务器】【本机上次成功
+     推送的原样值 box-dnd-sync-acked】三者逐键比对，规则见 sync-merge.js：
+       · 服务器变了、本地已同步     → 采纳服务器的
+       · 本地有未推送的改动         → 保留本地（稍后由 sync.js 推上去），
+                                     并把服务器那份写进 box-dnd-conflict 留档
+       · 本机没有这份数据（新浏览器）→ 采纳服务器的（首次灌入）
+     只有真的改动了本地才刷新一次；写入一律走原生 setItem/removeItem，
+     避免被 sync.js 的拦截器当成"本地改动"再推回服务器。 */
   (function () {
     try {
-      /* 用「原生」setItem 写入：sync.js 会拦截 dnd_* 的写入并回推服务器。
-         这里若用被拦截的版本，就会把刚被覆盖掉的旧数据再 POST 回服务器，
-         导致刚保存的改动被永久回滚（本地延迟低时不明显，公网延迟下必现）。*/
+      var merge = window.DndSync;
+      if (!merge) return;
       var nativeSetItem = localStorage.setItem.bind(localStorage);
+      var nativeRemoveItem = localStorage.removeItem.bind(localStorage);
+
       fetch('/api/dnd/save', { credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) return null; return r.json(); })
-        .then(function (save) {
-          if (!save || !save.data || typeof save.data !== 'object') return;
-          var changed = false, k;
-          for (k in save.data) {
-            if (localStorage.getItem('dnd_' + k) !== save.data[k]) { changed = true; break; }
+        .then(function (res) {
+          if (!res || !res.data || typeof res.data !== 'object') return;
+          var local = merge.collect('dnd_', localStorage);
+          var acked = {};
+          try { acked = JSON.parse(localStorage.getItem('box-dnd-sync-acked')) || {}; } catch (e) {}
+          var plan = merge.decide(local, res.data, acked);
+          var nextAcked = {};
+          var key;
+          for (key in acked) nextAcked[key] = acked[key];
+
+          var changed = false;
+          for (key in plan.synced) nextAcked[key] = plan.synced[key];
+          for (key in plan.adopt) {
+            nativeSetItem('dnd_' + key, plan.adopt[key]);
+            nextAcked[key] = plan.adopt[key];
+            changed = true;
           }
-          if (!changed) return;
-          for (k in save.data) nativeSetItem('dnd_' + k, save.data[k]);
-          location.reload();
+          for (var i = 0; i < plan.removeLocal.length; i++) {
+            var gone = plan.removeLocal[i];
+            nativeRemoveItem('dnd_' + gone);
+            delete nextAcked[gone];
+            changed = true;
+          }
+          /* 双方都改过的键：保留本地（sync.js 会推上去），服务器那份留档 */
+          var conflicted = false;
+          for (key in plan.conflicts) { conflicted = true; break; }
+          if (conflicted) {
+            try {
+              nativeSetItem('box-dnd-conflict', JSON.stringify({ at: new Date().toISOString(), server: plan.conflicts }));
+            } catch (e) {}
+          }
+          try { nativeSetItem('box-dnd-sync-acked', JSON.stringify(nextAcked)); } catch (e) {}
+          if (changed) location.reload();
         })
         .catch(function () { /* 网络失败：静默，保持本地 */ });
     } catch (e) {}

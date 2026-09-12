@@ -14,7 +14,10 @@
     "db:migrate": "node scripts/prisma-cli.mjs migrate deploy",
     "db:import-json": "node scripts/migrate-json-to-sqlite.mjs",
     "db:migrate-runtime-json": "node scripts/migrate-runtime-json-to-sqlite.mjs",
-    "db:setup": "npm run db:generate && npm run db:migrate && npm run db:import-json && npm run db:migrate-runtime-json"
+    "db:migrate-dnd-save": "node scripts/migrate-dnd-save-to-entries.mjs",
+    "smoke:dnd-merge": "node scripts/smoke-dnd-merge.mjs",
+    "smoke:dnd-sync": "node scripts/smoke-dnd-sync.mjs",
+    "db:setup": "npm run db:generate && npm run db:migrate && npm run db:import-json && npm run db:migrate-runtime-json && npm run db:migrate-dnd-save"
   },
   "dependencies": {
     "@prisma/client": "^6.15.0",

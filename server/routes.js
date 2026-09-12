@@ -764,18 +764,28 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
       return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
     }
 
-    // DND 角色卡存档：账户级全量快照存 SQLite；首次保存创建数据库行，不生成 JSON 文件。
+    // DND 角色卡存档：一行一个 key 存 SQLite；POST 只提交变化的键（null = 删除该键），
+    // 因此不同设备改不同字段不会互相覆盖，上传体积也只跟改动量相关。
     if (pathname === '/api/dnd/save') {
-      if (req.method === 'GET') return httpUtils.sendJson(res, { data: await userData.getDndSave(requestUser.username) });
+      if (req.method === 'GET') {
+        const save = await userData.getDndSave(requestUser.username);
+        return httpUtils.sendJson(res, { data: save.data, updatedAt: save.updatedAt });
+      }
       if (req.method === 'POST') {
         if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
         const raw = await httpUtils.readRawBody(req, 5 * 1024 * 1024);
         let body = null;
         if (raw !== null) { try { body = JSON.parse(raw); } catch { body = null; } }
         if (!body || typeof body.data !== 'object' || body.data === null || Array.isArray(body.data)) return httpUtils.sendAuthError(res, 400, '请求体无效：需要 { data: {…} } 对象。');
-        for (const key of Object.keys(body.data)) if (typeof body.data[key] !== 'string') return httpUtils.sendAuthError(res, 400, '存档值必须为字符串。');
-        await userData.saveDndSave(requestUser.username, body.data);
-        return httpUtils.sendJson(res, { success: true });
+        const patch = {};
+        for (const [key, value] of Object.entries(body.data)) {
+          if (!key || key.length > 128) return httpUtils.sendAuthError(res, 400, '存档键无效。');
+          if (value !== null && typeof value !== 'string') return httpUtils.sendAuthError(res, 400, '存档值必须是字符串，或用 null 表示删除该键。');
+          patch[key] = value;
+        }
+        if (!Object.keys(patch).length) return httpUtils.sendAuthError(res, 400, '请求体里没有任何要保存的字段。');
+        const result = await userData.patchDndSave(requestUser.username, patch);
+        return httpUtils.sendJson(res, { success: true, saved: Object.keys(patch).length, updatedAt: result.updatedAt });
       }
       return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
     }

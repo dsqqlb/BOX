@@ -18,6 +18,7 @@ model User {
   decks       Deck[]
   kardsDecks  KardsDeck[]
   dndSave     DndSave?
+  dndSaveEntries DndSaveEntry[]
   savings     SavingsRecord[]
   carcassonneSaves CarcassonneSave[]
   homePreference HomePreference?
@@ -274,6 +275,18 @@ model DndSave {
   dataJson  String
   updatedAt DateTime @updatedAt
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+// 角色卡存档（现行）：一行一个 key，只写变化的字段，互不覆盖。
+// 旧的整体快照表 DndSave 保留为迁移前备份，运行时不再读写（见 scripts/migrate-dnd-save-to-entries.mjs）。
+model DndSaveEntry {
+  ownerId   String
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@id([ownerId, key])
 }
 
 model SavingsRecord {
