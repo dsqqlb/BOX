@@ -30,6 +30,7 @@
 | 塔罗牌占卜 | `/tools/tarot-reading` | [tarot-reading.md](./tarot-reading.md) |
 | 省钱网页 | `/tools/savings-tracker` | [savings-tracker.md](./savings-tracker.md) |
 | CSS 层叠解释器 | `/tools/css-cascade` | [css-cascade.md](./css-cascade.md) |
+| 万智牌 EDH 记血器 | `/tools/edh-life` | [edh-life.md](./edh-life.md) |
 
 ## 文档维护约定
 

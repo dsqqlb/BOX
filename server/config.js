@@ -110,6 +110,7 @@ const TOOL_SLUGS = [
   'medicine-inventory',
   'texas-holdem',
   'static-sites',
+  'edh-life',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 

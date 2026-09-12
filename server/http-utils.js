@@ -84,6 +84,8 @@ function requiredToolForApi(pathname) {
   if (pathname === '/api/enemies' || pathname === '/api/player-images' || pathname === '/api/rooms' || pathname.startsWith('/api/initiative/')) return 'initiative-tracker';
   if (pathname === '/api/savings') return 'savings-tracker';
   if (pathname.startsWith('/api/carcassonne/')) return 'carcassonne';
+  // 注意顺序：/api/edh-life/ 必须先于 /api/edh/ 判断，否则会被当成 EDH 组卡台（edh-builder）。
+  if (pathname.startsWith('/api/edh-life/')) return 'edh-life';
   if (pathname.startsWith('/api/edh/')) return 'edh-builder';
   if (pathname === '/api/dnd/save') return 'dnd-character';
   if (pathname.startsWith('/api/kards/')) return 'kards';

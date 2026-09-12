@@ -97,7 +97,7 @@ BOX_COOKIE_SECURE=true
 }
 ```
 
-当前可用权限为：`carcassonne`、`claude-code-guide`、`dnd-translator`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`edh-builder`、`dnd-character`、`kards`、`conways-game-of-life`、`lan-chat`、`medicine-inventory`、`texas-holdem`、`static-sites`、`target-text`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
+当前可用权限为：`carcassonne`、`claude-code-guide`、`dnd-translator`、`edh-builder`、`edh-life`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`dnd-character`、`kards`、`conways-game-of-life`、`lan-chat`、`medicine-inventory`、`texas-holdem`、`static-sites`、`target-text`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
 
 ### 5. 为每个账户生成密码哈希
 
@@ -204,6 +204,7 @@ npm start
 | 塔罗牌占卜 | `/tools/tarot-reading` | 78 张牌与多种牌阵的互动抽牌 | [查看](./docs/tarot-reading.md) |
 | 省钱网页 | `/tools/savings-tracker` | 按账户隔离的省钱记录和统计 | [查看](./docs/savings-tracker.md) |
 | CSS 层叠解释器 | `/tools/css-cascade` | 解析并可视化 CSS 规则、特异性与上下文 | [查看](./docs/css-cascade.md) |
+| 万智牌 EDH 记血器 | `/tools/edh-life` | 2~4 人指挥官记血、六种计数器、3D 骰子与硬币、对局与时长存 SQLite | [查看](./docs/edh-life.md) |
 
 ## 常用命令
 

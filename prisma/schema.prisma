@@ -32,6 +32,7 @@ model User {
   uploadedSceneMedia DndSceneMedia[]
   holdemBalance  HoldemBalance?
   holdemLedger   HoldemLedger[]
+  edhLifeGames   EdhLifeGame[]
 }
 
 model HoldemBalance {
@@ -313,4 +314,65 @@ model CarcassonneSave {
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([ownerId, createdAt])
+}
+
+// ============ EDH 指挥官记血器 ============
+// 一条 EdhLifeGame = 一局对战（含时长与最终状态）；座位与掷骰各自成行，便于统计、恢复与历史查询。
+
+model EdhLifeGame {
+  id              String   @id @default(cuid())
+  ownerId         String
+  title           String
+  playerCount     Int
+  startingLife    Int      @default(40)
+  round           Int      @default(1)
+  status          String   @default("running")   // running | finished
+  winnerSeat      Int?
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+  durationSeconds Int      @default(0)
+  stateJson       String                          // 完整快照：刷新/重开浏览器后可原样恢复
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  players         EdhLifePlayer[]
+  rolls           EdhLifeRoll[]
+
+  @@index([ownerId, startedAt])
+  @@index([ownerId, status, updatedAt])
+}
+
+model EdhLifePlayer {
+  id               String      @id @default(cuid())
+  gameId           String
+  seat             Int
+  name             String      @default("")
+  color            String                          // 随机分配的色块颜色（hex）
+  life             Int
+  poison           Int         @default(0)
+  energy           Int         @default(0)
+  treasure         Int         @default(0)
+  clue             Int         @default(0)
+  food             Int         @default(0)
+  experience       Int         @default(0)
+  eliminated       Boolean     @default(false)
+  eliminatedReason String?
+  game             EdhLifeGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, seat])
+  @@index([gameId])
+}
+
+model EdhLifeRoll {
+  id         String      @id @default(cuid())
+  gameId     String
+  at         DateTime    @default(now())
+  source     String                          // dice | coin
+  notation   String
+  total      Int
+  seat       Int?                            // 是哪一侧按的（可空）
+  detailJson String                          // 每颗骰子的点数明细
+  game       EdhLifeGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId, at])
 }

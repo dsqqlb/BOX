@@ -179,5 +179,15 @@
     "icon": "📣",
     "featured": true,
     "createdAt": "2026-08-30"
+  },
+  {
+    "slug": "edh-life",
+    "title": "万智牌 EDH 记血器",
+    "description": "2~4 人指挥官记血：2×2 中心对称面对面可读，点击 ±1 按住 2 秒 ±5，六种常用计数器，3D 骰子与硬币，对局与时长存 SQLite",
+    "category": "game",
+    "tags": ["mtg", "edh", "commander", "life-counter", "dice", "table"],
+    "icon": "🩸",
+    "featured": true,
+    "createdAt": "2026-09-12"
   }
 ]
