@@ -21,7 +21,7 @@ const chatStore = require('./chat-store');
 // EDH 记血器：纯 SQLite 读写、不持有连接状态，所以像 edhCards/images 一样直接 require。
 const edhLife = require('./edh-life');
 
-function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config }) {
+function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config, adminTracking }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -121,6 +121,8 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
       }
       auth.clearLoginFailures(req);
       const next = httpUtils.safeReturnPath(form?.get('next') || '/');
+      // 记录登录事件（不阻塞响应）
+      if (adminTracking) { setImmediate(() => adminTracking.recordLogin(username, req).catch(() => {})); }
       res.writeHead(303, {
         Location: next,
         'Set-Cookie': auth.buildSessionCookie(auth.createSession(user), req),
@@ -133,6 +135,7 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
       if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST 登出。');
       if (!requestUser) return httpUtils.sendAuthError(res, 401, '尚未登录。');
       if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+      if (adminTracking) { setImmediate(() => adminTracking.recordLogout(requestUser.username, req).catch(() => {})); }
       res.writeHead(204, { 'Set-Cookie': auth.clearSessionCookie(req), 'Cache-Control': 'no-store' });
       return res.end();
     }
@@ -149,9 +152,12 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
       return httpUtils.redirectToLogin(req, res);
     }
 
+    // 任何已验证请求都视为在线心跳（不阻塞）
+    if (adminTracking) { setImmediate(() => adminTracking.recordHeartbeat(requestUser.username, req)); }
+
     // 账户管理不是普通工具：页面与接口均要求精确的通配符管理员权限。
-    const isAdminPage = pathname === '/admin/accounts' || pathname === '/admin/accounts/' || pathname === '/admin/accounts.html';
-    const isAdminApi = pathname === '/api/admin/accounts' || pathname.startsWith('/api/admin/accounts/');
+    const isAdminPage = pathname === '/admin' || pathname === '/admin/' || pathname === '/admin.html' || pathname === '/admin/accounts' || pathname === '/admin/accounts/' || pathname === '/admin/accounts.html';
+    const isAdminApi = pathname === '/api/admin/accounts' || pathname.startsWith('/api/admin/accounts/') || pathname === '/api/admin/online' || pathname === '/api/admin/users/search' || pathname === '/api/admin/users/detail' || pathname === '/api/admin/users/activity' || pathname === '/api/admin/users/login-history';
     if ((isAdminPage || isAdminApi) && !accountAdmin.isAdmin(requestUser)) {
       if (isAdminApi) return httpUtils.sendAuthError(res, 403, '需要管理员权限。');
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -548,6 +554,51 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
 
     // 管理员账户 API：只返回公开账户信息，密码哈希永不离开服务端。
     if (isAdminApi) {
+      // 新管理员 API：在线用户、用户搜索、活动时间线
+      if (pathname === '/api/admin/online') {
+        if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+        if (!adminTracking) return httpUtils.sendAuthError(res, 503, '管理员跟踪模块未启用。');
+        return httpUtils.sendJson(res, { users: adminTracking.getOnlineUsers() });
+      }
+
+      if (pathname === '/api/admin/users/search') {
+        if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+        if (!adminTracking) return httpUtils.sendAuthError(res, 503, '管理员跟踪模块未启用。');
+        const query = String(requestUrl.searchParams.get('q') || '').trim();
+        if (!query) return httpUtils.sendAuthError(res, 400, '缺少搜索关键字。');
+        const results = await adminTracking.searchUsers(query);
+        return httpUtils.sendJson(res, { users: results });
+      }
+
+      if (pathname === '/api/admin/users/detail') {
+        if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+        if (!adminTracking) return httpUtils.sendAuthError(res, 503, '管理员跟踪模块未启用。');
+        const username = String(requestUrl.searchParams.get('username') || '').trim();
+        if (!username) return httpUtils.sendAuthError(res, 400, '缺少用户名。');
+        const detail = await adminTracking.getUserDetail(username);
+        if (!detail) return httpUtils.sendAuthError(res, 404, '账户不存在。');
+        return httpUtils.sendJson(res, detail);
+      }
+
+      if (pathname === '/api/admin/users/activity') {
+        if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+        if (!adminTracking) return httpUtils.sendAuthError(res, 503, '管理员跟踪模块未启用。');
+        const username = String(requestUrl.searchParams.get('username') || '').trim();
+        if (!username) return httpUtils.sendAuthError(res, 400, '缺少用户名。');
+        const timeline = await adminTracking.getUserActivityTimeline(username);
+        return httpUtils.sendJson(res, { timeline });
+      }
+
+      if (pathname === '/api/admin/users/login-history') {
+        if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+        if (!adminTracking) return httpUtils.sendAuthError(res, 503, '管理员跟踪模块未启用。');
+        const username = String(requestUrl.searchParams.get('username') || '').trim();
+        if (!username) return httpUtils.sendAuthError(res, 400, '缺少用户名。');
+        const records = await adminTracking.getLoginHistory(username);
+        return httpUtils.sendJson(res, { records });
+      }
+
+      // 向下兼容：原有账户管理 API
       const accountPrefix = '/api/admin/accounts';
       const targetUsername = pathname.slice(accountPrefix.length).replace(/^\/+/, '');
       try {

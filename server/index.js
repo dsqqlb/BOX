@@ -44,6 +44,7 @@ const holdemStore = require('./holdem-store');
 const siteStore = require('./site-store');
 const { createSiteHosting } = require('./site-hosting');
 const httpUtils = require('./http-utils');
+const adminTracking = require('./admin-tracking');
 const { createRoomServer } = require('./rooms');
 const { createKardsRoomServer } = require('./kards-rooms');
 const { createChatServer } = require('./chat-server');
@@ -55,10 +56,10 @@ const { createRequestHandler } = require('./routes');
 const auth = createAuth({ projectRoot: config.PROJECT_ROOT, isProduction: !config.DEV });
 const roomServer = createRoomServer({ auth });
 const kardsRoomServer = createKardsRoomServer({ auth });
-const chatServer = createChatServer({ auth });
+const chatServer = createChatServer({ auth, onPresenceChange: (usernames) => adminTracking.syncChatPresence(usernames) });
 const holdemRoomServer = createHoldemRoomServer({ auth });
 const siteHosting = createSiteHosting({ auth });
-const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config });
+const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config, adminTracking });
 
 // ============ 启动统一服务 ============
 
@@ -75,6 +76,8 @@ function getLanAddress() {
 async function main() {
   // 未导入账户时拒绝启动，避免服务意外以无认证状态运行。
   await auth.loadUsers();
+  // 启动在线跟踪清理
+  adminTracking.startCleanup();
   // 开发模式：把页面请求交给 Next.js dev server 处理（保留HMR热更新）
   let nextRequestHandler = null;
   let nextUpgradeHandler = null;

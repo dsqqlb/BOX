@@ -33,6 +33,7 @@ model User {
   holdemBalance  HoldemBalance?
   holdemLedger   HoldemLedger[]
   edhLifeGames   EdhLifeGame[]
+  loginRecords   LoginRecord[]
 }
 
 model HoldemBalance {
@@ -375,4 +376,19 @@ model EdhLifeRoll {
   game       EdhLifeGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@index([gameId, at])
+}
+
+model LoginRecord {
+  id        String   @id @default(cuid())
+  userId    String?
+  username  String
+  action    String                      // "login" | "logout"
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([username, createdAt])
+  @@index([createdAt])
 }

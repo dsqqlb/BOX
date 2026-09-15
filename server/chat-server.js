@@ -3,7 +3,7 @@
 const WebSocket = require('ws');
 
 /** WebSocket is only a realtime signal layer; message data remains in SQLite via HTTP APIs. */
-function createChatServer({ auth }) {
+function createChatServer({ auth, onPresenceChange }) {
   const wss = new WebSocket.Server({ noServer: true, maxPayload: 12 * 1024 });
 
   function onlineUsers() {
@@ -27,6 +27,7 @@ function createChatServer({ auth }) {
     ws.typing = false;
     ws.send(JSON.stringify({ type: 'PRESENCE', payload: { usernames: onlineUsers() } }));
     broadcastPresence();
+    if (typeof onPresenceChange === 'function') setImmediate(() => onPresenceChange(onlineUsers()));
 
     ws.on('message', (raw) => {
       try {
@@ -44,6 +45,7 @@ function createChatServer({ auth }) {
     ws.on('close', () => {
       if (ws.typing && ws.user?.username) broadcast({ type: 'TYPING', payload: { username: ws.user.username, active: false } }, ws);
       broadcastPresence();
+      if (typeof onPresenceChange === 'function') setImmediate(() => onPresenceChange(onlineUsers()));
     });
     ws.on('error', () => {});
   });
