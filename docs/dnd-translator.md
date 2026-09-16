@@ -25,9 +25,9 @@
 
 ## 维护字体
 
-字体文件位于 `public/fonts/`，并通过 `app/globals.css` 中的 `@font-face` 声明。新增一种字体时：
+字体文件位于 `resources/public/fonts/`，并通过 `app/globals.css` 中的 `@font-face` 声明。新增一种字体时：
 
-1. 将合法授权的字体文件加入 `public/fonts/`。
+1. 将合法授权的字体文件加入 `resources/public/fonts/`。
 2. 在 `app/globals.css` 注册字体。
 3. 在 `app/tools/dnd-translator/page.tsx` 的语言配置中添加对应条目。
 

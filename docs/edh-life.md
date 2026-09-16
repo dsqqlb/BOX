@@ -61,7 +61,7 @@
 - 骰子弹窗里只有预设骰式（默认 `1d20`、`1d6`，可在设置里增删改）和「输入任意表达式」；**表达式用自绘键盘输入，页面里没有任何输入框**，所以移动端不会弹出系统键盘；
 - 硬币是引擎内置的硬币骰，两面是我们自己画的**金色数字「1」「2」**，投掷力度标记为 `1d2!!!` 以获得快速多次翻转的观感。
 
-> 关于硬币贴图：骰子引擎加载贴图时会无条件在路径前拼上 `assetPath`（`/dice-assets/`），所以运行时塞 data URL 是行不通的；上游的 silvercoin 素材又没有随 vendored 拷贝进入本项目。因此这里用纯 Node（zlib + 手写 PNG 分块）生成四个真实文件：`heads.png`（太阳）、`tail.png`（数字 1）及各自的 `_bump`。需要重新生成时执行 `node scripts/generate-coin-textures.mjs`。
+> 关于硬币贴图：骰子引擎加载贴图时会无条件在路径前拼上 `assetPath`（`/dice-assets/`），所以运行时塞 data URL 是行不通的；上游的 silvercoin 素材又没有随 vendored 拷贝进入本项目。因此这里用纯 Node（zlib + 手写 PNG 分块）生成四个真实文件：`heads.png`（太阳）、`tail.png`（数字 1）及各自的 `_bump`。需要重新生成时执行 `node ops/scripts/generate-coin-textures.mjs`。
 
 ### 骰子引擎的两个坑（改动这块前先读）
 
@@ -110,7 +110,7 @@
 | `GET /api/edh-life/games/:id/rolls` | 掷骰历史（最近 N 条） |
 | `POST /api/edh-life/games/:id/rolls` | 追加一条掷骰记录 |
 
-权限 slug 是 `edh-life`。注意 `server/http-utils.js` 里的判断顺序：`/api/edh-life/` 必须排在 `/api/edh/`（EDH 组卡台）之前，否则会被误判成 `edh-builder`。
+权限 slug 是 `edh-life`。注意 `code/server/http-utils.js` 里的判断顺序：`/api/edh-life/` 必须排在 `/api/edh/`（EDH 组卡台）之前，否则会被误判成 `edh-builder`。
 
 ## 移动端与手势
 
@@ -124,4 +124,4 @@
 
 ## 备份
 
-`data/box.sqlite` 含全部对局历史，随 `data/` 一起备份即可（见 [部署指南](./deployment.md) 第 13 节）。localStorage 只是本机快照，换设备后靠服务器恢复。
+`resources/data/box.sqlite` 含全部对局历史，随 `resources/data/` 一起备份即可（见 [部署指南](./deployment.md) 第 13 节）。localStorage 只是本机快照，换设备后靠服务器恢复。

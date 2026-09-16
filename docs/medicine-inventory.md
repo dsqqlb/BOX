@@ -12,7 +12,7 @@
 
 ## 数据与权限
 
-元数据存入 SQLite 的 `MedicineProduct`、`MedicineBatch`、`MedicineUseLog`、`MedicinePhoto` 表。图片本体写入服务器私有目录 `data/medicine/uploads/`，数据库只保存 UUID 文件名与元数据；该目录已被 Git 忽略，不能作为静态目录或公开文件服务暴露。
+元数据存入 SQLite 的 `MedicineProduct`、`MedicineBatch`、`MedicineUseLog`、`MedicinePhoto` 表。图片本体写入服务器私有目录 `resources/data/medicine/uploads/`，数据库只保存 UUID 文件名与元数据；该目录已被 Git 忽略，不能作为静态目录或公开文件服务暴露。
 
 图片只能经 `/api/medicine/photos/:id` 读取。该路径与全部 `/api/medicine/*` API 均先验证登录和 `medicine-inventory` 工具权限；所有新增、修改、删除、上传、用药请求还要求同源请求。不要把照片目录映射给 Nginx 或 CDN 公网路径。
 
@@ -27,4 +27,4 @@ npm.cmd run db:generate
 npm.cmd run db:migrate
 ```
 
-定期在同一时间点备份 `data/box.sqlite` 与 `data/medicine/`，两者必须一起恢复。图片不在 Git 中，也不会包含于只有数据库文件的备份。
+定期在同一时间点备份 `resources/data/box.sqlite` 与 `resources/data/medicine/`，两者必须一起恢复。图片不在 Git 中，也不会包含于只有数据库文件的备份。

@@ -7,7 +7,7 @@
 ## 目录结构
 
 ```
-data/sites/
+resources/data/sites/
   my-portfolio/
     index.html
     assets/app.css
@@ -16,7 +16,7 @@ data/sites/
     index.html
 ```
 
-`data/sites/` 是服务器私有运行数据，已在 `.gitignore` 中排除，不会进入版本控制。
+`resources/data/sites/` 是服务器私有运行数据，已在 `.gitignore` 中排除，不会进入版本控制。
 
 ## 为什么必须用独立域名
 
@@ -28,7 +28,7 @@ data/sites/
 
 ## 配置
 
-在 `.env.local` 中设置：
+在 `resources/.env.local` 中设置：
 
 ```dotenv
 # 静态站点对外域名，多个用逗号分隔。不设置则整个托管功能关闭。
@@ -146,4 +146,4 @@ BOX_PRIMARY_HOST=localhost:9999
 
 ## 备份
 
-`data/sites/` 需要与 `data/box.sqlite` 一起纳入备份。站点文件不在 Git 中，只有数据库的备份无法恢复站点内容。
+`resources/data/sites/` 需要与 `resources/data/box.sqlite` 一起纳入备份。站点文件不在 Git 中，只有数据库的备份无法恢复站点内容。

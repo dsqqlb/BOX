@@ -7,7 +7,7 @@
 - [部署指南](./deployment.md)：Linux / Windows / macOS 从克隆到跑起来的完整步骤、常驻运行、反向代理、备份与故障排查。
 - [认证与授权](./authentication.md)：SQLite 账户、密码哈希、工具权限、管理员账户管理与 Cookie。
 
-完整应用运行时必须使用 `server/index.js`：它负责认证、受保护 API、WebSocket 和生产静态文件托管。不要把 `out/` 单独部署为完整应用。
+完整应用运行时必须使用 `code/server/index.js`：它负责认证、受保护 API、WebSocket 和生产静态文件托管。不要把 `code/out/` 单独部署为完整应用。
 
 ## 工具说明
 
@@ -34,4 +34,4 @@
 
 ## 文档维护约定
 
-每个 `content/tools.json` 中注册的工具都必须有一份对应的 Markdown 说明。功能、路由、权限或持久化方式变化时，应在同一改动中更新对应文档；不要在文档中保留未实现的功能或过时的传输方式。
+每个 `resources/content/tools.json` 中注册的工具都必须有一份对应的 Markdown 说明。功能、路由、权限或持久化方式变化时，应在同一改动中更新对应文档；不要在文档中保留未实现的功能或过时的传输方式。

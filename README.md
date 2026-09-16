@@ -1,44 +1,48 @@
 # BOX
 
-BOX 是一个带账户登录和按工具授权的私人工具箱。它使用 Next.js 构建界面，并由 `server/index.js` 统一提供页面、认证、API 和先攻追踪器的 WebSocket 服务。
+BOX 是一个带账户登录和按工具授权的私人工具箱。它使用 Next.js 构建界面，并由 `code/server/index.js` 统一提供页面、认证、API 和先攻追踪器的 WebSocket 服务。
 
-> `next.config.ts` 虽然会生成 `out/` 静态产物，但完整功能**不能**只部署到静态托管：登录、权限控制、WebSocket 房间和省钱记录 API 都需要运行 `server/index.js`。
+> `next.config.ts` 虽然会生成 `code/out/` 静态产物，但完整功能**不能**只部署到静态托管：登录、权限控制、WebSocket 房间和省钱记录 API 都需要运行 `code/server/index.js`。
 
 > 想要一份覆盖 Linux / Windows / macOS、从克隆到常驻运行（含反向代理、备份与故障排查）的完整分步指南，请看 **[部署指南](./docs/deployment.md)**。下面是精简版的新机器配置流程。
 
 ## 新机器部署与首次认证配置
 
-以下步骤适用于将项目复制、克隆或部署到一台**没有现有私密配置**的新机器。`.env.local` 和 `data/auth-users.json` 不应从 Git 获取；必须在目标机器上重新创建。请在项目根目录执行。
+以下步骤适用于将项目复制、克隆或部署到一台**没有现有私密配置**的新机器。`resources/.env.local` 和 `resources/data/auth-users.json` 不应从 Git 获取；必须在目标机器上重新创建。请在项目根目录执行。
 
 ### 1. 获取项目并安装依赖
 
-安装受支持的 Node.js 与 npm 后，克隆或复制项目文件，再执行：
+安装受支持的 Node.js 与 npm 后，克隆或复制项目文件，在**项目根目录**执行：
 
 ```powershell
-npm install
+npm run install:code
 ```
+
+依赖只装在 `code/`（代码类目录）里，根目录的 `package.json` 只负责把命令转发过去。
 
 ### 2. 从模板创建私密运行文件
 
 PowerShell：
 
 ```powershell
-Copy-Item .env.example .env.local
-Copy-Item content/auth-users.example.json data/auth-users.json
+New-Item -ItemType Directory -Force resources\data | Out-Null
+Copy-Item resources\.env.example resources\.env.local
+Copy-Item resources\content\auth-users.example.json resources\data\auth-users.json
 ```
 
 macOS / Linux shell：
 
 ```bash
-cp .env.example .env.local
-cp content/auth-users.example.json data/auth-users.json
+mkdir -p resources/data
+cp resources/.env.example resources/.env.local
+cp resources/content/auth-users.example.json resources/data/auth-users.json
 ```
 
-若目标机器上已经有正在使用的 `.env.local` 或 `data/auth-users.json`，不要执行覆盖复制；先备份并在原文件上增量修改。两份模板文件可以提交，两个实际文件包含密钥或账户哈希，均不得提交到 Git 或发送给他人。
+若目标机器上已经有正在使用的 `resources/.env.local` 或 `resources/data/auth-users.json`，不要执行覆盖复制；先备份并在原文件上增量修改。两份模板文件可以提交，两个实际文件包含密钥或账户哈希，均不得提交到 Git 或发送给他人。
 
-### 3. 配置 `.env.local`
+### 3. 配置 `resources/.env.local`
 
-使用编辑器打开新建的 `.env.local`。先在任意终端生成一个新的会话密钥：
+使用编辑器打开新建的 `resources/.env.local`。先在任意终端生成一个新的会话密钥：
 
 ```powershell
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
@@ -65,9 +69,9 @@ BOX_COOKIE_SECURE=true
 
 可选变量 `BOX_SESSION_TTL_SECONDS` 用于指定会话秒数（默认 `43200`，即 12 小时）；`BOX_AUTH_USERS_FILE` 可把账户文件放在其他安全且可读的绝对路径。
 
-### 4. 配置 `data/auth-users.json`
+### 4. 配置 `resources/data/auth-users.json`
 
-`content/auth-users.example.json` 只是可复制的结构示例。实际的 `data/auth-users.json` 至少需要一个账户，每个账户必须有：
+`resources/content/auth-users.example.json` 只是可复制的结构示例。实际的 `resources/data/auth-users.json` 至少需要一个账户，每个账户必须有：
 
 - `username`：2–64 个字符，只能使用字母、数字、`.`、`_`、`-`；
 - `passwordHash`：由下一步脚本生成的完整 `scrypt$...` 字符串，不能填明文密码；
@@ -104,7 +108,7 @@ BOX_COOKIE_SECURE=true
 在**交互式终端**中运行以下命令；密码输入不会显示：
 
 ```powershell
-node server/create-password-hash.js
+node code/server/create-password-hash.js
 ```
 
 按提示输入同一个密码两次（脚本要求至少 4 个字符；生产密码应使用长且唯一的密码）。命令会输出一整行类似下面的内容：
@@ -123,9 +127,9 @@ scrypt$16384$8$1$...$...
 npm run db:setup
 ```
 
-此命令会创建 `data/box.sqlite`、应用受版本控制的数据库结构，并导入 `data/auth-users.json`、已有 EDH 牌组、DND 人物卡快照和省钱记录。导入前会自动在 `data/backups/` 建立源 JSON 备份，**不会删除原文件**。
+此命令会创建 `resources/data/box.sqlite`、应用受版本控制的数据库结构，并导入 `resources/data/auth-users.json`、已有 EDH 牌组、DND 人物卡快照和省钱记录。导入前会自动在 `resources/data/backups/` 建立源 JSON 备份，**不会删除原文件**。
 
-之后运行时的账户、权限、EDH 牌组、DND 人物卡、省钱记录、局域网大厅的消息/附件元数据，以及首页的收藏、折叠分类、主题、视图偏好和最近使用记录均以 SQLite 为准；局域网聊天附件本体保存于 `data/chat/uploads/`，家庭药箱图片本体保存于私有目录 `data/medicine/uploads/`。新账户首次保存 DND 人物卡会直接创建 SQLite 数据，不会生成 JSON。`data/auth-users.json` 仅用于新机器首次初始化或有计划的数据迁移。务必将 `data/box.sqlite`、`data/chat/` 与 `.env.local` 一起纳入私密备份，并确保 `data/` 对服务账户可写。
+之后运行时的账户、权限、EDH 牌组、DND 人物卡、省钱记录、局域网大厅的消息/附件元数据，以及首页的收藏、折叠分类、主题、视图偏好和最近使用记录均以 SQLite 为准；局域网聊天附件本体保存于 `resources/data/chat/uploads/`，家庭药箱图片本体保存于私有目录 `resources/data/medicine/uploads/`。新账户首次保存 DND 人物卡会直接创建 SQLite 数据，不会生成 JSON。`resources/data/auth-users.json` 仅用于新机器首次初始化或有计划的数据迁移。务必将 `resources/data/box.sqlite`、`resources/data/chat/` 与 `resources/.env.local` 一起纳入私密备份，并确保 `resources/data/` 对服务账户可写。
 
 ### 7. 构建、启动和首次验证
 
@@ -134,38 +138,39 @@ npm run build
 npm start
 ```
 
-访问 `https://你的域名/`（或本机调试时的 `http://localhost:9999`），使用刚配置的账户登录。若服务启动时提示无法读取账户文件、账户无效或会话密钥不足 32 字节，请逐项检查 `.env.local` 与 `data/auth-users.json`，不要删除认证逻辑来绕过错误。
+访问 `https://你的域名/`（或本机调试时的 `http://localhost:9999`），使用刚配置的账户登录。若服务启动时提示账户无效或会话密钥不足 32 字节，请逐项检查 `resources/.env.local` 与 SQLite 里的账户（首次导入用的是 `resources/data/auth-users.json`），不要删除认证逻辑来绕过错误。
 
-目标机器运行时必须允许 `data/` 写入 SQLite 和卡牌索引更新。应定期备份 `.env.local`、`data/box.sqlite` 和 `data/edh/cards.json`；首次导入期也应保留 `data/auth-users.json`、`data/edh/decks/`、`data/dnd/saves/` 与 `data/savings.json` 的历史 JSON 备份。
+目标机器运行时必须允许 `resources/data/` 写入 SQLite 和卡牌索引更新。应定期备份 `resources/.env.local`、`resources/data/box.sqlite` 和 `resources/data/edh/cards.json`；首次导入期也应保留 `resources/data/auth-users.json`、`resources/data/edh/decks/`、`resources/data/dnd/saves/` 与 `resources/data/savings.json` 的历史 JSON 备份。
 
 ## 本地启动
 
 ### 1. 安装依赖
 
 ```powershell
-npm install
+npm run install:code
 ```
 
 ### 2. 配置认证
 
-在 PowerShell 中执行：
+在项目根目录的 PowerShell 中执行：
 
 ```powershell
-Copy-Item .env.example .env.local
-Copy-Item content/auth-users.example.json data/auth-users.json
-node server/create-password-hash.js
+New-Item -ItemType Directory -Force resources\data | Out-Null
+Copy-Item resources\.env.example resources\.env.local
+Copy-Item resources\content\auth-users.example.json resources\data\auth-users.json
+node code/server/create-password-hash.js
 ```
 
-将命令输出的密码哈希填入 `data/auth-users.json` 对应账户的 `passwordHash`，并在 `.env.local` 中设置至少 32 字节的随机 `BOX_SESSION_SECRET`。本地 HTTP 开发请设置 `BOX_COOKIE_SECURE=false`。
+将命令输出的密码哈希填入 `resources/data/auth-users.json` 对应账户的 `passwordHash`，并在 `resources/.env.local` 中设置至少 32 字节的随机 `BOX_SESSION_SECRET`。本地 HTTP 开发请设置 `BOX_COOKIE_SECURE=false`。账户写好后先执行一次 `npm run db:setup` 把它们导入 SQLite，再启动服务。
 
 如果使用的是 `cmd.exe`，前两条复制命令改为：
 
 ```bat
-copy .env.example .env.local
-copy content\auth-users.example.json data\auth-users.json
+copy resources\.env.example resources\.env.local
+copy resources\content\auth-users.example.json resources\data\auth-users.json
 ```
 
-`data/auth-users.json` 含真实账户配置，已被 Git 忽略，不能提交。完整账户、权限和会话说明见[认证与授权](./docs/authentication.md)。
+`resources/data/auth-users.json` 含真实账户配置，已被 Git 忽略，不能提交。完整账户、权限和会话说明见[认证与授权](./docs/authentication.md)。
 
 ### 3. 启动
 
@@ -182,7 +187,7 @@ npm run build
 npm start
 ```
 
-默认端口为 `9999`；可通过 `PORT` 环境变量修改。生产部署须保留可写且持久化的 `data/` 目录，以保存 `data/box.sqlite` 与 EDH 卡池；同时安全保存 `.env.local`。
+默认端口为 `9999`；可通过 `PORT` 环境变量修改。生产部署须保留可写且持久化的 `resources/data/` 目录，以保存 `resources/data/box.sqlite` 与 EDH 卡池；同时安全保存 `resources/.env.local`。服务器上用 systemd 常驻时应直接执行 `node code/server/index.js`（工作目录为发布目录），不要用 `npm start`，否则每次重启都会重新构建。
 
 ## 工具
 
@@ -208,26 +213,40 @@ npm start
 
 ## 常用命令
 
+以下命令都在**项目根目录**执行，根目录的 `package.json` 会转发到 `code/`：
+
 ```powershell
-npm run dev      # 开发服务，含 Next.js 热更新
-npm run build    # 生成 out/ 生产产物
-npm start        # 启动生产服务
-npm run lint     # 运行项目的 lint 脚本
+npm run install:code   # 安装依赖（只在 code/ 里安装）
+npm run dev            # 开发服务，含 Next.js 热更新
+npm run build          # 生成 code/out 生产产物
+npm start              # 启动生产服务（会先构建一次）
+npm run db:generate    # 生成 Prisma 客户端
+npm run db:migrate     # 创建/升级 resources/data/box.sqlite
+npm run db:setup       # 首次初始化：建库 + 导入旧 JSON 数据
+npm run lint           # 运行项目的 lint 脚本
 ```
 
 ## 项目结构
 
+项目按用途分成四类，目录名是英文，方便在服务器之间整目录上传下载：
+
 ```text
-app/                    Next.js 页面与工具路由
-components/             可复用界面组件
-content/                受版本控制的工具定义、内置卡牌、页面资料与配置模板
-data/                   Git 忽略的运行时数据：SQLite、账户文件、上传、缓存与用户站点
-docs/                   项目、认证和每个工具的说明
-lib/                    客户端工具逻辑与 WebSocket 工具
-public/                 字体与图片等静态资源
-server/                 自定义服务、认证、API 与 WebSocket
+code/          代码类：Next.js 页面（app/、components/、lib/）、服务端（server/）、
+               Prisma（prisma/）、独立静态应用（dnd-app/）、依赖（node_modules/）与
+               构建产物（out/）
+resources/     资源类：所有会被搬来搬去的数据和素材
+  content/     受版本控制的资源：工具定义、内置卡牌、页面资料与配置模板
+  data/        Git 忽略的运行时数据：SQLite、账户文件、上传、缓存与用户站点
+  public/      字体与图片等静态资源（public/image 约 700 MB，单独上传）
+  .env.local   私密配置（含会话密钥），不提交、不打包
+docs/          文档类：项目、认证和每个工具的说明
+ops/           命令行类：scripts/（数据库与维护脚本）、release/（打包部署脚本）、
+               checks/、logs/、RUN.bat（本地启动）
+package.json   根命令转发：在这里执行 npm run dev / build / db:* 即可
 ```
+
+部署到服务器时，只有 `resources/` 里的数据需要反复上传下载；`code/` 由发布包整体替换，`resources/data`、`resources/public/image` 和 `resources/.env.local` 在服务器上是共享目录，不会被新版本覆盖。完整流程见[部署指南](./docs/deployment.md)与[服务器运维](./docs/server-operations.md)。
 
 ## 文档
 
-文档索引和维护约定位于 [docs/README.md](./docs/README.md)。新增工具时，请同时更新 `content/tools.json`、服务端权限白名单（如需要）和对应的 `docs/<tool>.md`。
+文档索引和维护约定位于 [docs/README.md](./docs/README.md)。新增工具时，请同时更新 `resources/content/tools.json`、服务端权限白名单（如需要）和对应的 `docs/<tool>.md`。

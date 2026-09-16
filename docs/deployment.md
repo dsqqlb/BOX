@@ -10,15 +10,15 @@
 
 | 职责 | 说明 |
 | --- | --- |
-| 页面 | 生产环境托管 `next build` 导出的静态产物 `out/`；开发环境挂 Next.js dev server |
+| 页面 | 生产环境托管 `next build` 导出的静态产物 `code/out/`；开发环境挂 Next.js dev server |
 | 认证 | 除 `/login` 外，所有页面、API、WebSocket 都要求登录 |
 | 业务 API | 账户、工具数据、文件上传等 |
 | WebSocket | `/ws`（先攻追踪器）、`/ws?kards=1`、`/ws?holdem=1`、`/ws/chat` |
 | 静态站点挂载 | 按 `Host` 请求头分流到独立域名（可选功能） |
 
-> **不要只把 `out/` 丢到静态托管**（Vercel / Netlify / GitHub Pages / 纯 Nginx）。登录、权限、WebSocket、数据库读写全都在 `server/index.js` 里，缺了它一半功能不可用。
+> **不要只把 `code/out/` 丢到静态托管**（Vercel / Netlify / GitHub Pages / 纯 Nginx）。登录、权限、WebSocket、数据库读写全都在 `code/server/index.js` 里，缺了它一半功能不可用。
 
-**必须持久化的目录是 `data/`**，里面有 SQLite 数据库和所有用户上传的文件。
+**必须持久化的目录是 `resources/data/`**，里面有 SQLite 数据库和所有用户上传的文件。
 
 ---
 
@@ -99,7 +99,7 @@ git clone https://github.com/dsqqlb/BOX.git
 cd BOX
 ```
 
-**验证**：`git log -1 --oneline` 能看到最新提交，且当前目录下有 `server/`、`app/`、`prisma/`。
+**验证**：`git log -1 --oneline` 能看到最新提交，且当前目录下有 `code/`（内含 `server/`、`app/`、`prisma/`）与 `resources/`。
 
 > 路径里**不要带空格或中文**，某些工具链在 Windows 上会出问题。
 
@@ -108,39 +108,41 @@ cd BOX
 ## 3. 安装依赖
 
 ```bash
-npm install
+npm run install:code
 ```
 
-耗时几分钟。会顺带下载 Prisma 引擎与 sharp 的预编译二进制，**这一步需要联网**。
+依赖只装在 `code/` 里，根目录的 `package.json` 只负责转发命令。耗时几分钟，会顺带下载 Prisma 引擎等的预编译二进制，**这一步需要联网**。
 
 npm 可能提示若干包含安装脚本的依赖（`@prisma/client`、`prisma`、`sharp` 等），属正常现象。
 
 **验证**：
 
 ```bash
+cd code
 node -e "require('@prisma/client'); require('ws'); require('yauzl'); require('pokersolver'); console.log('依赖就绪')"
+cd ..
 ```
 
 期望输出 `依赖就绪`。
 
-**离线/内网机器**：在有网机器上执行完 `npm install` 后，把整个 `node_modules` 一起拷过去；注意必须是**同一操作系统与 CPU 架构**，否则 Prisma 与 sharp 的二进制不兼容。
+**离线/内网机器**：在有网机器上执行完 `npm run install:code` 后，把整个 `code/node_modules` 一起拷过去；注意必须是**同一操作系统与 CPU 架构**，否则 Prisma 的二进制不兼容。
 
 ---
 
-## 4. 创建 `.env.local`
+## 4. 创建 `resources/.env.local`
 
 ### 4.1 从模板复制
 
 **Linux / macOS**
 
 ```bash
-cp .env.example .env.local
+cp resources/.env.example resources/.env.local
 ```
 
 **Windows（PowerShell）**
 
 ```powershell
-Copy-Item .env.example .env.local
+Copy-Item resources\.env.example resources\.env.local
 ```
 
 ### 4.2 生成会话密钥
@@ -153,7 +155,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 复制整行输出。
 
-### 4.3 编辑 `.env.local`
+### 4.3 编辑 `resources/.env.local`
 
 最小可用配置只有两项：
 
@@ -180,17 +182,17 @@ BOX_COOKIE_SECURE=false
 | `PORT` | `9999` | 监听端口 |
 | `HOST` | `0.0.0.0` | 监听地址；只给本机用可设 `127.0.0.1` |
 | `BOX_SESSION_TTL_SECONDS` | `43200` | 登录有效期（12 小时） |
-| `DATABASE_URL` | `data/box.sqlite` | 数据库位置，想放到别的持久盘时设为 `file:/srv/box-data/box.sqlite` |
+| `DATABASE_URL` | `resources/data/box.sqlite` | 数据库位置，想放到别的持久盘时设为 `file:/srv/box-data/box.sqlite` |
 | `CHAT_MAX_UPLOAD_BYTES` | 1 GiB | 局域网大厅单文件上限 |
 | `BOX_SITES_HOST` / `BOX_PRIMARY_HOST` | 空 | 静态站点挂载，见第 10 节 |
 
 **验证**：
 
 ```bash
-node -e "require('./server/config'); console.log('密钥长度', Buffer.byteLength(process.env.BOX_SESSION_SECRET||''))"
+node -e "require('./code/server/config'); console.log('密钥长度', Buffer.byteLength(process.env.BOX_SESSION_SECRET||''))"
 ```
 
-期望输出的长度 **≥ 32**。若为 0，说明 `.env.local` 没被读到或变量名拼错了。
+期望输出的长度 **≥ 32**。若为 0，说明 `resources/.env.local` 没被读到或变量名拼错了。
 
 ---
 
@@ -203,13 +205,15 @@ node -e "require('./server/config'); console.log('密钥长度', Buffer.byteLeng
 **Linux / macOS**
 
 ```bash
-cp content/auth-users.example.json data/auth-users.json
+mkdir -p resources/data
+cp resources/content/auth-users.example.json resources/data/auth-users.json
 ```
 
 **Windows（PowerShell）**
 
 ```powershell
-Copy-Item content/auth-users.example.json data/auth-users.json
+New-Item -ItemType Directory -Force resources\data | Out-Null
+Copy-Item resources\content\auth-users.example.json resources\data\auth-users.json
 ```
 
 ### 5.2 生成密码哈希
@@ -217,7 +221,7 @@ Copy-Item content/auth-users.example.json data/auth-users.json
 必须在**交互式终端**里运行（输入不会回显）：
 
 ```bash
-node server/create-password-hash.js
+node code/server/create-password-hash.js
 ```
 
 按提示输入同一个密码两次，得到形如下面的一整行：
@@ -226,7 +230,7 @@ node server/create-password-hash.js
 scrypt$16384$8$1$xxxxxxxxxxxx$yyyyyyyyyyyy...
 ```
 
-### 5.3 填写 `data/auth-users.json`
+### 5.3 填写 `resources/data/auth-users.json`
 
 把整行哈希粘进 `passwordHash`。`"*"` 表示拥有全部工具权限：
 
@@ -258,7 +262,7 @@ scrypt$16384$8$1$xxxxxxxxxxxx$yyyyyyyyyyyy...
 **验证**：
 
 ```bash
-node -e "const u=require('./data/auth-users.json').users; console.log(u.length, '个账户'); u.forEach(x=>console.log(x.username, x.passwordHash.startsWith('scrypt$') ? '哈希 OK' : '❌ 哈希无效', x.permissions.join(',')))"
+node -e "const u=require('./resources/data/auth-users.json').users; console.log(u.length, '个账户'); u.forEach(x=>console.log(x.username, x.passwordHash.startsWith('scrypt$') ? '哈希 OK' : '❌ 哈希无效', x.permissions.join(',')))"
 ```
 
 ---
@@ -274,8 +278,8 @@ npm run db:setup
 | 子步骤 | 作用 |
 | --- | --- |
 | `db:generate` | 生成 Prisma 客户端 |
-| `db:migrate` | 创建 `data/box.sqlite` 并应用 `prisma/migrations/` 下的全部结构（当前 11 个） |
-| `db:import-json` | 把 `data/auth-users.json` 的账户导入数据库；导入前自动备份到 `data/backups/` |
+| `db:migrate` | 创建 `resources/data/box.sqlite` 并应用 `code/prisma/migrations/` 下的全部结构（当前 11 个） |
+| `db:import-json` | 把 `resources/data/auth-users.json` 的账户导入数据库；导入前自动备份到 `resources/data/backups/` |
 | `db:migrate-runtime-json` | 增量导入历史的 DND / 省钱 JSON；全新部署没有这些文件，会显示 0 条，属正常 |
 
 期望在输出末尾看到类似 `{"success": true, "users": 1, ...}`。
@@ -285,7 +289,7 @@ npm run db:setup
 **验证**：
 
 ```bash
-node -e "const {prisma}=require('./server/db'); prisma.user.findMany({select:{username:true,permissions:{select:{permission:true}}}}).then(u=>{console.log(JSON.stringify(u,null,2)); process.exit(0);})"
+node -e "const {prisma}=require('./code/server/db'); prisma.user.findMany({select:{username:true,permissions:{select:{permission:true}}}}).then(u=>{console.log(JSON.stringify(u,null,2)); process.exit(0);})"
 ```
 
 应打印出你刚配置的账户及其权限。
@@ -298,14 +302,14 @@ node -e "const {prisma}=require('./server/db'); prisma.user.findMany({select:{us
 npm run build
 ```
 
-产出静态站点到 `out/`。生产模式下服务会从这里读页面，**没有 `out/` 会拒绝启动**。
+产出静态站点到 `code/out/`。生产模式下服务会从这里读页面，**没有 `code/out/` 会拒绝启动**。
 
 期望结尾看到 `✓ Exporting` 与一张路由表，其中包含 `/tools/...` 的各个页面。
 
 **验证**：
 
 ```bash
-node -e "const fs=require('fs'); console.log('out 存在:', fs.existsSync('out/index.html'), '| 页面数:', fs.readdirSync('out/tools').length)"
+node -e "const fs=require('fs'); console.log('out 存在:', fs.existsSync('code/out/index.html'), '| 页面数:', fs.readdirSync('code/out/tools').length)"
 ```
 
 ---
@@ -321,8 +325,10 @@ npm start
 `npm start` 会**先自动跑一次构建**（`prestart` 钩子），所以第一次会稍慢。已经构建过、想直接起服务可以用：
 
 ```bash
-node server/index.js
+node code/server/index.js
 ```
+
+服务器上用 systemd 常驻时请用这一条，不要用 `npm start`，否则每次重启都会重新构建。
 
 启动成功的输出形如：
 
@@ -384,7 +390,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:9999/
 
 **⑥ 数据库可写**
 
-在「省钱网页」里加一条记录，刷新页面后仍在，说明 `data/` 可写、SQLite 正常。
+在「省钱网页」里加一条记录，刷新页面后仍在，说明 `resources/data/` 可写、SQLite 正常。
 
 **⑦ WebSocket 正常**
 
@@ -436,7 +442,7 @@ After=network.target
 Type=simple
 User=box
 WorkingDirectory=/home/box/BOX
-ExecStart=/usr/bin/node server/index.js
+ExecStart=/usr/bin/node code/server/index.js
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
@@ -453,7 +459,7 @@ sudo systemctl enable --now box
 
 注意事项：
 
-- `User` 与 `WorkingDirectory` 换成你自己的；该用户必须对 `data/` 有写权限
+- `User` 与 `WorkingDirectory` 换成你自己的；该用户必须对 `resources/data/` 有写权限
 - 用 nvm 装的 Node 时，`ExecStart` 要写绝对路径，用 `which node` 查
 - **不要**用 `ExecStart=npm start`：它会在每次重启时重新构建
 
@@ -479,7 +485,7 @@ cat > ~/Library/LaunchAgents/com.box.server.plist <<'EOF'
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
-    <string>server/index.js</string>
+    <string>code/server/index.js</string>
   </array>
   <key>WorkingDirectory</key><string>/Users/你的用户名/BOX</string>
   <key>RunAtLoad</key><true/>
@@ -510,10 +516,10 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:9999/login
 ```powershell
 winget install NSSM.NSSM
 # 以管理员身份执行
-nssm install BOX "C:\Program Files\nodejs\node.exe" "server\index.js"
+nssm install BOX "C:\Program Files\nodejs\node.exe" "code\server\index.js"
 nssm set BOX AppDirectory "C:\Users\你的用户名\BOX"
-nssm set BOX AppStdout "C:\Users\你的用户名\BOX\logs\box.log"
-nssm set BOX AppStderr "C:\Users\你的用户名\BOX\logs\box.error.log"
+nssm set BOX AppStdout "C:\Users\你的用户名\BOX\ops\logs\box.log"
+nssm set BOX AppStderr "C:\Users\你的用户名\BOX\ops\logs\box.error.log"
 nssm set BOX Start SERVICE_AUTO_START
 nssm start BOX
 ```
@@ -526,13 +532,13 @@ curl.exe -s -o NUL -w "%{http_code}`n" http://localhost:9999/login
 Restart-Service BOX; Start-Sleep 3; curl.exe -s -o NUL -w "%{http_code}`n" http://localhost:9999/login
 ```
 
-不想装 NSSM 的话，也可以用「任务计划程序」建一个**开机时触发**、操作为 `node.exe server\index.js`、起始位置为项目目录的任务，并勾选「不管用户是否登录都要运行」。
+不想装 NSSM 的话，也可以用「任务计划程序」建一个**开机时触发**、操作为 `node.exe code\server\index.js`、起始位置为项目根目录的任务，并勾选「不管用户是否登录都要运行」。
 
 ### 9.5 跨平台：PM2
 
 ```bash
 npm install -g pm2
-pm2 start server/index.js --name box
+pm2 start code/server/index.js --name box
 pm2 save
 pm2 startup        # 按它输出的命令再执行一次，实现开机自启
 ```
@@ -548,8 +554,8 @@ pm2 startup        # 按它输出的命令再执行一次，实现开机自启
 | 内容 | 命令 | 说明 |
 | --- | --- | --- |
 | EDH 卡牌库 | `npm run sync:edh-cards` | 从 Scryfall 下载，约 100 MB，需联网。不同步时 EDH 组卡台的搜索会返回 503 |
-| Kards 卡牌目录 | `npm run build:kards` | 仓库已带 `content/kards/cards.json`，只有自己新增卡图时才需要重跑 |
-| DND 图片 | — | `public/image/` 已被 `.gitignore` 排除，但历史已跟踪的约 200 个 PNG 会随克隆带下来。要加新图就直接放进 `public/image/enemies/` 或 `public/image/player/<种族>/`，然后重新 `npm run build` |
+| Kards 卡牌目录 | `npm run build:kards` | 仓库已带 `resources/content/kards/cards.json`，只有自己新增卡图时才需要重跑 |
+| DND 图片 | — | `resources/public/image/` 已被 `.gitignore` 排除，但历史已跟踪的约 200 个 PNG 会随克隆带下来。要加新图就直接放进 `resources/public/image/enemies/` 或 `resources/public/image/player/<种族>/`，刷新页面即可生效——图片不参与构建，不需要重新 `npm run build` |
 
 ## 10.1 可选：静态站点挂载的域名
 
@@ -578,7 +584,7 @@ BOX_PRIMARY_HOST=box.example.com
 
 ## 11. 反向代理与 HTTPS
 
-公网使用**务必**套 HTTPS，然后把 `.env.local` 里的 `BOX_COOKIE_SECURE` 设为 `true`。
+公网使用**务必**套 HTTPS，然后把 `resources/.env.local` 里的 `BOX_COOKIE_SECURE` 设为 `true`。
 
 三个必须做对的点，缺一个就会出问题：
 
@@ -652,6 +658,8 @@ curl -s -o /dev/null -w "%{http_code}\n" https://box.example.com/api/health   # 
 
 ## 12. 升级到新版本
 
+**方式一：直接在项目目录里升级（单机、小规模）**
+
 ```bash
 # 1. 停服（按你用的方式）
 sudo systemctl stop box          # 或 pm2 stop box / Stop-Service BOX / launchctl unload ...
@@ -662,7 +670,7 @@ sudo systemctl stop box          # 或 pm2 stop box / Stop-Service BOX / launchc
 git pull
 
 # 4. 更新依赖
-npm install
+npm run install:code
 
 # 5. 只做结构迁移，绝不要跑 db:import-json
 npm run db:generate
@@ -674,6 +682,30 @@ npm run build
 # 7. 启动
 sudo systemctl start box
 ```
+
+**方式二：发布包 + 版本目录（推荐，服务器上只换代码，不动数据）**
+
+`ops/release/` 下的脚本会把代码和资源打成发布包，在服务器上解压成 `~/box-releases/<版本>`，再把 `resources/.env.local`、`resources/data`、`resources/public/image` 三个共享目录软链进去。切换版本只是改一个软链，旧版本留着可随时回滚：
+
+```powershell
+# 本机（Windows）：构建、打包、上传
+.\ops\release\package-and-upload.ps1 -Server box-prod
+```
+
+```bash
+# 服务器：首次只做一次（干跑确认后加 --execute）
+~/box-ops/bootstrap-releases.sh
+~/box-ops/bootstrap-releases.sh --execute
+
+# 每次发版
+~/box-ops/deploy-release.sh ~/box-upload/box-<版本>.tar.gz
+
+# 出问题时回滚到上一个版本目录
+ls -1 ~/box-releases
+~/box-ops/rollback-release.sh <上一个版本目录名>
+```
+
+两条路线的共同点：**永不覆盖数据**。升级只做 `db:generate` + `db:migrate`（结构迁移），不要跑 `db:import-json`。完整说明见[服务器运维](./server-operations.md)。
 
 升级后重复第 8.2 节的验证。
 
@@ -687,21 +719,21 @@ sudo systemctl start box
 
 | 路径 | 内容 | 丢了会怎样 |
 | --- | --- | --- |
-| `.env.local` | 会话密钥等配置 | 换了密钥所有人都要重新登录 |
-| `data/box.sqlite` | 账户、权限、全部工具数据 | 一切用户数据丢失 |
-| `data/chat/` | 局域网大厅的附件本体 | 聊天记录里的文件全部损坏 |
-| `data/medicine/` | 家庭药箱照片 | 照片丢失 |
-| `data/initiative-scenes/` | DND 场景媒体 | 媒体丢失 |
-| `data/sites/` | 挂载的静态站点文件 | 站点内容丢失 |
-| `data/edh/cards.json` | EDH 卡牌索引 | 可用 `npm run sync:edh-cards` 重新生成 |
+| `resources/.env.local` | 会话密钥等配置 | 换了密钥所有人都要重新登录 |
+| `resources/data/box.sqlite` | 账户、权限、全部工具数据 | 一切用户数据丢失 |
+| `resources/data/chat/` | 局域网大厅的附件本体 | 聊天记录里的文件全部损坏 |
+| `resources/data/medicine/` | 家庭药箱照片 | 照片丢失 |
+| `resources/data/initiative-scenes/` | DND 场景媒体 | 媒体丢失 |
+| `resources/data/sites/` | 挂载的静态站点文件 | 站点内容丢失 |
+| `resources/data/edh/cards.json` | EDH 卡牌索引 | 可用 `npm run sync:edh-cards` 重新生成 |
 
-**关键点**：数据库和上面这些文件目录必须取**同一时点**的备份。只备份 `.sqlite` 而不备份 `data/chat/`，恢复后数据库里有附件记录但文件不存在。
+**关键点**：数据库和上面这些文件目录必须取**同一时点**的备份。只备份 `.sqlite` 而不备份 `resources/data/chat/`，恢复后数据库里有附件记录但文件不存在。
 
 **Linux / macOS 简易备份**
 
 ```bash
 sudo systemctl stop box
-tar -czf ~/box-backup-$(date +%Y%m%d).tar.gz .env.local data/
+tar -czf ~/box-backup-$(date +%Y%m%d).tar.gz -C . resources/.env.local resources/data
 sudo systemctl start box
 ```
 
@@ -709,11 +741,11 @@ sudo systemctl start box
 
 ```powershell
 Stop-Service BOX
-Compress-Archive -Path .env.local, data -DestinationPath "$env:USERPROFILE\box-backup-$(Get-Date -Format yyyyMMdd).zip"
+Compress-Archive -Path .\resources\.env.local, .\resources\data -DestinationPath "$env:USERPROFILE\box-backup-$(Get-Date -Format yyyyMMdd).zip"
 Start-Service BOX
 ```
 
-**恢复**：停服 → 把 `.env.local` 与整个 `data/` 覆盖回去 → `npm run db:generate && npm run db:migrate` → 启动。
+**恢复**：停服 → 把 `resources/.env.local` 与整个 `resources/data/` 覆盖回去 → `npm run db:generate && npm run db:migrate` → 启动。
 
 ---
 
@@ -721,7 +753,7 @@ Start-Service BOX
 
 | 现象 | 原因 | 解决 |
 | --- | --- | --- |
-| 启动报「必须设置至少 32 字节的 BOX_SESSION_SECRET」 | 没建 `.env.local` 或密钥太短 | 回到第 4 节重新生成 |
+| 启动报「必须设置至少 32 字节的 BOX_SESSION_SECRET」 | 没建 `resources/.env.local` 或密钥太短 | 回到第 4 节重新生成 |
 | 启动报「SQLite 数据库中必须至少包含一个账户」 | 没执行账户导入 | 完成第 5、6 节 |
 | 启动报「找不到静态产物目录」 | 没构建 | `npm run build` |
 | `db:setup` 报「找不到账户文件」 | 没复制 `auth-users.json` | 见 5.1 |
@@ -731,7 +763,7 @@ Start-Service BOX
 | 先攻追踪器/聊天连不上，控制台报 WebSocket 失败 | 反向代理没转发 `Upgrade` | 见第 11 节 |
 | 上传大文件失败（413） | 反向代理的 body 限制 | 调 `client_max_body_size` / `max_size` |
 | EDH 搜索返回 503 | 卡牌库未同步 | `npm run sync:edh-cards` |
-| `EACCES` / `SQLITE_READONLY` | 运行服务的用户对 `data/` 没有写权限 | `sudo chown -R box:box data/` |
+| `EACCES` / `SQLITE_READONLY` | 运行服务的用户对 `resources/data/` 没有写权限 | `sudo chown -R box:box resources/data/` |
 | 端口被占用 `EADDRINUSE` | 9999 已被别的进程占用 | 改 `PORT`，或用 `lsof -i:9999` / `netstat -ano \| findstr 9999` 找出占用者 |
 | 静态站点访问 404 | `BOX_SITES_HOST` 没配或 `Host` 头没保留 | 见 10.1 与第 11 节 |
 | 管理页写操作报「请求来源无效」 | 用了和配置不一致的地址访问（例如混用 `localhost` 与 `127.0.0.1`） | 固定用同一个地址访问主站 |
@@ -742,7 +774,7 @@ Start-Service BOX
 journalctl -u box -f                      # Linux systemd
 pm2 logs box                              # PM2
 tail -f ~/Library/Logs/box.log            # macOS
-Get-Content .\logs\box.log -Wait          # Windows
+Get-Content .\ops\logs\box.log -Wait      # Windows
 ```
 
 ---
@@ -751,13 +783,13 @@ Get-Content .\logs\box.log -Wait          # Windows
 
 - [ ] `BOX_SESSION_SECRET` 是新生成的随机值，没有复用其他环境的
 - [ ] 公网访问已启用 HTTPS，且 `BOX_COOKIE_SECURE=true`
-- [ ] `.env.local`、`data/auth-users.json`、`data/box.sqlite` 都**没有**提交到 Git（仓库已默认忽略，确认一下 `git status`）
+- [ ] `resources/.env.local`、`resources/data/auth-users.json`、`resources/data/box.sqlite` 都**没有**提交到 Git（仓库已默认忽略，确认一下 `git status`）
 - [ ] 每个账户使用独立的强密码；只给需要的工具权限，不要滥用 `"*"`
 - [ ] 管理员账户数量最少化
 - [ ] 反向代理只对外暴露 80/443，应用端口 9999 不对公网开放
 - [ ] 备份任务已配置，并且**真的恢复过一次**验证可用
 - [ ] 静态站点挂载确认用的是独立域名，且清楚哪些站点是公开的
-- [ ] `data/` 所在磁盘有足够剩余空间（用户上传会持续增长）
+- [ ] `resources/data/` 所在磁盘有足够剩余空间（用户上传会持续增长）
 
 ---
 

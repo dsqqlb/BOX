@@ -2,7 +2,7 @@
 
 这是一份可迁移的个人操作说明：换电脑时配置 SSH；换服务器时更新一份“服务器档案”和本机 SSH 别名。后面的日常命令不需要随 IP 变化而改动。
 
-> 本文不保存服务器密码、私钥、`.env.local` 内容或数据库内容。它们不应提交到 Git，也不要发进聊天或截图。
+> 本文不保存服务器密码、私钥、`resources/.env.local` 内容或数据库内容。它们不应提交到 Git，也不要发进聊天或截图。
 
 ---
 
@@ -19,12 +19,12 @@
 | 项目目录 | `/home/ubuntu/BOX` | 新服务器实际项目路径 |
 | BOX 服务 | `box.service` | `systemctl` 中的服务名称 |
 | BOX 本机端口 | `9999` | Node 应用监听端口 |
-| 数据目录 | `/home/ubuntu/BOX/data/` | SQLite 和用户上传数据所在路径 |
-| 私密配置 | `/home/ubuntu/BOX/.env.local` | 会话密钥与运行配置所在路径 |
+| 数据目录 | `/home/ubuntu/BOX/resources/data/` | SQLite 和用户上传数据所在路径 |
+| 私密配置 | `/home/ubuntu/BOX/resources/.env.local` | 会话密钥与运行配置所在路径 |
 
 **换服务器后的最小原则**：保留 SSH 别名 `box-prod`，只更新本机 `~/.ssh/config` 中的 `HostName`、`User` 和需要时的 `Port`。后文所有 `ssh box-prod ...` 命令都继续可用。
 
-内容目录 `content/`（工具定义、内置卡牌与页面资料）随代码进入 Git 和发布包；`data/` 仅保存 SQLite、账户文件、上传、缓存、备份和用户站点，整体不进入 Git。
+`resources/` 是唯一的资源类目录：`resources/content/`（工具定义、内置卡牌与页面资料）随代码进入 Git 和发布包；`resources/public/`（含 `image/`）是对外静态资源；`resources/.env.local` 与 `resources/data/`（SQLite、账户文件、上传、缓存、备份和用户站点）是私密数据，整体不进入 Git。
 
 ---
 
@@ -130,9 +130,9 @@ ssh -o BatchMode=yes box-prod "whoami; hostname; uptime"
 
 换服务器不是只换 IP，而是一次迁移。建议按顺序进行：
 
-1. 在旧服务器备份 `.env.local` 和 `data/`；
+1. 在旧服务器备份 `resources/.env.local`、`resources/data/` 和 `resources/public/image/`；
 2. 在新服务器安装 Ubuntu、Node.js、Git，并放好 BOX 项目；
-3. 把备份中的 `.env.local` 和 `data/` 恢复到新项目目录；
+3. 把备份中的 `resources/.env.local`、`resources/data/` 和 `resources/public/image/` 恢复到新项目目录；
 4. 在新服务器执行：`npm install`、`npm run db:generate`、`npm run db:migrate`、`npm run build`；
 5. 配置并启动 `box.service`；
 6. 先用新服务器的地址测试登录和数据是否完整；
@@ -223,7 +223,7 @@ ssh box-prod "systemctl status box --no-pager; curl -I http://127.0.0.1:9999/"
 无论项目代码来自 Git、压缩包还是手动上传，构建流程都是：
 
 ```powershell
-ssh box-prod "cd /home/ubuntu/BOX && npm install && npm run db:generate && npm run db:migrate && npm run build && sudo systemctl restart box && systemctl status box --no-pager"
+ssh box-prod "cd /home/ubuntu/BOX && npm run ci:code && npm run db:generate && npm run db:migrate && npm run build && sudo systemctl restart box && systemctl status box --no-pager"
 ```
 
 如果新服务器项目目录不是 `/home/ubuntu/BOX`，把命令中的路径替换成服务器档案里的项目目录。
@@ -235,7 +235,7 @@ ssh box-prod "cd /home/ubuntu/BOX && npm install && npm run db:generate && npm r
 ```bash
 npm run db:setup
 npm run db:import-json
-rm -rf data/
+rm -rf resources/data/
 git clean -fd
 git reset --hard
 ```
@@ -249,7 +249,7 @@ git reset --hard
 更新代码、迁移数据库、修改服务器前，建议先备份。下方命令假设项目目录是 `/home/ubuntu/BOX`；换路径时同步修改。
 
 ```powershell
-ssh box-prod 'set -e; sudo systemctl stop box; mkdir -p "$HOME/box-backups"; tar -czf "$HOME/box-backups/box-$(date +%Y%m%d-%H%M%S).tar.gz" /home/ubuntu/BOX/.env.local /home/ubuntu/BOX/data; sudo systemctl start box; ls -lh "$HOME/box-backups" | tail'
+ssh box-prod 'set -e; sudo systemctl stop box; mkdir -p "$HOME/box-backups"; tar -czf "$HOME/box-backups/box-$(date +%Y%m%d-%H%M%S).tar.gz" -C /home/ubuntu/BOX resources/.env.local resources/data; sudo systemctl start box; ls -lh "$HOME/box-backups" | tail'
 ```
 
 查看备份：
@@ -258,7 +258,7 @@ ssh box-prod 'set -e; sudo systemctl stop box; mkdir -p "$HOME/box-backups"; tar
 ssh box-prod "ls -lh ~/box-backups/"
 ```
 
-恢复备份是高风险操作：先停止服务、确认备份日期，再恢复 `.env.local` 和整个 `data/`；恢复后运行 `npm run db:generate`、`npm run db:migrate`，最后启动服务。
+恢复备份是高风险操作：先停止服务、确认备份日期，再恢复 `resources/.env.local` 和整个 `resources/data/`；恢复后运行 `npm run db:generate`、`npm run db:migrate`，最后启动服务。
 
 ---
 
@@ -268,7 +268,7 @@ ssh box-prod "ls -lh ~/box-backups/"
 2. 使用 SSH 密钥，私钥 `id_ed25519` 永远不要分享、上传或提交。
 3. 长期应该用域名 + HTTPS 反向代理，BOX 只监听本机 `127.0.0.1:9999`；不要长期裸露公网 HTTP 的 `9999` 端口。
 4. 确认至少两台电脑都能用 SSH 密钥登录后，再考虑关闭密码 SSH 登录和 root SSH 登录；操作前保留一个已登录的 SSH 窗口，防止把自己锁在服务器外。
-5. `.env.local`、`data/box.sqlite`、整个 `data/` 和备份压缩包都属于敏感数据，应定期异地备份。
+5. `resources/.env.local`、`resources/data/box.sqlite`、整个 `resources/data/` 和备份压缩包都属于敏感数据，应定期异地备份。
 
 
 ---
@@ -290,28 +290,35 @@ ssh box-prod "ls -lh ~/box-backups/"
 /home/ubuntu/
 ├─ box-releases/
 │  ├─ 20260910-153000-a1b2c3d/
+│  │  ├─ code/           # 代码与构建产物（node_modules、.next、out 都在这里）
+│  │  ├─ resources/      # content 随包发布；.env.local、data/、public/image 是共享软链
+│  │  ├─ docs/
+│  │  ├─ ops/
+│  │  └─ package.json
 │  ├─ 20260912-211500-e4f5a6b/
 │  └─ current -> 20260912-211500-e4f5a6b/
 ├─ box-shared/
-│  ├─ .env.local
-│  └─ data/
+│  ├─ .env.local         # 软链到每个 release 的 resources/.env.local
+│  ├─ data/              # 软链到 resources/data
+│  └─ public-image/      # 软链到 resources/public/image
 ├─ box-upload/                 # 上传的 tar.gz，之后可定期清理
 └─ box-ops/                    # 服务器上的发布/回滚脚本
 ```
 
 - 每个 release 是一份独立、不可修改的代码和构建产物；
 - `box-releases/current` 指向当前运行版本；
-- `.env.local`、SQLite 与上传文件放在 `box-shared/`，不随版本切换而覆盖；
-- systemd 的 `WorkingDirectory` 指向 `box-releases/current`。
+- `resources/.env.local`、`resources/data/`、`resources/public/image/` 三个共享资源放在 `box-shared/`，不随版本切换而覆盖；
+- systemd 的 `WorkingDirectory` 指向 `box-releases/current`，`ExecStart` 直接用绝对路径的 node 运行 `code/server/index.js`（不走 `npm start`，避免每次重启都触发构建）；
+- **本机与服务器之间需要反复上传下载的只有 `resources/`**：真实密钥、数据库与上传数据、图片都在这里；代码和文档按需整体打包即可。
 
 ### 11.2 一次性初始化 release 目录
 
-> 这是线上结构迁移，会停止服务、移动 `.env.local` 与 `data/`、修改 `box.service`。先做异地备份并选择维护窗口。不要在未确认脚本预检结果时执行 `--execute`。
+> 这是线上结构迁移，会停止服务、移动 `resources/.env.local`、`resources/data/` 与 `resources/public/image/`。先做异地备份并选择维护窗口。不要在未确认脚本预检结果时执行 `--execute`。
 
 本地先将发布脚本上传一次：
 
 ```powershell
-scp .\scripts\release\bootstrap-releases.sh box-prod:~/box-ops/bootstrap-releases.sh
+scp .\ops\release\bootstrap-releases.sh box-prod:~/box-ops/bootstrap-releases.sh
 ssh box-prod "chmod 700 ~/box-ops/bootstrap-releases.sh"
 ```
 
@@ -338,15 +345,15 @@ ssh box-prod "readlink -f ~/box-releases/current; systemctl status box --no-page
 在本机完成代码修改和 Git 提交后，PowerShell 执行：
 
 ```powershell
-.\scripts\release\package-and-upload.ps1
+.\ops\release\package-and-upload.ps1 -Server box-prod
 ```
 
 这个脚本会：
 
 1. 运行 `npm run build`；
 2. 使用 `时间-Git短提交号` 创建版本号；
-3. 打包代码、`out/`、Prisma migrations 和必要配置模板为跨平台 `.tar.gz`；
-4. **明确排除** `.git`、`node_modules`、`.env.local`、`data/`；
+3. 打包 `code/`（含 `code/out/` 与 Prisma migrations）、`resources/content/`、`resources/public/`（图片本身除外）、`docs/`、`ops/` 和根 `package.json` 为跨平台 `.tar.gz`；
+4. **明确排除** `.git`、`code/node_modules/`、`code/.next/`、`resources/.env.local`、`resources/data/`、`resources/public/image/`；
 5. 上传 tar.gz 和三个服务器脚本到 `box-prod`；
 6. 输出下一条要执行的部署命令。
 
@@ -378,9 +385,9 @@ ssh -t box-prod "~/box-ops/rollback-release.sh 20260910-153000-a1b2c3d"
 
 | 文件 | 作用 |
 | --- | --- |
-| `scripts/release/package-and-upload.ps1` | Windows：构建、打包、SCP 上传 |
-| `scripts/release/bootstrap-releases.sh` | Ubuntu：一次性将旧目录转换为 release + shared 布局 |
-| `scripts/release/deploy-release.sh` | Ubuntu：解压、构建、备份、迁移、切版本 |
-| `scripts/release/rollback-release.sh` | Ubuntu：确认后切回旧 release |
+| `ops/release/package-and-upload.ps1` | Windows：构建、打包、SCP 上传 |
+| `ops/release/bootstrap-releases.sh` | Ubuntu：一次性将旧目录转换为 release + shared 布局 |
+| `ops/release/deploy-release.sh` | Ubuntu：解压、构建、备份、迁移、切版本 |
+| `ops/release/rollback-release.sh` | Ubuntu：确认后切回旧 release |
 
-所有脚本均不会读取或上传私钥；发布包也不会包含真实 `.env.local` 与 `data/`。
+所有脚本均不会读取或上传私钥；发布包也不会包含真实 `resources/.env.local`、`resources/data/` 与 `resources/public/image/`。

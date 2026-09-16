@@ -7,8 +7,8 @@ EDH 组卡台支持中文优先的本地卡牌检索、颜色/类别/法术力�
 
 ## 数据与保存
 
-- 卡牌元数据由 `npm run sync:edh-cards` 从 Scryfall 同步至 `data/edh/cards.json`；卡图继续使用 Scryfall CDN 链接。
-- 牌组、卡牌数量、指挥官和自由桌面布局按登录账户保存在 `data/box.sqlite`。
-- 运行时不会生成 `data/edh/decks/<用户名>.json`；旧 JSON 可在维护窗口使用 `npm run db:import-json` 导入，导入前会自动备份。
+- 卡牌元数据由 `npm run sync:edh-cards` 从 Scryfall 同步至 `resources/data/edh/cards.json`；卡图继续使用 Scryfall CDN 链接。
+- 牌组、卡牌数量、指挥官和自由桌面布局按登录账户保存在 `resources/data/box.sqlite`。
+- 运行时不会生成 `resources/data/edh/decks/<用户名>.json`；旧 JSON 可在维护窗口使用 `npm run db:import-json` 导入，导入前会自动备份。
 
-生产环境须将 `data/box.sqlite` 和 `data/edh/cards.json` 纳入备份。
+生产环境须将 `resources/data/box.sqlite` 和 `resources/data/edh/cards.json` 纳入备份。

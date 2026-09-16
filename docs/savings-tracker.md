@@ -19,6 +19,6 @@
 
 ## 运行维护
 
-生产运行时 `data/` 必须可写，并应将 `data/box.sqlite` 纳入常规备份。旧版 `data/savings.json` 可用 `npm run db:migrate-runtime-json` 一次性导入；脚本会先备份源文件，且不会自动归属或暴露没有有效 `owner` 的旧记录。
+生产运行时 `resources/data/` 必须可写，并应将 `resources/data/box.sqlite` 纳入常规备份。旧版 `resources/data/savings.json` 可用 `npm run db:migrate-runtime-json` 一次性导入；脚本会先备份源文件，且不会自动归属或暴露没有有效 `owner` 的旧记录。
 
 金额记录仅用于个人整理，不替代财务、税务或投资建议。

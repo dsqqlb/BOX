@@ -13,9 +13,9 @@
 
 ## 持久化与备份
 
-消息、回复、表情与附件元数据存放在 `data/box.sqlite`；附件二进制存放在 `data/chat/uploads/`。两者必须作为一个整体备份和恢复，否则会出现消息指向缺失附件或磁盘残留文件。
+消息、回复、表情与附件元数据存放在 `resources/data/box.sqlite`；附件二进制存放在 `resources/data/chat/uploads/`。两者必须作为一个整体备份和恢复，否则会出现消息指向缺失附件或磁盘残留文件。
 
-`data/chat/` 是运行时私有数据，已被 Git 忽略，不能提交。默认单文件上限为 1 GiB，可通过环境变量 `CHAT_MAX_UPLOAD_BYTES` 调整；配置值最低 1 MiB、最高 2 GiB（SQLite 附件大小字段的安全上限）。服务账户必须对 `data/chat/uploads/` 有读写权限。
+`resources/data/chat/` 是运行时私有数据，已被 Git 忽略，不能提交。默认单文件上限为 1 GiB，可通过环境变量 `CHAT_MAX_UPLOAD_BYTES` 调整；配置值最低 1 MiB、最高 2 GiB（SQLite 附件大小字段的安全上限）。服务账户必须对 `resources/data/chat/uploads/` 有读写权限。
 
 ## 安全与网络
 

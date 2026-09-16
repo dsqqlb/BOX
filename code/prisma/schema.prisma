@@ -1,0 +1,394 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String           @id @default(cuid())
+  username    String           @unique
+  passwordHash String
+  sessionRevision Int @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions UserPermission[]
+  decks       Deck[]
+  kardsDecks  KardsDeck[]
+  dndSave     DndSave?
+  dndSaveEntries DndSaveEntry[]
+  savings     SavingsRecord[]
+  carcassonneSaves CarcassonneSave[]
+  homePreference HomePreference?
+  homeToolUsage  HomeToolUsage[]
+  dailyToolUsage DailyToolUsage[]
+  chatMessages   ChatMessage[]
+  chatAttachments ChatAttachment[]
+  chatReactions  ChatReaction[]
+  createdMedicineProducts MedicineProduct[] @relation("MedicineProductCreator")
+  medicineUseLogs MedicineUseLog[]
+  uploadedSceneMedia DndSceneMedia[]
+  holdemBalance  HoldemBalance?
+  holdemLedger   HoldemLedger[]
+  edhLifeGames   EdhLifeGame[]
+  loginRecords   LoginRecord[]
+}
+
+model HoldemBalance {
+  ownerId     String   @id
+  chips       Int      @default(10000)
+  handsPlayed Int      @default(0)
+  handsWon    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model HoldemLedger {
+  id        String   @id @default(cuid())
+  ownerId   String
+  delta     Int
+  balance   Int
+  kind      String
+  roomId    String?
+  note      String?
+  createdAt DateTime @default(now())
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+}
+
+model HomePreference {
+  ownerId                 String   @id
+  favoriteToolSlugsJson   String   @default("[]")
+  toolOrderJson           String   @default("[]")
+  collapsedCategoriesJson String   @default("[]")
+  theme                   String   @default("midnight")
+  viewMode                String   @default("grid")
+  updatedAt               DateTime @updatedAt
+  owner                   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model HomeToolUsage {
+  ownerId      String
+  toolSlug     String
+  lastOpenedAt DateTime
+  openCount    Int      @default(1)
+  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@id([ownerId, toolSlug])
+  @@index([ownerId, lastOpenedAt])
+}
+
+model DailyToolUsage {
+  ownerId    String
+  toolSlug   String
+  dayKey     String
+  openCount  Int      @default(1)
+  updatedAt  DateTime @updatedAt
+  owner      User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@id([ownerId, toolSlug, dayKey])
+  @@index([ownerId, dayKey])
+}
+
+model ChatMessage {
+  id          String           @id @default(cuid())
+  authorId    String
+  body        String           @default("")
+  replyToId   String?
+  createdAt   DateTime         @default(now())
+  withdrawnAt DateTime?
+  author      User             @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  replyTo     ChatMessage?     @relation("ChatReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     ChatMessage[]    @relation("ChatReplies")
+  attachments ChatAttachment[]
+  reactions   ChatReaction[]
+
+  @@index([createdAt, id])
+  @@index([authorId, createdAt])
+}
+
+model ChatAttachment {
+  id           String       @id @default(cuid())
+  messageId    String?
+  uploaderId   String
+  storedName   String       @unique
+  originalName String
+  mimeType     String
+  byteSize     Int
+  createdAt    DateTime     @default(now())
+  message      ChatMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploader     User         @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([uploaderId, createdAt])
+}
+
+model ChatReaction {
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime    @default(now())
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId, emoji])
+  @@index([messageId, createdAt])
+}
+
+model MedicineProduct {
+  id           String          @id @default(cuid())
+  name         String
+  genericName  String?
+  brand        String?
+  category     String
+  dosageForm   String?
+  specification String?
+  manufacturer String?
+  origin       String?
+  approvalNumber String?
+  purpose      String?
+  precautions  String?
+  notes        String?
+  creatorId    String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  creator      User            @relation("MedicineProductCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  batches      MedicineBatch[]
+  photos       MedicinePhoto[]
+
+  @@index([updatedAt])
+  @@index([category, updatedAt])
+}
+
+model MedicineBatch {
+  id              String          @id @default(cuid())
+  productId       String
+  batchNumber     String?
+  productionDate  DateTime?
+  expiryDate      DateTime?
+  initialQuantity Float
+  remainingQuantity Float
+  unit            String
+  storageLocation String?
+  receivedAt      DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  product         MedicineProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  useLogs         MedicineUseLog[]
+
+  @@index([productId, expiryDate])
+  @@index([expiryDate])
+}
+
+model MedicineUseLog {
+  id           String        @id @default(cuid())
+  batchId      String
+  operatorId   String
+  usedQuantity Float
+  usedAt       DateTime      @default(now())
+  recipient    String?
+  reason       String?
+  note         String?
+  createdAt    DateTime      @default(now())
+  batch        MedicineBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  operator     User          @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, usedAt])
+  @@index([usedAt])
+}
+
+model MedicinePhoto {
+  id           String          @id @default(cuid())
+  productId    String
+  storedName   String          @unique
+  originalName String
+  mimeType     String
+  byteSize     Int
+  createdAt    DateTime        @default(now())
+  product      MedicineProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, createdAt])
+}
+
+model DndSceneMedia {
+  id           String   @id @default(cuid())
+  uploaderId   String
+  storedName   String   @unique
+  originalName String
+  mimeType     String
+  kind         String
+  byteSize     Int
+  createdAt    DateTime @default(now())
+  uploader     User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([kind, createdAt])
+  @@index([uploaderId, createdAt])
+}
+
+model UserPermission {
+  userId     String
+  permission String
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permission])
+}
+
+model Deck {
+  id                 String     @id
+  ownerId            String
+  name               String
+  commanderOracleId  String?
+  layoutJson         String?
+  createdAt          DateTime
+  updatedAt          DateTime
+  owner              User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  cards              DeckCard[]
+
+  @@index([ownerId, updatedAt])
+}
+
+model DeckCard {
+  deckId   String
+  oracleId String
+  quantity Int
+  deck     Deck   @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@id([deckId, oracleId])
+}
+
+model KardsDeck {
+  id        String   @id
+  ownerId   String
+  name      String
+  faction   String?
+  cardsJson String
+  createdAt DateTime
+  updatedAt DateTime
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, updatedAt])
+}
+
+model DndSave {
+  ownerId   String   @unique
+  dataJson  String
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+// 角色卡存档（现行）：一行一个 key，只写变化的字段，互不覆盖。
+// 旧的整体快照表 DndSave 保留为迁移前备份，运行时不再读写（见 ops/scripts/migrate-dnd-save-to-entries.mjs）。
+model DndSaveEntry {
+  ownerId   String
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@id([ownerId, key])
+}
+
+model SavingsRecord {
+  id        String   @id
+  ownerId   String
+  date      String
+  time      String
+  activity  String
+  item      String
+  amount    Float
+  createdAt DateTime
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+}
+
+model CarcassonneSave {
+  id        String   @id @default(cuid())
+  ownerId   String
+  title     String
+  stateJson String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+}
+
+// ============ EDH 指挥官记血器 ============
+// 一条 EdhLifeGame = 一局对战（含时长与最终状态）；座位与掷骰各自成行，便于统计、恢复与历史查询。
+
+model EdhLifeGame {
+  id              String   @id @default(cuid())
+  ownerId         String
+  title           String
+  playerCount     Int
+  startingLife    Int      @default(40)
+  round           Int      @default(1)
+  status          String   @default("running")   // running | finished
+  winnerSeat      Int?
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+  durationSeconds Int      @default(0)
+  stateJson       String                          // 完整快照：刷新/重开浏览器后可原样恢复
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  players         EdhLifePlayer[]
+  rolls           EdhLifeRoll[]
+
+  @@index([ownerId, startedAt])
+  @@index([ownerId, status, updatedAt])
+}
+
+model EdhLifePlayer {
+  id               String      @id @default(cuid())
+  gameId           String
+  seat             Int
+  name             String      @default("")
+  color            String                          // 随机分配的色块颜色（hex）
+  life             Int
+  poison           Int         @default(0)
+  energy           Int         @default(0)
+  treasure         Int         @default(0)
+  clue             Int         @default(0)
+  food             Int         @default(0)
+  experience       Int         @default(0)
+  eliminated       Boolean     @default(false)
+  eliminatedReason String?
+  game             EdhLifeGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, seat])
+  @@index([gameId])
+}
+
+model EdhLifeRoll {
+  id         String      @id @default(cuid())
+  gameId     String
+  at         DateTime    @default(now())
+  source     String                          // dice | coin
+  notation   String
+  total      Int
+  seat       Int?                            // 是哪一侧按的（可空）
+  detailJson String                          // 每颗骰子的点数明细
+  game       EdhLifeGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId, at])
+}
+
+model LoginRecord {
+  id        String   @id @default(cuid())
+  userId    String?
+  username  String
+  action    String                      // "login" | "logout"
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([username, createdAt])
+  @@index([createdAt])
+}

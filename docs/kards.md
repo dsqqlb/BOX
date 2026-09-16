@@ -6,7 +6,7 @@
 
 这个工具不是"替你打牌的游戏"，而是一张**数字牌桌**（类似 Tabletop Simulator）：
 
-- 卡图来自本地资源 `public/image/Kards`，共 1600+ 张，按`阵营/费用`目录组织；
+- 卡图来自本地资源 `resources/public/image/Kards`，共 1600+ 张，按`阵营/费用`目录组织；
 - 卡面上的数值、类型、效果文字以图片形式呈现，**服务端不解析、不判定任何规则**；
 - 抽牌、出牌、攻击、防御、结算全部由玩家手动操作，模拟器只负责把牌摆好、同步到对面。
 
@@ -36,7 +36,7 @@
   - **按钮**：抽 1/3/7、洗牌、移交回合、重置桌面、kredits ±1。
 - 房间为进程内存状态：服务器重启会清空，无活动 2 小时后自动回收；断线可凭同一账号重新加入原房间。
 
-> 提示：`server/index.js` 不支持热更新，改完服务端代码后需要重启 `npm run dev` 才能生效；连接失败时对战桌会显示红色横幅并给出排查提示。
+> 提示：`code/server/index.js` 不支持热更新，改完服务端代码后需要重启 `npm run dev` 才能生效；连接失败时对战桌会显示红色横幅并给出排查提示。
 
 ## 数据与部署
 
@@ -46,7 +46,7 @@
 npm run build:kards
 ```
 
-该命令扫描 `public/image/Kards`，输出 `content/kards/cards.json`（id/名称/阵营/费用/图片路径）。新增或改名卡图后重新运行一次即可。
+该命令扫描 `resources/public/image/Kards`，输出 `resources/content/kards/cards.json`（id/名称/阵营/费用/图片路径）。新增或改名卡图后重新运行一次即可。
 
 牌组存 SQLite，运行 `npm run db:setup`（或至少 `db:generate` + `db:migrate`）后生效。
 
@@ -56,7 +56,7 @@ npm run build:kards
 
 ```powershell
 npm run build
-node scripts/smoke-kards.mjs
+node ops/scripts/smoke-kards.mjs
 ```
 
 脚本会临时创建两个测试账号，拉起生产服务，验证卡牌目录/牌组 API 与双人 WebSocket 全流程（含手牌隐私遮蔽），结束后自动清理账号并关闭服务。

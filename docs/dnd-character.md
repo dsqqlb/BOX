@@ -5,6 +5,18 @@
 
 DND 人物卡在浏览器中提供角色、装备、法术、状态和日志等交互编辑功能。
 
+## 代码位置
+
+人物卡本体是一套独立的纯静态应用（HTML + CSS + 原生 JS + 音效），放在
+`code/dnd-app/`，跟代码一起进 Git 和发布包；主站只用 `/tools/dnd-character`
+一个 iframe 嵌它，URL 是 `/dnd/index.html`。
+
+- 音效在 `code/dnd-app/audios/`，样式和脚本在 `code/dnd-app/css/`、`code/dnd-app/js/`
+- 改人物卡代码后需要重新构建、重新发布（跟主站页面一样）；怪物图等资源仍在
+  `resources/public/image/`，那些不进构建，加图刷新即可
+- `/dnd/*` 由 `code/server/static-files.js` 的 `resolveWithinDndApp()` 直接托管，
+  不走 Next 的 `public/`，因此鉴权仍然生效
+
 ## 保存方式
 
 人物卡的状态全部以 `dnd_` 前缀键存在浏览器 localStorage 里（值都是 JSON 字符串），
@@ -14,7 +26,7 @@ DND 人物卡在浏览器中提供角色、装备、法术、状态和日志等�
 
 - 前端拦截所有 `dnd_*` 的读写落点（保存、撤销、导入备份），防抖 1.2 秒后只把
   **发生变化的键** POST 到受保护的 `/api/dnd/save`（`{ data: { key: 值 } }`）。
-- 服务端按「一个账户 + 一个键 = 一行」存进 `DndSaveEntry` 表（`data/box.sqlite`），
+- 服务端按「一个账户 + 一个键 = 一行」存进 `DndSaveEntry` 表（`resources/data/box.sqlite`），
   只更新本次提交上来的键，其它键完全不受影响；键的值为 `null` 表示删除该键。
 - 因此不同设备改不同字段不会互相覆盖；上传体积只跟这次改动量相关，
   不再是每次都重传整包，也不会再撞上请求体上限。
@@ -31,11 +43,11 @@ DND 人物卡在浏览器中提供角色、装备、法术、状态和日志等�
 - 只有真的改动了本地才会刷新页面一次；未登录或接口不可用时静默保持本地。
 
 浏览器仍用 `dnd_` 前缀的 localStorage 作为即时缓存与离线回退。新账户第一次
-编辑并保存时就会创建数据库记录，**不会生成** `data/dnd/saves/<用户名>.json`。
+编辑并保存时就会创建数据库记录，**不会生成** `resources/data/dnd/saves/<用户名>.json`。
 
 ## 维护与迁移
 
-部署环境需要让服务账户读写 `data/box.sqlite`，并将该文件纳入定期备份。
+部署环境需要让服务账户读写 `resources/data/box.sqlite`，并将该文件纳入定期备份。
 
 升级到「字段级增量」版本需要做一次结构变更并搬运旧数据（幂等，可重复执行）：
 
@@ -48,13 +60,13 @@ npm run db:migrate-dnd-save      # 把旧的整包 DndSave.dataJson 拆成一行
 `db:migrate-dnd-save` 只搬运值是字符串的键，并**不删除**旧的 `DndSave` 行
 （保留为迁移前快照，需要回滚时可用）。
 
-若有更早的 `data/dnd/saves/*.json`，在停服维护期间运行：
+若有更早的 `resources/data/dnd/saves/*.json`，在停服维护期间运行：
 
 ```powershell
 npm run db:migrate-runtime-json
 ```
 
-脚本会先将旧文件复制到 `data/backups/`，只导入与现有 SQLite 账户同名且值均为字符串的快照；源 JSON 不会自动删除。
+脚本会先将旧文件复制到 `resources/data/backups/`，只导入与现有 SQLite 账户同名且值均为字符串的快照；源 JSON 不会自动删除。
 
 ## 自动化测试
 
