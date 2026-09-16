@@ -11,11 +11,25 @@
    所以任何宽高比下都能塞进一屏且比例一致。
 ============================================================ */
 
-.edh-root {
-  position: relative;
+html:has(.edh-root),
+body:has(.edh-root) {
   width: 100%;
-  height: 100dvh;
-  height: 100vh;              /* 老浏览器兜底，支持 dvh 的会用上面那条 */
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.edh-root {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100vh;              /* 老浏览器兜底 */
+  height: -webkit-fill-available;
+  height: 100dvh;             /* iPad / iPhone 动态地址栏下按当前可视高度铺满 */
+  max-height: -webkit-fill-available;
+  max-height: 100dvh;
+  min-height: 0;
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: manipulation;
@@ -40,9 +54,15 @@
 
 .edh-grid {
   --gap: 0.6vh;
+  --gap: 0.6dvh;
   --strip: 8vh;
+  --strip: 8dvh;
   position: absolute;
-  inset: 0;
+  inset:
+    env(safe-area-inset-top, 0px)
+    env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
   display: grid;
   gap: var(--gap);
   padding: calc(var(--gap) / 2);
@@ -70,10 +90,20 @@
 .edh-players-4 .edh-seat[data-seat="1"] { grid-row: 3; grid-column: 2; }
 
 @media (max-height: 560px) {
-  .edh-grid { --strip: 10vh; --gap: 0.5vh; }
+  .edh-grid {
+    --strip: 10vh;
+    --strip: 10dvh;
+    --gap: 0.5vh;
+    --gap: 0.5dvh;
+  }
 }
 @media (min-height: 900px) {
-  .edh-grid { --strip: 7vh; --gap: 0.7vh; }
+  .edh-grid {
+    --strip: 7vh;
+    --strip: 7dvh;
+    --gap: 0.7vh;
+    --gap: 0.7dvh;
+  }
 }
 
 /* ── 座位色块 ── */
@@ -95,6 +125,7 @@
   inset: 0;
   z-index: 0;
   cursor: pointer;
+  touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -172,10 +203,13 @@
   font-weight: 800;
   line-height: 0.95;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 10px rgba(0, 0, 0, 0.72);
 }
 
-/* 按住中央方块期间：血量数字颤抖（按住 3 秒的等待反馈） */
+/* 按住中央方块期间：血量数字颤抖（按住 2 秒的等待反馈） */
 .edh-life-value.is-trembling {
   animation: edh-tremble 0.1s linear infinite;
 }
@@ -187,7 +221,7 @@
   100% { transform: translate(1px, 2px) rotate(0.4deg); }
 }
 
-/* ── 中央正方形：独立的隐形触感区（无边框无背景），按住 3 秒弹"任意数值" ── */
+/* ── 中央正方形：独立的隐形触感区（无边框无背景），按住 2 秒弹"任意数值" ─ */
 
 .edh-center-hold {
   pointer-events: auto;
@@ -201,6 +235,7 @@
   border: none;
   background: none;
   cursor: pointer;
+  touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -210,64 +245,207 @@
   border-radius: 18px;
 }
 
-/* ── 六个计数器：一行毛玻璃圆角方块 ── */
-
-.edh-counter-row {
-  display: flex;
-  justify-content: center;
-  align-items: stretch;
-  gap: clamp(3px, 0.9vw, 12px);
-  width: 100%;
-  min-width: 0;
-}
-
-.edh-counter {
+/* 色块底部的单一入口：具体记录项在弹窗里按需显示。 */
+.edh-counter-menu {
   pointer-events: auto;
-  position: relative;
-  overflow: hidden;
-  flex: 1 1 0;
-  min-width: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0;
-  padding: clamp(2px, 0.5vh, 6px) 2px;
-  border-radius: clamp(6px, 1.4vh, 12px);
-  /* 毛玻璃：半透明底 + 背景模糊 + 细高光边 */
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  gap: clamp(4px, 0.7vw, 9px);
+  min-width: clamp(96px, 18vw, 180px);
+  max-width: 78%;
+  height: clamp(28px, 5.4vh, 44px);
+  margin-bottom: clamp(2px, 0.5vh, 7px);
+  padding: 0 clamp(10px, 1.8vw, 22px);
+  border-radius: clamp(9px, 1.5vh, 14px);
+  border: 1px solid rgba(255, 255, 255, 0.34);
   background: rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(8px) saturate(1.2);
-  -webkit-backdrop-filter: blur(8px) saturate(1.2);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 2px 8px rgba(0, 0, 0, 0.22);
-  color: inherit;
+  backdrop-filter: blur(9px) saturate(1.25);
+  -webkit-backdrop-filter: blur(9px) saturate(1.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 3px 12px rgba(0, 0, 0, 0.28);
+  color: #fff;
+  font-size: clamp(11px, 1.8vh, 16px);
+  letter-spacing: 1px;
   cursor: pointer;
+  touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
-
-.edh-counter-icon { font-size: clamp(9px, 1.5vh, 15px); line-height: 1; opacity: 0.9; }
-.edh-counter-value {
-  font-size: clamp(10px, 1.8vh, 18px);
-  font-weight: 700;
-  line-height: 1.1;
+.edh-counter-menu:active {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(0.96);
+}
+.edh-counter-menu img {
+  width: clamp(16px, 2.8vh, 25px);
+  height: clamp(16px, 2.8vh, 25px);
+}
+.edh-counter-menu b {
+  display: grid;
+  place-items: center;
+  min-width: 1.65em;
+  height: 1.65em;
+  padding: 0 0.3em;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #17171d;
+  font-size: 0.72em;
   font-variant-numeric: tabular-nums;
 }
-
-.edh-counter.is-lethal {
-  background: rgba(170, 24, 24, 0.55);
-  border-color: rgba(255, 150, 150, 0.85);
-  color: #fff;
+.edh-counter-menu.is-lethal {
+  border-color: rgba(255, 142, 142, 0.95);
+  background: rgba(170, 24, 24, 0.62);
+  box-shadow: 0 0 18px rgba(255, 55, 55, 0.42);
 }
-.edh-counter-lethal { position: absolute; top: 1px; right: 3px; font-size: 0.65em; }
 
-.edh-counter-progress {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 3px;
+/* 记录面板：有值才出现在“当前记录”，值为 0 时自动回到“添加记录”。 */
+.edh-counter-panel {
   width: 100%;
-  background: #fff;
-  transform-origin: left center;
+  gap: 9px;
+}
+.edh-counter-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+.edh-counter-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.edh-counter-active-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.edh-counter-add-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.edh-counter-tile {
+  --counter-index: 0;
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.19);
+  background: rgba(255, 255, 255, 0.07);
+  animation: edh-counter-tile-in 220ms ease-out both;
+  animation-delay: calc(var(--counter-index) * 35ms);
+}
+.edh-counter-tile > img {
+  width: 30px;
+  height: 30px;
+}
+.edh-counter-tile-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.edh-counter-tile-label {
+  overflow: hidden;
+  color: #a9a9ba;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edh-counter-tile-value {
+  width: max-content;
+  min-width: 2ch;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-size: 25px;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.edh-counter-steps {
+  display: flex;
+  gap: 4px;
+}
+.edh-counter-steps button {
+  width: 27px;
+  height: 31px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.07);
+  color: #efeff5;
+  font-size: 17px;
+  cursor: pointer;
+}
+.edh-counter-steps button:active,
+.edh-counter-add:active {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(0.96);
+}
+.edh-counter-tile.is-lethal {
+  border-color: rgba(255, 132, 132, 0.85);
+  background: rgba(170, 24, 24, 0.5);
+  box-shadow: 0 0 16px rgba(255, 55, 55, 0.28);
+}
+.edh-counter-tile-lethal {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  color: #ffd2d2;
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+.edh-counter-add {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.23);
+  background: rgba(255, 255, 255, 0.035);
+  color: #d8d8e4;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.edh-counter-add img {
+  width: 26px;
+  height: 26px;
+}
+.edh-counter-add b {
+  color: #c9a3ff;
+  font-size: 18px;
+}
+.edh-counter-empty {
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  color: #7c7c8c;
+  font-size: 12px;
+  text-align: center;
+}
+
+@keyframes edh-counter-tile-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@container (max-width: 500px) {
+  .edh-counter-active-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .edh-counter-add-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* 出局：整块压暗 + 中央骷髅头（grayscale 由内联样式控制） */
@@ -489,9 +667,79 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding:
+    max(16px, env(safe-area-inset-top, 0px))
+    max(16px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px))
+    max(16px, env(safe-area-inset-left, 0px));
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(3px);
+  overscroll-behavior: none;
+}
+
+.edh-modal-layer-base { z-index: 70; }
+.edh-modal-layer-archive { z-index: 90; }
+.edh-modal-layer-confirm { z-index: 110; }
+
+.edh-rotatable-stage {
+  --edh-modal-width: 420px;
+  /* 两个方向都按最短视口边约束，旋转前后舞台尺寸不再跳变。 */
+  width: min(
+    var(--edh-modal-width),
+    calc(100vw - 32px),
+    calc(100dvh - 32px)
+  );
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  container-type: inline-size;
+  animation: edh-modal-stage-in 180ms ease-out both;
+}
+
+.edh-rotatable-card {
+  position: relative;
+  width: 100%;
+  max-height: min(calc(100dvh - 32px), calc(100vw - 32px));
+  transform-origin: center center;
+  transition: transform 260ms cubic-bezier(0.2, 0.75, 0.25, 1);
+  will-change: transform;
+}
+
+.edh-rotatable-card.edh-panel {
+  width: 100%;
+}
+
+.edh-modal-rotate {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  z-index: 8;
+  width: 52px;
+  height: 52px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: rgba(24, 24, 32, 0.86);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.48);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(8px);
+}
+.edh-modal-rotate:active {
+  background: rgba(255, 255, 255, 0.22);
+}
+.edh-modal-rotate img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+@keyframes edh-modal-stage-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 .edh-icon-btn {
@@ -507,6 +755,7 @@
 
 .edh-panel {
   width: min(360px, 94vw);
+  max-height: 94vh;
   max-height: 94dvh;
   overflow: auto;
   padding: 14px;
@@ -519,48 +768,56 @@
   flex-direction: column;
   gap: 12px;
   position: relative;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
-/* 对局进行中：设置面板外圈有红色流光，一眼能看出"这局正在计时/记录"。
-   用 ::before 画环绕边框（conic-gradient）旋转来实现流光，不影响布局与指纹。 */
-.edh-panel.is-live::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: 18px;
-  padding: 2px;
-  background: conic-gradient(
-    from var(--edh-live-angle),
-    rgba(255, 80, 80, 0) 0deg,
-    rgba(255, 80, 80, 0) 200deg,
-    rgba(255, 90, 90, 0.95) 290deg,
-    rgba(255, 190, 190, 1) 330deg,
-    rgba(255, 80, 80, 0) 360deg
-  );
-  /* 只保留边框那一圈：用 mask 把中间挖空 */
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  animation: edh-live-spin 2.6s linear infinite;
-  pointer-events: none;
-}
-
-@property --edh-live-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-
-@keyframes edh-live-spin {
-  from { --edh-live-angle: 0deg; }
-  to   { --edh-live-angle: 360deg; }
-}
-
-/* 不支持 @property 的浏览器：退化成呼吸红光轮廓，同样能看出"进行中" */
+/* 对局进行中：直接呼吸卡片自身的边框和阴影，滚动内容不会把光圈带偏。 */
 .edh-panel.is-live {
   border-color: rgba(255, 90, 90, 0.75);
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.7), 0 0 24px rgba(255, 70, 70, 0.4);
+  animation: edh-live-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes edh-live-breathe {
+  0%, 100% {
+    border-color: rgba(255, 82, 82, 0.58);
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.7), 0 0 12px rgba(255, 70, 70, 0.24);
+  }
+  50% {
+    border-color: rgba(255, 132, 132, 1);
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.7), 0 0 26px rgba(255, 70, 70, 0.62);
+  }
+}
+
+.edh-settings-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 10px 12px;
+}
+.edh-settings-panel > .edh-panel-head,
+.edh-settings-panel > .edh-settings-footer {
+  grid-column: 1 / -1;
+}
+.edh-settings-panel > .edh-settings-section {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.edh-settings-panel > .edh-settings-section:last-of-type {
+  padding-bottom: 10px;
+}
+
+@container (max-width: 620px) {
+  .edh-settings-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .edh-settings-panel > .edh-panel-head,
+  .edh-settings-panel > .edh-settings-footer {
+    grid-column: 1;
+  }
 }
 
 .edh-panel-head {
@@ -685,6 +942,11 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 .edh-settings-section:last-of-type { border-bottom: none; padding-bottom: 0; }
+.edh-settings-panel > .edh-settings-section,
+.edh-settings-panel > .edh-settings-section:last-of-type {
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
 .edh-settings-label { font-size: 12px; letter-spacing: 2px; color: #9a9aab; }
 .edh-settings-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .edh-settings-hint { font-size: 11px; line-height: 1.6; color: #7c7c8c; }
@@ -703,6 +965,34 @@
 .edh-settings-chip.is-wide { width: 100%; }
 .edh-settings-chip.is-primary { border-color: #6fcf8f; color: #8fe0ac; background: rgba(111, 207, 143, 0.14); }
 .edh-settings-chip.is-danger { border-color: #c9584f; color: #f0a09a; background: rgba(201, 88, 79, 0.16); }
+.edh-settings-chip.is-warning { border-color: #c99f4f; color: #f0d29a; background: rgba(201, 159, 79, 0.16); }
+
+/* 对局结束 / 重新开始的二次确认：就放在按钮下面，不跳系统弹窗。 */
+.edh-match-confirm {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  z-index: 5;
+  width: min(460px, calc(100% - 24px));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(24, 24, 32, 0.98);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.68);
+  animation: edh-match-confirm-in 160ms ease-out both;
+}
+.edh-match-confirm-text { font-size: 12px; line-height: 1.55; color: #d8d8e4; }
+.edh-match-confirm-actions { display: flex; gap: 8px; }
+.edh-match-confirm-actions .edh-settings-chip { flex: 1; }
+
+@keyframes edh-match-confirm-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
 
 /* 面板内的说明/提示条（比如"已删除 xxx"） */
 .edh-panel-note {
@@ -715,19 +1005,9 @@
 }
 
 /* 删除存档的确认弹窗 */
-.edh-confirm-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.6);
-}
 .edh-confirm {
   width: min(320px, 92vw);
-  padding: 16px;
+  padding: 46px 16px 16px;
   border-radius: 14px;
   border: 1px solid rgba(201, 88, 79, 0.6);
   background: rgba(28, 20, 22, 0.97);
@@ -809,7 +1089,46 @@
 }
 
 /* 历史列表 */
-.edh-history-list { display: flex; flex-direction: column; gap: 5px; }
+.edh-history {
+  width: 100%;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.edh-history-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: #e4e4ee;
+}
+.edh-history-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edh-history-source {
+  margin-left: auto;
+  color: #7c7c8c;
+  font-size: 10px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.edh-history-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+.edh-archive-panel .edh-history-list {
+  max-height: min(62dvh, 560px);
+}
 .edh-history-empty { padding: 18px 0; text-align: center; color: #7c7c8c; font-size: 12px; }
 .edh-history-row {
   display: flex;

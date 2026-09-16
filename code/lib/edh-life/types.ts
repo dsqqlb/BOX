@@ -20,12 +20,12 @@ export interface CounterMeta {
 }
 
 export const COUNTERS: CounterMeta[] = [
-  { key: 'energy', label: '能量', short: '能', icon: '⚡', lethalAt: null },
-  { key: 'treasure', label: '珍宝', short: '宝', icon: '💰', lethalAt: null },
-  { key: 'clue', label: '线索', short: '线', icon: '🔍', lethalAt: null },
-  { key: 'food', label: '食物', short: '食', icon: '🍖', lethalAt: null },
-  { key: 'poison', label: '中毒', short: '毒', icon: '☠', lethalAt: 10 },
-  { key: 'experience', label: '经验', short: '验', icon: '✦', lethalAt: null },
+  { key: 'energy', label: '能量', short: '能', icon: '/icons/edh-life/counter-energy.svg', lethalAt: null },
+  { key: 'treasure', label: '珍宝', short: '宝', icon: '/icons/edh-life/counter-treasure.svg', lethalAt: null },
+  { key: 'clue', label: '线索', short: '线', icon: '/icons/edh-life/counter-clue.svg', lethalAt: null },
+  { key: 'food', label: '食物', short: '食', icon: '/icons/edh-life/counter-food.svg', lethalAt: null },
+  { key: 'poison', label: '中毒', short: '毒', icon: '/icons/edh-life/counter-poison.svg', lethalAt: 10 },
+  { key: 'experience', label: '经验', short: '验', icon: '/icons/edh-life/counter-experience.svg', lethalAt: null },
 ];
 
 export const COUNTER_BY_KEY: Record<CounterKey, CounterMeta> = COUNTERS.reduce((acc, meta) => {
@@ -33,11 +33,7 @@ export const COUNTER_BY_KEY: Record<CounterKey, CounterMeta> = COUNTERS.reduce((
   return acc;
 }, {} as Record<CounterKey, CounterMeta>);
 
-/** 色块左右两侧各放 3 个计数器。 */
-/**
- * 六种计数器按一行横排（毛玻璃圆角方块，放在色块下方）。
- * 保留成"列"的分组只是为了给页面按左右两半渲染留余地。
- */
+/** 保留分组，供以后按左右两侧排布记录时复用。 */
 export const COUNTER_COLUMNS: CounterKey[][] = [
   ['energy', 'treasure', 'clue'],
   ['food', 'poison', 'experience'],

@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import RotatableModal from '@/components/edh-life/RotatableModal';
 
 const MAX_DIGITS = 4;
 
@@ -18,6 +19,10 @@ export interface AmountPadRequest {
   /** 当前血量，用于实时预告 */
   currentLife: number;
   maxHp?: number | null;
+  /** 打开弹窗时跟随对应玩家的座位朝向。 */
+  initialRotation?: number;
+  /** 从记录面板内打开时放在确认层。 */
+  layer?: 'base' | 'confirm';
   onConfirm: (mode: 'add' | 'sub', value: number) => void;
 }
 
@@ -78,55 +83,60 @@ export default function AmountPad({ request, onClose }: AmountPadProps) {
     : `${life} → ${life + amount}`;
 
   return (
-    <div className="edh-modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="edh-panel" role="dialog" aria-label={request.title}>
-        <div className="edh-panel-head">
-          <span>{request.title}</span>
-          <button type="button" className="edh-icon-btn" onPointerDown={(e) => { e.preventDefault(); onClose(); }} aria-label="关闭">✕</button>
-        </div>
-
-        <div className="edh-mode-switch">
-          <button
-            type="button"
-            data-mode="sub"
-            className={`edh-mode-btn${mode === 'sub' ? ' is-active' : ''}`}
-            onPointerDown={(e) => { e.preventDefault(); setMode('sub'); }}
-          >掉血</button>
-          <button
-            type="button"
-            data-mode="add"
-            className={`edh-mode-btn${mode === 'add' ? ' is-active' : ''}`}
-            onPointerDown={(e) => { e.preventDefault(); setMode('add'); }}
-          >回血</button>
-        </div>
-
-        <div className="edh-display">
-          <span className="edh-display-amount" data-amount>
-            {amount <= 0 ? '0' : `${mode === 'sub' ? '－' : '＋'}${amount}`}
-          </span>
-          <span className={`edh-display-hint${amount > 0 ? (mode === 'sub' ? ' is-sub' : ' is-add') : ''}`} data-preview>{preview}</span>
-        </div>
-
-        <div className="edh-numpad-pad">
-          {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((digit) => (
-            <button key={digit} type="button" className="edh-numpad-key" data-key={digit} onPointerDown={(e) => { e.preventDefault(); input(digit); }}>{digit}</button>
-          ))}
-          <button type="button" className="edh-numpad-key" data-key="back" onPointerDown={(e) => { e.preventDefault(); input('back'); }} aria-label="退格">⌫</button>
-          <button type="button" className="edh-numpad-key" data-key="0" onPointerDown={(e) => { e.preventDefault(); input('0'); }}>0</button>
-          <button type="button" className="edh-numpad-key" data-key="clear" onPointerDown={(e) => { e.preventDefault(); input('clear'); }} aria-label="清零">C</button>
-        </div>
-
-        <div className="edh-numpad-actions">
-          <button type="button" className="edh-numpad-action" onPointerDown={(e) => { e.preventDefault(); onClose(); }}>取消</button>
-          <button
-            type="button"
-            className="edh-numpad-action is-primary"
-            data-confirm
-            disabled={amount <= 0}
-            onPointerDown={(e) => { e.preventDefault(); confirm(); }}
-          >确认</button>
-        </div>
+    <RotatableModal
+      label={request.title}
+      panelClassName="edh-panel edh-amount-panel"
+      width={390}
+      initialRotation={request.initialRotation ?? 0}
+      layer={request.layer ?? 'base'}
+      onBackdrop={onClose}
+    >
+      <div className="edh-panel-head">
+        <span>{request.title}</span>
+        <button type="button" className="edh-icon-btn" onPointerDown={(e) => { e.preventDefault(); onClose(); }} aria-label="关闭">✕</button>
       </div>
-    </div>
+
+      <div className="edh-mode-switch">
+        <button
+          type="button"
+          data-mode="sub"
+          className={`edh-mode-btn${mode === 'sub' ? ' is-active' : ''}`}
+          onPointerDown={(e) => { e.preventDefault(); setMode('sub'); }}
+        >掉血</button>
+        <button
+          type="button"
+          data-mode="add"
+          className={`edh-mode-btn${mode === 'add' ? ' is-active' : ''}`}
+          onPointerDown={(e) => { e.preventDefault(); setMode('add'); }}
+        >回血</button>
+      </div>
+
+      <div className="edh-display">
+        <span className="edh-display-amount" data-amount>
+          {amount <= 0 ? '0' : `${mode === 'sub' ? '－' : '＋'}${amount}`}
+        </span>
+        <span className={`edh-display-hint${amount > 0 ? (mode === 'sub' ? ' is-sub' : ' is-add') : ''}`} data-preview>{preview}</span>
+      </div>
+
+      <div className="edh-numpad-pad">
+        {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((digit) => (
+          <button key={digit} type="button" className="edh-numpad-key" data-key={digit} onPointerDown={(e) => { e.preventDefault(); input(digit); }}>{digit}</button>
+        ))}
+        <button type="button" className="edh-numpad-key" data-key="back" onPointerDown={(e) => { e.preventDefault(); input('back'); }} aria-label="退格">⌫</button>
+        <button type="button" className="edh-numpad-key" data-key="0" onPointerDown={(e) => { e.preventDefault(); input('0'); }}>0</button>
+        <button type="button" className="edh-numpad-key" data-key="clear" onPointerDown={(e) => { e.preventDefault(); input('clear'); }} aria-label="清零">C</button>
+      </div>
+
+      <div className="edh-numpad-actions">
+        <button type="button" className="edh-numpad-action" onPointerDown={(e) => { e.preventDefault(); onClose(); }}>取消</button>
+        <button
+          type="button"
+          className="edh-numpad-action is-primary"
+          data-confirm
+          disabled={amount <= 0}
+          onPointerDown={(e) => { e.preventDefault(); confirm(); }}
+        >确认</button>
+      </div>
+    </RotatableModal>
   );
 }

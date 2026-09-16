@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import RotatableModal from '@/components/edh-life/RotatableModal';
 import { parseDiceExpression } from '@/lib/diceExpression';
 
 const MAX_LENGTH = 40;
@@ -26,11 +27,18 @@ const KEYS: string[][] = [
 interface ExpressionPadProps {
   title?: string;
   initialValue?: string;
+  initialRotation?: number;
   onConfirm: (expression: string) => void;
   onClose: () => void;
 }
 
-export default function ExpressionPad({ title = '输入骰式', initialValue = '', onConfirm, onClose }: ExpressionPadProps) {
+export default function ExpressionPad({
+  title = '输入骰式',
+  initialValue = '',
+  initialRotation = 0,
+  onConfirm,
+  onClose,
+}: ExpressionPadProps) {
   const [entry, setEntry] = useState(initialValue);
 
   useEffect(() => { setEntry(initialValue); }, [initialValue]);
@@ -69,8 +77,13 @@ export default function ExpressionPad({ title = '输入骰式', initialValue = '
   }, [confirm, input, onClose]);
 
   return (
-    <div className="edh-modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="edh-panel" role="dialog" aria-label={title}>
+    <RotatableModal
+      label={title}
+      panelClassName="edh-panel edh-expression-panel"
+      width={390}
+      initialRotation={initialRotation}
+      onBackdrop={onClose}
+    >
         <div className="edh-panel-head">
           <span>{title}</span>
           <button type="button" className="edh-icon-btn" onPointerDown={(e) => { e.preventDefault(); onClose(); }} aria-label="关闭">✕</button>
@@ -110,7 +123,6 @@ export default function ExpressionPad({ title = '输入骰式', initialValue = '
             onPointerDown={(e) => { e.preventDefault(); confirm(); }}
           >确认投掷</button>
         </div>
-      </div>
-    </div>
+    </RotatableModal>
   );
 }

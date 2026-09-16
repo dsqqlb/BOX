@@ -93,6 +93,7 @@ $null
 
 # 资源类：本地图片资源（DND 怪物图等，约 700 MB），由本地维护、随共享目录单独上传
 /resources/public/image/
+/resources/public/icons/
 
 # 命令行类：本地验证脚本产物
 /ops/checks/shots/

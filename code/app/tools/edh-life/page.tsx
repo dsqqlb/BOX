@@ -5,9 +5,9 @@
  *
  * 一张方桌四个人：2×2 中心对称，**贴近自己这一排是正的，对面那一排上下颠倒**。
  *   - 每人一个随机配色色块，大号血量居中
- *   - 色块**分左右两半**：点左半 −1、点右半 +1；按住 2 秒 −5 / +5
- *   - 色块**中央正方形**：按住 3 秒（期间数字颤抖）弹出「掉血 / 回血任意数值」
- *   - 色块下方一行毛玻璃方块：能量 / 珍宝 / 线索 / 食物 / 中毒 / 经验
+ *   - 色块**分左右两半**：点左半 −1、点右半 +1；按住 1 秒 −5 / +5
+ *   - 色块**中央正方形**：按住 2 秒（期间数字颤抖）弹出「掉血 / 回血任意数值」
+ *   - 色块下方一个「记录」入口：弹窗里只显示已有值的项目，并可按需添加其他计数器
  *   - 血量归零或中毒满 10 → 整块变灰 + 骷髅头
  *   - 中间一条窄缝隙：公共的设置 / 骰子 / 硬币 / 历史 / 计时（毛玻璃按钮 + 流光）
  *   - 骰子复用先攻主屏的 3D 引擎；硬币是金色「正 / 反」两面，投掷力度拉满
@@ -23,6 +23,8 @@ import DiceOverlay, { type ActiveRoll } from '@/components/edh-life/DiceOverlay'
 import AmountPad, { type AmountPadRequest } from '@/components/edh-life/AmountPad';
 import ExpressionPad from '@/components/edh-life/ExpressionPad';
 import HistoryPanel, { ArchivePanel } from '@/components/edh-life/HistoryPanel';
+import CounterPanel from '@/components/edh-life/CounterPanel';
+import RotatableModal from '@/components/edh-life/RotatableModal';
 import type { DiceRollRequest } from '@/components/dnd/DiceRoller';
 import {
   evaluateRecipe, flattenExpression, flattenToRecipe, parseDiceExpression,
@@ -71,9 +73,12 @@ export default function EdhLifePage() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [clock, setClock] = useState(() => Date.now());
   const [amountPad, setAmountPad] = useState<AmountPadRequest | null>(null);
+  const [counterPanelSeat, setCounterPanelSeat] = useState<number | null>(null);
   const [historySeat, setHistorySeat] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [pendingMatchAction, setPendingMatchAction] = useState<'finish' | 'reset' | null>(null);
+  const [matchNotice, setMatchNotice] = useState('');
   const [showDicePicker, setShowDicePicker] = useState(false);
   const [showExpressionPad, setShowExpressionPad] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
@@ -220,6 +225,7 @@ export default function EdhLifePage() {
             title: `${player.name} · 调整生命`,
             mode: 'sub',
             currentLife: player.life,
+            initialRotation: seatRotation(current.playerCount, seat),
             onConfirm: (mode, value) => changeLife(seat, mode === 'add' ? value : -value),
           });
         }
@@ -238,6 +244,8 @@ export default function EdhLifePage() {
             title: `${player.name} · ${meta.label}`,
             mode: 'add',
             currentLife: player[key],
+            initialRotation: seatRotation(current.playerCount, seat),
+            layer: 'confirm',
             onConfirm: (mode, value) => {
               const next = mode === 'add' ? player[key] + value : Math.max(0, player[key] - value);
               updatePlayers((players) => players.map((entry) => (entry.seat === seat ? { ...entry, [key]: next } : entry)));
@@ -351,7 +359,7 @@ export default function EdhLifePage() {
    * 过程中只记录、不落"存档"；每次开始/结束才写库与本地缓存。
    * 时长在结束时冻结，写入 stateJson 里的 timer.base 以及 durationSeconds。
    */
-  const archiveGame = useCallback(async (source: GameState): Promise<GameState> => {
+  const archiveGame = useCallback((source: GameState): GameState => {
     const now = Date.now();
     const alive = source.players.filter((player) => !player.eliminated);
     const finished: GameState = {
@@ -364,9 +372,9 @@ export default function EdhLifePage() {
     const withDuration = { ...finished, durationSeconds: Math.floor(finished.timer.base / 1000) };
     saveGameLocal(withDuration);
     syncRef.current?.setCreated(true);
-    const { updateGameOnServer } = await import('@/lib/edh-life/storage');
-    // 已封存的存档不再参与"自动恢复未结束对局"
-    await updateGameOnServer(withDuration).catch(() => false);
+    // 先把封存结果排队并立即触发同步，但界面不等网络返回。
+    syncRef.current?.queue(withDuration);
+    void syncRef.current?.flush();
     return withDuration;
   }, [stopTimer]);
 
@@ -384,23 +392,29 @@ export default function EdhLifePage() {
     });
   }, []);
 
-  /** 结束对局：封存这一局（存档），计时停止。 */
-  const finishMatch = useCallback(async () => {
+  /** 结束对局：本机立即封存并停止计时，服务器在后台同步。 */
+  const finishMatch = useCallback(() => {
     const current = game;
-    if (!current || current.status !== 'running') return;
-    const archived = await archiveGame(current);
+    if (!current || current.status !== 'running') return false;
+    const archived = archiveGame(current);
     setGame(archived);
+    setPendingMatchAction(null);
+    setMatchNotice('本局已结束并保存为存档，计时已停止。');
+    return true;
   }, [archiveGame, game]);
 
-  /** 保存并重置：先把这一局封存，再开一局全新的（设置里的人数/起始生命沿用）。 */
-  const saveAndReset = useCallback(async () => {
+  /** 保存并重新开始：先封存进行中的对局，再立即开一局全新的。 */
+  const saveAndReset = useCallback(() => {
     const current = game;
-    if (!current) return;
-    if (current.status === 'running') await archiveGame(current);
+    if (!current) return false;
+    const wasRunning = current.status === 'running';
+    if (wasRunning) archiveGame(current);
     const fresh = createGame(current.players.length, current.startingLife);
     syncRef.current?.setCreated(false);
     setGame(fresh);
-    setShowSettings(false);
+    setPendingMatchAction(null);
+    setMatchNotice(wasRunning ? '本局已保存为存档，并已开始一局全新的对局。' : '已开始一局全新的对局。');
+    return true;
   }, [archiveGame, game]);
 
   /** 读档：把一条已封存的存档接着打（重新开始计时）。 */
@@ -451,6 +465,9 @@ export default function EdhLifePage() {
   const elapsed = game ? elapsedSeconds(game, clock) : 0;
   const seats = useMemo(() => (game ? game.players : []), [game]);
   const nearRotation = game ? (seatRotation(game.playerCount, 0) as 0 | 180) : 0;
+  const counterPanelPlayer = counterPanelSeat === null
+    ? null
+    : game?.players.find((player) => player.seat === counterPanelSeat) ?? null;
 
   if (!game) {
     return (
@@ -473,8 +490,7 @@ export default function EdhLifePage() {
             rotation={seatRotation(game.playerCount, player.seat) as 0 | 180}
             onLifeChange={changeLife}
             onOpenAmountMenu={openAmountMenu}
-            onCounterChange={changeCounter}
-            onOpenCounterInput={openCounterInput}
+            onOpenCounters={setCounterPanelSeat}
             onRename={renamePlayer}
           />
         ))}
@@ -487,7 +503,11 @@ export default function EdhLifePage() {
             onRollDice={() => { setDiceError(''); setShowDicePicker(true); }}
             onRollCoin={() => rollCoin(null)}
             onOpenHistory={() => { setHistorySeat(null); setShowHistory(true); }}
-            onOpenSettings={() => setShowSettings(true)}
+            onOpenSettings={() => {
+              setPendingMatchAction(null);
+              setMatchNotice('');
+              setShowSettings(true);
+            }}
             onToggleTimer={toggleTimer}
           />
         </div>
@@ -503,20 +523,49 @@ export default function EdhLifePage() {
 
       <AmountPad request={amountPad} onClose={() => setAmountPad(null)} />
 
+      {counterPanelPlayer && (
+        <CounterPanel
+          player={counterPanelPlayer}
+          initialRotation={seatRotation(game.playerCount, counterPanelPlayer.seat)}
+          onChange={(key, delta) => changeCounter(counterPanelPlayer.seat, key, delta)}
+          onOpenInput={(key) => openCounterInput(counterPanelPlayer.seat, key)}
+          onClose={() => setCounterPanelSeat(null)}
+        />
+      )}
+
       {showExpressionPad && (
         <ExpressionPad
+          initialRotation={nearRotation}
           onClose={() => setShowExpressionPad(false)}
           onConfirm={(expression) => rollExpression(expression, null)}
         />
       )}
 
-      {showArchive && <ArchivePanel onLoad={(id, fromServer) => { void loadGame(id, fromServer); }} onClose={() => setShowArchive(false)} />}
+      {showArchive && (
+        <ArchivePanel
+          initialRotation={nearRotation}
+          onLoad={(id, fromServer) => { void loadGame(id, fromServer); }}
+          onClose={() => setShowArchive(false)}
+        />
+      )}
 
-      {showHistory && <HistoryPanel game={game} seat={historySeat} onClose={() => setShowHistory(false)} />}
+      {showHistory && (
+        <HistoryPanel
+          game={game}
+          seat={historySeat}
+          initialRotation={nearRotation}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
 
       {showDicePicker && (
-        <div className="edh-modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) { setShowDicePicker(false); setDiceError(''); } }}>
-          <div className="edh-panel" role="dialog" aria-label="投骰子">
+        <RotatableModal
+          label="投骰子"
+          panelClassName="edh-panel edh-dice-panel"
+          width={440}
+          initialRotation={nearRotation}
+          onBackdrop={() => { setShowDicePicker(false); setDiceError(''); }}
+        >
             <div className="edh-panel-head">
               <span>投骰子</span>
               <button type="button" className="edh-icon-btn" onPointerDown={(e) => { e.preventDefault(); setShowDicePicker(false); setDiceError(''); }} aria-label="关闭">✕</button>
@@ -542,19 +591,18 @@ export default function EdhLifePage() {
             >⌨ 输入任意表达式</button>
 
             {diceError && <div className="edh-picker-error">{diceError}</div>}
-          </div>
-        </div>
+        </RotatableModal>
       )}
 
       {showSettings && (
-        <div className="edh-modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
-          <div
-            className={`edh-panel${game.status === 'running' ? ' is-live' : ''}`}
-            role="dialog"
-            aria-label="设置"
-            data-match={game.status}
-          >
-            <div className="edh-panel-head">
+        <RotatableModal
+          label="设置"
+          panelClassName={`edh-panel edh-settings-panel${game.status === 'running' ? ' is-live' : ''}`}
+          width={780}
+          initialRotation={nearRotation}
+          onBackdrop={() => setShowSettings(false)}
+        >
+            <div className="edh-panel-head" data-match={game.status}>
               <span>设置</span>
               <span className="edh-panel-sub">{game.status === 'running' ? '对局进行中' : '未开始'}</span>
               <button type="button" className="edh-icon-btn" onPointerDown={(e) => { e.preventDefault(); setShowSettings(false); }} aria-label="关闭">✕</button>
@@ -658,28 +706,69 @@ export default function EdhLifePage() {
                     type="button"
                     className="edh-settings-chip is-danger is-wide"
                     data-finish-match
-                    onPointerDown={(e) => { e.preventDefault(); void finishMatch(); }}
+                    disabled={pendingMatchAction !== null}
+                    onPointerDown={(e) => { e.preventDefault(); setMatchNotice(''); setPendingMatchAction('finish'); }}
                   >结束对局</button>
                 ) : (
                   <button
                     type="button"
                     className="edh-settings-chip is-primary is-wide"
                     data-start-match
-                    onPointerDown={(e) => { e.preventDefault(); startMatch(); }}
+                    disabled={pendingMatchAction !== null}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      setMatchNotice('');
+                      setPendingMatchAction(null);
+                      startMatch();
+                    }}
                   >开始对局</button>
                 )}
                 <button
                   type="button"
-                  className="edh-settings-chip is-wide"
+                  className={`edh-settings-chip is-wide${game.status === 'running' ? ' is-warning' : ''}`}
                   data-save-reset
-                  onPointerDown={(e) => { e.preventDefault(); void saveAndReset(); }}
-                >保存并重置</button>
+                  disabled={pendingMatchAction !== null}
+                  onPointerDown={(e) => { e.preventDefault(); setMatchNotice(''); setPendingMatchAction('reset'); }}
+                >{game.status === 'running' ? '保存并重新开始' : '重新开始新对局'}</button>
               </div>
+
+              {pendingMatchAction && (
+                <div className="edh-match-confirm" role="group" aria-label="确认对局操作">
+                  <div className="edh-match-confirm-text">
+                    {pendingMatchAction === 'finish'
+                      ? '确定结束本局？当前血量、计数器和时长会封存为存档，计时停止。'
+                      : game.status === 'running'
+                        ? '确定保存并重新开始？当前对局会封存，随后血量、计数器和时间全部归零。'
+                        : '确定重新开始？已结束的对局不会重复保存，新对局会立即开始记录。'}
+                  </div>
+                  <div className="edh-match-confirm-actions">
+                    <button
+                      type="button"
+                      className="edh-settings-chip"
+                      data-match-action-cancel
+                      onPointerDown={(e) => { e.preventDefault(); setPendingMatchAction(null); }}
+                    >取消</button>
+                    <button
+                      type="button"
+                      className={`edh-settings-chip${pendingMatchAction === 'finish' ? ' is-danger' : ' is-warning'}`}
+                      data-match-action-confirm
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        if (pendingMatchAction === 'finish') finishMatch();
+                        else saveAndReset();
+                      }}
+                    >{pendingMatchAction === 'finish' ? '确认结束' : '确认重新开始'}</button>
+                  </div>
+                </div>
+              )}
+
+              {matchNotice && <div className="edh-panel-note">{matchNotice}</div>}
+
               <div className="edh-settings-hint">
                 {game.status === 'running'
-                  ? '对局进行中（面板外圈有红色流光）。「结束对局」会把这一局封存成一条存档。'
+                  ? '对局进行中（面板外圈有红色流光）。「结束对局」只封存并停止计时，不会自动开新局。'
                   : '当前没有进行中的对局，计时已暂停。「开始对局」会重新计时，或先「读档」接续一条旧存档。'}
-                <br />「保存并重置」= 封存当前这局 + 直接开一局全新的。
+                <br />「保存并重新开始」= 封存当前这局 + 血量与计数器立即归零并开始新局。
               </div>
             </div>
 
@@ -704,8 +793,7 @@ export default function EdhLifePage() {
                       : syncStatus === 'error' ? '同步出错' : '待同步'}
               </span>
             </div>
-          </div>
-        </div>
+        </RotatableModal>
       )}
     </div>
   );
