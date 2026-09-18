@@ -34,6 +34,9 @@ model User {
   holdemLedger   HoldemLedger[]
   edhLifeGames   EdhLifeGame[]
   loginRecords   LoginRecord[]
+  scratchProfile ScratchProfile?
+  scratchTickets ScratchTicket[]
+  scratchLedger  ScratchLedger[]
 }
 
 model HoldemBalance {
@@ -391,4 +394,56 @@ model LoginRecord {
   @@index([userId, createdAt])
   @@index([username, createdAt])
   @@index([createdAt])
+}
+
+// ============ 刮刮乐 ============
+// 单人玩法，数据全部按账户隔离。货币分两种：
+//   · 金钱 = 德州扑克那份娱乐筹码，真身在 HoldemBalance，本工具不另存余额（真正的互通）；
+//   · 纸屑 = ScratchProfile.scraps，碎纸机产出，升级系统消耗它。
+// ScratchTicket 一行 = 桌面上的一张票：结果在买票时就由服务端按 seed 生成并存进 resultJson，
+// 未刮开（status = sealed）时接口不会把它下发，所以客户端刷不出奖。
+
+model ScratchProfile {
+  ownerId      String   @id
+  scraps       Int      @default(0)
+  levelsJson   String   @default("{}")
+  unlockedJson String   @default("[]")
+  statsJson    String   @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model ScratchTicket {
+  id           String   @id @default(cuid())
+  ownerId      String
+  kind         String
+  price        Int
+  seed         String
+  resultJson   String
+  status       String   @default("sealed")   // sealed | scratched | redeemed | shredded
+  scratchRatio Float    @default(0)
+  posX         Float    @default(0)
+  posY         Float    @default(0)
+  z            Int      @default(0)
+  purchasedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, status, purchasedAt])
+}
+
+model ScratchLedger {
+  id        String   @id @default(cuid())
+  ownerId   String
+  currency  String                      // money | scraps
+  delta     Int
+  balance   Int
+  kind      String                      // scratch-buy | scratch-prize | scratch-shred | scratch-upgrade | ...
+  ticketId  String?
+  note      String?
+  createdAt DateTime @default(now())
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
 }

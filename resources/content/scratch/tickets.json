@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "note": "刮刮乐票种与奖池配置。服务端 code/server/scratch-rules.js 与客户端 code/lib/scratch/catalog.ts 读同一份文件：格子布局、奖池权重、中奖概率、解锁条件、碎纸产出都改这里，不用改代码。",
+  "shapeNote": "票的形状一律是矩形，只有长宽比不同（shape.aspect = 宽 ÷ 高）：>1 是横票、=1 是方票、<1 是竖票。不要给票加锯齿、斜切、圆孔之类的外部轮廓。",
+  "moneyNote": "price 与 prize 的单位都是「金钱」——它就是德州扑克那份娱乐筹码（HoldemBalance.chips），两边的余额是同一个数字。",
+  "tickets": [
+    {
+      "key": "three-match",
+      "name": "三连金",
+      "tagline": "刮出三个相同金额",
+      "rules": "three-match",
+      "rulesText": "刮开 6 格，如果出现三个完全相同的金额，就中该金额。",
+      "price": 10,
+      "grid": { "rows": 2, "cols": 3 },
+      "scratch": { "threshold": 0.6, "brush": 30 },
+      "winChance": 0.38,
+      "prize": { "values": [5, 10, 20, 50, 100], "weights": [38, 30, 20, 10, 2] },
+      "shredScraps": 1,
+      "shape": { "kind": "wide", "aspect": 2.05, "tableWidth": 14 },
+      "theme": { "accent": "#f5c451", "paper": "#fdf6e0", "ink": "#6b4a06", "foil": "#c9a227", "edge": "#d8a72a" },
+      "unlock": { "level": 0, "note": "开局即得" }
+    },
+    {
+      "key": "lucky-symbol",
+      "name": "好运符号",
+      "tagline": "凑齐三个中奖符号",
+      "rules": "lucky-symbol",
+      "rulesText": "票面公布本张的中奖符号，刮开后若出现三个该符号即中奖。",
+      "price": 20,
+      "grid": { "rows": 2, "cols": 3 },
+      "scratch": { "threshold": 0.6, "brush": 30 },
+      "winChance": 0.32,
+      "prize": { "values": [10, 20, 50, 100, 200], "weights": [40, 28, 18, 10, 4] },
+      "symbols": ["★", "❀", "◆", "☘", "♠", "☂"],
+      "shredScraps": 1,
+      "shape": { "kind": "tall", "aspect": 0.72, "tableWidth": 8 },
+      "theme": { "accent": "#7ee0b0", "paper": "#eefaf2", "ink": "#0d4a33", "foil": "#9fbfae", "edge": "#3f9c74" },
+      "unlock": { "level": 0, "note": "开局即得" }
+    },
+    {
+      "key": "high-low",
+      "name": "比大小",
+      "tagline": "三局两胜，赢过庄家",
+      "rules": "high-low",
+      "rulesText": "3 组「你的数字 vs 庄家数字」，赢 2 组中 30、赢 3 组中 150。",
+      "price": 30,
+      "grid": { "rows": 3, "cols": 2 },
+      "scratch": { "threshold": 0.6, "brush": 30 },
+      "winChance": 0.42,
+      "prize": {
+        "table": [
+          { "when": "wins2", "wins": 2, "value": 30, "weight": 78 },
+          { "when": "wins3", "wins": 3, "value": 150, "weight": 22 }
+        ]
+      },
+      "numberRange": [1, 9],
+      "shredScraps": 1,
+      "shape": { "kind": "square", "aspect": 1, "tableWidth": 10 },
+      "theme": { "accent": "#8fb8ff", "paper": "#f2f6ff", "ink": "#123a6b", "foil": "#a8b6cc", "edge": "#4d7fd0" },
+      "unlock": { "level": 0, "note": "开局即得" }
+    },
+    {
+      "key": "find-word",
+      "name": "找中奖",
+      "tagline": "九格里藏着中奖",
+      "rules": "find-word",
+      "rulesText": "刮开 9 格，出现 1 个「中奖」得 4、出现 2 个得 15。",
+      "price": 5,
+      "grid": { "rows": 3, "cols": 3 },
+      "scratch": { "threshold": 0.6, "brush": 30 },
+      "winChance": 0.5,
+      "prize": {
+        "table": [
+          { "when": "hits1", "hits": 1, "value": 4, "weight": 85 },
+          { "when": "hits2", "hits": 2, "value": 15, "weight": 15 }
+        ]
+      },
+      "shredScraps": 1,
+      "shape": { "kind": "rounded", "aspect": 1.45, "tableWidth": 11 },
+      "theme": { "accent": "#ffb08f", "paper": "#fff4ee", "ink": "#7a2a10", "foil": "#cbb6ab", "edge": "#d9724a" },
+      "unlock": { "level": 0, "note": "开局即得" }
+    }
+  ]
+}

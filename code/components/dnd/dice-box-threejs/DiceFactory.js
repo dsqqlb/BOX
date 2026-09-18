@@ -82,7 +82,17 @@ class DiceFactory {
 		dicemesh.getFaceValue = function() {
 			// callback function. scope of this = Mesh
 			let reason = this.resultReason;
-			let vector = new THREE.Vector3(0, 0, this.shape == 'd4' ? -1 : 1);
+			// 每个形状"朝上"的法线方向不一样：
+			//   - d4 的顶点朝向 -Z；
+			//   - d2(硬币) 是 CylinderGeometry，两个圆面的法线是 +Y/-Y。
+			//     镜头位于 +Z 看向原点，结算时必须取"朝向镜头"的那一面，
+			//     不能再拿世界 +Y 比，否则立起来停下时会报道另一面；
+			//   - 其余多面体的面法线统一按 +Z 算。
+			let vector = new THREE.Vector3(
+				0,
+				this.shape == 'd4' ? -1 : 0,
+				this.shape == 'd4' ? 0 : 1
+			);
 
 			let closest_face, closest_angle = Math.PI * 2;
 			let normals = this.geometry.getAttribute('normal').array;
@@ -90,8 +100,14 @@ class DiceFactory {
 				let face = this.geometry.groups[i];
 				if (face.materialIndex == 0) continue;
 
-				//Each group consists in 3 vertices of 3 elements (x, y, z) so the offset between faces in the Float32BufferAttribute is 9
-				let startVertex = i * 9;
+				// BufferGeometry.addGroup() 的 start 是"索引偏移"，不是顶点编号：
+				//   - 手写的 d4~d20 没有 index，start 直接是顶点编号；
+				//   - d2 的 CylinderGeometry 有 index，必须先经 index 映射到顶点，
+				//     否则顶/底盖会读到侧面顶点，硬币就会"贴图是正、报的是反"。
+				const vertexIndex = this.geometry.index
+					? this.geometry.index.getX(face.start)
+					: (face.start ?? i * 3);
+				let startVertex = vertexIndex * 3;
 				let normal = new THREE.Vector3(normals[startVertex], normals[startVertex + 1], normals[startVertex + 2]);
 				let angle = normal.clone().applyQuaternion(this.body.quaternion).angleTo(vector);
 				if (angle < closest_angle) {
@@ -110,7 +126,19 @@ class DiceFactory {
 				return {value: matindex, label: diceobj.labels[matindex-1][labelindex2][0], reason: reason};
 			}
 
-			if (['d10','d2'].includes(this.shape)) {
+			// d2 的面值数组和贴图数组是一一对应的，不能套用 d10 的偏移规则；
+			// 否则标签会被取模压到同一个面上，硬币结果就会时正时反。
+			if (this.shape == 'd2') {
+				const faceIndex = ((matindex % diceobj.values.length) + diceobj.values.length) % diceobj.values.length;
+				// labels[0] 是棱边材质，两张面贴图从下标 1 开始，和 values 一一对应。
+				return {
+					value: diceobj.values[faceIndex],
+					label: diceobj.labels[faceIndex + 1],
+					reason: reason
+				};
+			}
+
+			if (this.shape == 'd10') {
 				matindex += 1;
 				offset -= 1;
 			}

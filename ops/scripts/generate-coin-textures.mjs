@@ -17,9 +17,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const sharp = require('../../code/node_modules/sharp');
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const targetDir = path.join(projectRoot, 'resources', 'public', 'dice-assets', 'textures', 'silvercoin');
+
+/* sharp 通过 fontconfig 找系统字体，缓存目录默认落在不可写的位置时会刷警告，指到临时目录即可。 */
+process.env.XDG_CACHE_HOME ||= path.join(projectRoot, 'ops', '.cache');
+process.env.FONTCONFIG_PATH ||= path.join(projectRoot, 'ops', '.cache', 'fontconfig');
 
 /* ── 极简 PNG 编码（truecolor + alpha，每行 filter 0） ── */
 
@@ -228,43 +236,86 @@ function applyTeeth(buffer, color) {
   }
 }
 
-/* 硬币两面是数字「1」和「2」（EDH 桌上用来掷先手/二选一）。
-   不依赖任何字体——用矩形/三角形把笔画拼出来：
-     1 = 顶部斜起笔 + 竖笔 + 底座
-     2 = 顶部弧形（用两条斜笔拼）+ 中间斜笔 + 底横 */
-const INK = rgba(92, 54, 8);
 const HIGHLIGHT = rgba(255, 244, 208);
-const STROKE = 30;
+const INK = rgba(92, 54, 8);
 
-function drawOne(buffer) {
-  fillRect(buffer, CENTER - 16, CENTER - 172, STROKE, 344, INK);      // 竖笔
-  fillTri(buffer, [-150, -96], [-16, -172], [14, -112], INK);        // 顶部斜起笔
-  fillRect(buffer, CENTER - 104, CENTER + 142, 208, STROKE, INK);    // 底座横
-  applyRing(buffer, 196, 3, HIGHLIGHT, 0.5);
+/** 硬币正中央的深色圆盘：给「正 / 反」两个字做底，字压在上面更清楚。 */
+function applyInkDisc(buffer, radius) {
+  applyDisc(buffer, radius, rgba(214, 160, 52), 0.5);
+  applyRing(buffer, radius, 5, rgba(255, 238, 178), 0.42);
 }
 
-function drawTwo(buffer) {
-  // 顶弧：左竖 + 上横 + 右竖，拼成一个方肩圆头的「二」字头
-  fillRect(buffer, CENTER - 120, CENTER - 172, STROKE, 96, INK);     // 顶弧左竖
-  fillRect(buffer, CENTER - 120, CENTER - 172, 240, STROKE, INK);    // 顶横
-  fillRect(buffer, CENTER + 90, CENTER - 172, STROKE, 130, INK);     // 顶弧右竖
-  fillTri(buffer, [120, -60], [90, -172], [130, -70], INK);         // 右肩过渡
-  // 中间斜笔：从右上斜到左下
-  fillTri(buffer, [104, -30], [130, -60], [-118, 100], INK);
-  fillTri(buffer, [104, -30], [-118, 100], [-128, 130], INK);
-  // 底横
-  fillRect(buffer, CENTER - 120, CENTER + 96, 240, STROKE, INK);
-  applyRing(buffer, 196, 3, HIGHLIGHT, 0.5);
+/**
+ * 把「正 / 反」渲染成一张透明的白色字形图。
+ *
+ * 不手写笔画：这两个字横竖撇捺都有，用几何图元硬拼容易糊成一团；
+ * 交给 fontconfig + freetype 渲一次，再按 alpha 通道合成到硬币上。
+ * 系统没有中文字体时返回 null，由下面的几何降级方案兜底。
+ */
+async function renderGlyph(text) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}">
+    <text x="${SIZE / 2}" y="${SIZE / 2 + 118}" font-family="Microsoft YaHei, Noto Sans CJK SC, SimHei, SimSun, sans-serif" font-size="300" font-weight="700" fill="#ffffff" text-anchor="middle">${text}</text>
+  </svg>`;
+  try {
+    const { data, info } = await sharp(Buffer.from(svg)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    if (info.channels !== 4) return null;
+    return data;
+  } catch {
+    return null;
+  }
 }
 
-function renderFace(kind) {
+/**
+ * 降级笔画（只在本机没有任何中文字体时才会用到）：
+ * 「正」= 顶横 + 中竖 + 左竖 + 中横 + 底横，「反」= 左上撇 + 横 + 撇 + 又字捺。
+ * 形状粗糙，但至少能区分正反两面，不会退回到两个数字。
+ */
+function drawFallbackGlyph(buffer, kind) {
+  const STROKE = 26;
+  if (kind === 'heads') {
+    fillRect(buffer, CENTER - 140, CENTER - 160, 270, STROKE, INK);
+    fillRect(buffer, CENTER - 40, CENTER - 160, STROKE, 320, INK);
+    fillRect(buffer, CENTER - 140, CENTER - 10, 270, STROKE, INK);
+    fillRect(buffer, CENTER - 140, CENTER - 160, STROKE, 150, INK);
+    fillRect(buffer, CENTER - 140, CENTER + 130, 270, STROKE, INK);
+    return;
+  }
+  fillTri(buffer, [-150, -150], [-96, -150], [-40, 40], INK);
+  fillRect(buffer, CENTER - 150, CENTER - 150, 250, STROKE, INK);
+  fillTri(buffer, [-30, -130], [24, -130], [120, 130], INK);
+  fillRect(buffer, CENTER - 60, CENTER + 20, 210, STROKE, INK);
+  fillTri(buffer, [-150, 40], [-96, 40], [40, 160], INK);
+  fillTri(buffer, [40, 40], [96, 40], [180, 160], INK);
+}
+
+/** 把字形 alpha 按 0.94 的强度染成墨色压到硬币上。 */
+function compositeGlyph(buffer, glyph) {
+  const replaced = Buffer.from(buffer);
+  for (let i = 0; i < SIZE * SIZE; i++) {
+    const alpha = glyph[i * 4 + 3] / 255;
+    if (alpha < 0.02) continue;
+    const offset = i * 4;
+    const base = [replaced[offset], replaced[offset + 1], replaced[offset + 2], 255];
+    const merged = blend(base, INK, alpha * 0.94);
+    replaced[offset] = merged[0];
+    replaced[offset + 1] = merged[1];
+    replaced[offset + 2] = merged[2];
+  }
+  return replaced;
+}
+
+async function renderFace(kind) {
   const buffer = coinBase();
   applyTeeth(buffer, rgba(255, 236, 170));
   applyRing(buffer, RADIUS - 44, 6, rgba(120, 72, 10), 0.8);
   applyRing(buffer, RADIUS - 58, 3, HIGHLIGHT, 0.5);
-  if (kind === 'one') drawOne(buffer);
-  else drawTwo(buffer);
-  return encodePng(SIZE, SIZE, buffer);
+  applyInkDisc(buffer, RADIUS - 132);
+  applyRing(buffer, 196, 3, HIGHLIGHT, 0.5);
+
+  const glyph = await renderGlyph(kind === 'heads' ? '正' : '反');
+  const faced = glyph ? compositeGlyph(buffer, glyph) : buffer;
+  if (!glyph) drawFallbackGlyph(faced, kind);
+  return encodePng(SIZE, SIZE, faced);
 }
 
 /** 以硬币中心为原点的三角形便捷封装（笔画用相对坐标写起来更直观）。 */
@@ -300,14 +351,15 @@ function fillRect(buffer, x0, y0, width, height, color) {
 
 fs.mkdirSync(targetDir, { recursive: true });
 
-// 与上游 dice-box-threejs 的 DICE.dc 定义完全一致的四个文件名，
-// 因此引擎自带硬币骰无需任何改动即可加载。
-// 两面：heads = 数字「1」，tail = 数字「2」。
+// v2 文件名同时承担“换图”和浏览器缓存失效两个作用。
+// 两面固定为 heads = 「正」、tail = 「反」，与 DICE.dc.values [0,1] 一一对应。
+const heads = await renderFace('heads');
+const tail = await renderFace('tail');
 const outputs = [
-  ['heads.png', renderFace('one')],
-  ['tail.png', renderFace('two')],
-  ['heads_bump.png', renderFace('one')],
-  ['tail_bump.png', renderFace('two')],
+  ['heads-v2.png', heads],
+  ['tail-v2.png', tail],
+  ['heads-v2_bump.png', heads],
+  ['tail-v2_bump.png', tail],
 ];
 
 for (const [name, buffer] of outputs) {
@@ -317,4 +369,4 @@ for (const [name, buffer] of outputs) {
 }
 
 console.log(`\n完成：硬币贴图已生成到 ${path.relative(projectRoot, targetDir)}`);
-console.log('引擎自带硬币骰 DICE.dc 会直接引用这四个文件（heads / tail 及各自的 bump）。');
+console.log('引擎自带硬币骰 DICE.dc 会直接引用这四个 v2 文件（heads / tail 及各自的 bump）。');

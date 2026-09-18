@@ -31,7 +31,7 @@ export interface DiceRollResultSet {
   // 这一组里每一颗骰子的原始点数(按摇出顺序)+骰子在引擎diceList里的全局索引(id)：
   // 自定义表达式的kh/kl取高取低需要拿到这份原始数据重新计算(引擎不认识kh/kl，total是"全部加总"，
   // 不是取高取低后的结果)，id还用于告诉3D场景该给哪几颗具体的骰子网格加发光描边。
-  rolls?: { value: number; id: number }[];
+  rolls?: { value: number; id: number; label?: unknown }[];
 }
 
 export interface DiceRollResult {

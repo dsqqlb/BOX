@@ -16,13 +16,30 @@ import { parseDiceExpression } from '@/lib/diceExpression';
 
 const MAX_LENGTH = 40;
 
-/** 键盘布局：4 列，按"数字靠左、操作符靠右"排。 */
+/**
+ * 键盘布局：固定 4 列 × 5 行。
+ * 每一行都按固定顺序排好，避免退格、0、清空和空格挤到最后一行造成错位。
+ */
 const KEYS: string[][] = [
-  ['7', '8', '9', 'd'],
-  ['4', '5', '6', '+'],
-  ['1', '2', '3', '-'],
-  ['(', ')', 'kl', 'kh'],
+  ['7', '8', '9', 'back'],
+  ['4', '5', '6', 'd'],
+  ['1', '2', '3', 'kh'],
+  ['0', '(', ')', 'kl'],
+  ['+', '-', 'clear', 'space'],
 ];
+
+/** 只有这两个键面上要画符号，实际输入值不一样。 */
+const KEY_LABELS: Record<string, string> = {
+  back: '⌫',
+  clear: 'C',
+  space: '␣',
+};
+
+const KEY_VALUES: Record<string, string> = {
+  back: '\b',
+  clear: '\u0000',
+  space: ' ',
+};
 
 interface ExpressionPadProps {
   title?: string;
@@ -55,7 +72,7 @@ export default function ExpressionPad({
       if (key === 'back') return current.slice(0, -1);
       if (key === 'clear') return '';
       if (current.length >= MAX_LENGTH) return current;
-      return current + key;
+      return current + (KEY_VALUES[key] ?? key);
     });
   }, []);
 
@@ -98,19 +115,20 @@ export default function ExpressionPad({
         </div>
 
         <div className="edh-numpad-pad">
-          {KEYS.flat().map((key) => (
+          {KEYS.flat().map((key) => {
+            const label = KEY_LABELS[key] ?? key;
+            const ariaLabel = key === 'back' ? '退格' : key === 'clear' ? '清空' : key === 'space' ? '空格' : undefined;
+            return (
             <button
               key={key}
               type="button"
               className="edh-numpad-key"
               data-key={key}
               onPointerDown={(e) => { e.preventDefault(); input(key); }}
-            >{key}</button>
-          ))}
-          <button type="button" className="edh-numpad-key" data-key="back" onPointerDown={(e) => { e.preventDefault(); input('back'); }} aria-label="退格">⌫</button>
-          <button type="button" className="edh-numpad-key" data-key="0" onPointerDown={(e) => { e.preventDefault(); input('0'); }}>0</button>
-          <button type="button" className="edh-numpad-key" data-key="clear" onPointerDown={(e) => { e.preventDefault(); input('clear'); }} aria-label="清空">C</button>
-          <button type="button" className="edh-numpad-key" data-key="space" onPointerDown={(e) => { e.preventDefault(); input(' '); }} aria-label="空格">␣</button>
+              aria-label={ariaLabel}
+            >{label}</button>
+            );
+          })}
         </div>
 
         <div className="edh-numpad-actions">

@@ -8,7 +8,7 @@
  *
  *   1. 结果面板**上下各一份，下面那份旋转 180°**，四个方向都能正着读到结果；
  *   2. 收起方式两种：**7 秒后自动消失**，或**点击任意处立即消失**；
- *   3. 骰盘常驻挂载（不随收起卸载），页面进来自动预热，第二次投掷不用重下 three.js。
+ *   3. 点掉还没出结果的遮罩时，这一轮会被彻底作废，不写历史也不残留回调。
  *
  * 关于 kh/kl：骰子引擎只认 NdS，不认识"取高取低"。带 kh/kl 的表达式由页面先用
  * lib/diceExpression 解析成纯 NdS 交给引擎，再把引擎的原始点数用 evaluateRecipe
@@ -16,12 +16,12 @@
  * 引擎结果一回来就立刻重算，所以面板显示的永远是筛过之后的结果。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 import DiceRoller, { type DiceRollRequest, type DiceRollResult } from '@/components/dnd/DiceRoller';
 import {
   evaluateRecipe, type EngineResultSet, type EvaluatedExpression, type ExprNode, type FlattenedRecipe,
 } from '@/lib/diceExpression';
-import { coinFaceForValue, coinLabel, type RollRecord } from '@/lib/edh-life/types';
+import { coinFaceForValue, coinFaceFromLabel, coinLabel, coinValueForFace, type RollRecord } from '@/lib/edh-life/types';
 
 export const AUTO_DISMISS_MS = 7000;
 /**
@@ -34,6 +34,18 @@ export const ROLL_WATCHDOG_MS = 12000;
 /** 两次投掷之间留一点间隔，让引擎把上一轮异步清场做完。 */
 const ROLL_GAP_MS = 200;
 
+interface QueuedRoll {
+  request: DiceRollRequest;
+  generation: number;
+}
+
+interface RollAttempt {
+  notation: string;
+  tries: number;
+  generation: number;
+  epoch: number;
+}
+
 export type RollKind = 'dice' | 'coin';
 
 export interface ActiveRoll {
@@ -43,8 +55,6 @@ export interface ActiveRoll {
   /** 真正交给 3D 引擎的纯 NdS 表达式 */
   engineNotation: string;
   seat: number | null;
-  /** 引擎用的形状纹理（硬币会传 { d2: ... }） */
-  shapeTextures?: Record<string, string>;
   /** 带 kh/kl 的表达式：摇完要按这份配方重新分账 */
   recipe?: FlattenedRecipe;
   exprNode?: ExprNode;
@@ -98,7 +108,9 @@ function buildCoinPanel(roll: ActiveRoll, result: DiceRollResult): PanelData {
   for (const set of result.sets) {
     const rolls = set.rolls && set.rolls.length ? set.rolls : [{ value: set.total, id: 0 }];
     for (const die of rolls) {
-      const face = coinFaceForValue(die.value);
+      // 优先认引擎刚翻出来的面贴图；Label 缺失时再用面值兜底。
+      // 这样不管引擎的点数索引如何调整，显示结果都和落下的那面一致。
+      const face = coinFaceFromLabel(die.label) ?? coinFaceForValue(die.value);
       coinFace = face;
       items.push({ key: `coin-${die.id}`, text: coinLabel(face), sub: face === 'sun' ? '正面' : '反面' });
     }
@@ -163,11 +175,13 @@ export default function DiceOverlay({ request, activeRoll, diceScale = 1, onComp
   // 引擎正在投掷：这期间不能把新请求交给它，否则那次投掷会被吞掉（完成回调永不触发，界面卡死在骰盘上）。
   // 所以新请求先排队，等当前这次结束后立刻自动发出。
   const engineBusyRef = useRef(false);
-  const queuedRef = useRef<DiceRollRequest | null>(null);
+  const queuedRef = useRef<QueuedRoll | null>(null);
   const [engineRequest, setEngineRequest] = useState<DiceRollRequest | null>(null);
   // 引擎卡死时递增：作为 DiceRoller 的 key，强制重建一个干净的 3D 骰盘实例。
   const [engineEpoch, setEngineEpoch] = useState(0);
-  const attemptRef = useRef<{ notation: string; tries: number } | null>(null);
+  const engineEpochRef = useRef(0);
+  const rollGenerationRef = useRef(0);
+  const attemptRef = useRef<RollAttempt | null>(null);
   const gapRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 当前这一轮的信息用 ref 保存：投掷 effect 只认 request.id，
   // 绝不能因为 activeRoll 变化而重跑——否则收起遮罩（activeRoll 置空）会被当成新投掷，
@@ -186,10 +200,17 @@ export default function DiceOverlay({ request, activeRoll, diceScale = 1, onComp
   }, []);
 
   const dismiss = useCallback(() => {
+    // 作废这一代的完成回调；即使 3D 引擎稍后才回调，也不会再显示结果或写记录。
+    rollGenerationRef.current += 1;
     clearTimers();
+    engineBusyRef.current = false;
+    queuedRef.current = null;
+    attemptRef.current = null;
+    setEngineRequest(null);
+    engineEpochRef.current += 1;
+    setEngineEpoch(engineEpochRef.current);
     setVisible(false);
     setPanel(null);
-    attemptRef.current = null;
     onDismiss?.();
   }, [clearTimers, onDismiss]);
 
@@ -203,50 +224,86 @@ export default function DiceOverlay({ request, activeRoll, diceScale = 1, onComp
     clearTimers();
     // 给引擎留一点点喘息：上一轮的清场是异步的（clearDice 里有 setTimeout 渲染）
     gapRef.current = setTimeout(() => {
-      setEngineRequest(next);
+      if (next.generation !== rollGenerationRef.current) {
+        engineBusyRef.current = false;
+        issueIfIdle();
+        return;
+      }
+      const epoch = engineEpochRef.current;
+      attemptRef.current = {
+        notation: next.request.notation,
+        tries: attemptRef.current?.generation === next.generation ? attemptRef.current.tries : 0,
+        generation: next.generation,
+        epoch,
+      };
+      setEngineRequest(next.request);
       watchdogRef.current = setTimeout(() => {
         const attempt = attemptRef.current;
+        if (!attempt || attempt.generation !== next.generation || attempt.generation !== rollGenerationRef.current) {
+          engineBusyRef.current = false;
+          issueIfIdle();
+          return;
+        }
         const tries = (attempt?.tries ?? 0) + 1;
         engineBusyRef.current = false;
-        if (attempt && tries <= 1) {
+        if (tries <= 1) {
           console.warn('[edh-life] 骰子引擎未返回结果，重建骰盘并重投一次');
-          attemptRef.current = { notation: attempt.notation, tries };
-          queuedRef.current = { id: `retry_${Date.now()}`, notation: attempt.notation };
-          setEngineEpoch((value) => value + 1);
+          engineEpochRef.current += 1;
+          attemptRef.current = {
+            notation: attempt.notation,
+            tries,
+            generation: next.generation,
+            epoch: engineEpochRef.current,
+          };
+          queuedRef.current = {
+            generation: next.generation,
+            request: { id: `retry_${Date.now()}`, notation: attempt.notation },
+          };
+          setEngineEpoch(engineEpochRef.current);
           setEngineRequest(null);
           issueIfIdle();
           return;
         }
         console.warn('[edh-life] 骰子引擎连续两次未返回结果，收起骰盘');
-        attemptRef.current = null;
-        queuedRef.current = null;
-        setEngineRequest(null);
-        setVisible(false);
-        setPanel(null);
-        onDismiss?.();
+        dismiss();
       }, ROLL_WATCHDOG_MS);
     }, ROLL_GAP_MS);
-  }, [clearTimers, onDismiss]);
+  }, [clearTimers, dismiss]);
 
   // 新的一次投掷：只认 request.id 变化，避免被 activeRoll 之类的变化重复触发
   useEffect(() => {
     if (!request) return;
     if (request.id === lastHandledIdRef.current) return;
     lastHandledIdRef.current = request.id;
+    rollGenerationRef.current += 1;
+    const generation = rollGenerationRef.current;
     clearTimers();
     setVisible(true);
     setPanel(null);
     // 同一时刻只保留最新的一次请求（连点两次只投最后一次）
-    queuedRef.current = request;
-    attemptRef.current = { notation: request.notation, tries: 0 };
+    queuedRef.current = { request, generation };
+    attemptRef.current = { notation: request.notation, tries: 0, generation, epoch: engineEpochRef.current };
     issueIfIdle();
   }, [request, clearTimers, issueIfIdle]);
 
   // 这个回调必须保持稳定：DiceRoller 内部用它触发"投掷完成 → 显示结果"，
   // 如果它每次渲染都换新函数，配合下面 DiceRoller 的重挂就会重复投掷。
   const handleComplete = useCallback((result: DiceRollResult) => {
+    const attempt = attemptRef.current;
+    // 已点击收起、已换到下一轮，或旧引擎实例迟到回调时，整次结果直接丢弃。
+    if (!attempt
+      || attempt.generation !== rollGenerationRef.current
+      || attempt.epoch !== engineEpochRef.current) {
+      engineBusyRef.current = false;
+      issueIfIdle();
+      return;
+    }
     const roll = activeRollRef.current;
-    if (!roll) return;
+    if (!roll) {
+      engineBusyRef.current = false;
+      issueIfIdle();
+      return;
+    }
     const evaluated = roll.recipe ? evaluateRecipe(roll.recipe, toEngineSets(result)) : null;
     const data = roll.kind === 'coin'
       ? buildCoinPanel(roll, result)
@@ -255,14 +312,17 @@ export default function DiceOverlay({ request, activeRoll, diceScale = 1, onComp
 
     const isCoin = roll.kind === 'coin';
     const values = result.sets.flatMap((set) => (set.rolls?.length ? set.rolls.map((die) => die.value) : [set.total]));
+    // 硬币的点数/总计都统一成引擎约定（0 = 反，1 = 正），
+    // 这样 values、total、coinFace 三个字段永远是同一个意思。
+    const coinValue = data.coinFace ? coinValueForFace(data.coinFace) : values[0];
     const record: RollRecord = {
       id: `roll_${Date.now()}`,
       at: Date.now(),
       source: isCoin ? 'coin' : 'dice',
       notation: isCoin ? 'coin' : roll.notation,
-      total: isCoin ? (data.coinFace === 'one' ? 1 : 2) : (evaluated ? evaluated.total : result.total),
+      total: isCoin ? (typeof coinValue === 'number' ? coinValue : 0) : (evaluated ? evaluated.total : result.total),
       seat: roll.seat,
-      values,
+      values: isCoin && typeof coinValue === 'number' ? [coinValue] : values,
       coinFace: data.coinFace,
     };
     onCompleteRef.current?.(result, roll, record);
@@ -304,7 +364,11 @@ export default function DiceOverlay({ request, activeRoll, diceScale = 1, onComp
 
 function ResultPanel({ data, position }: { data: PanelData; position: 'top' | 'bottom' }) {
   return (
-    <div className={`edh-result-panel edh-result-${position}`} style={{ transform: position === 'bottom' ? 'rotate(180deg)' : undefined }}>
+    <div
+      className={`edh-result-panel edh-result-${position}${data.coinFace ? ' is-coin-result' : ''}`}
+      data-position={position}
+      style={{ '--edh-result-accent': data.accent } as CSSProperties}
+    >
       <div className="edh-result-head">
         <span className="edh-result-title">{data.title}</span>
         <span className="edh-result-notation">{data.notation}</span>
@@ -314,10 +378,11 @@ function ResultPanel({ data, position }: { data: PanelData; position: 'top' | 'b
           <div key={group.key} className="edh-result-group">
             {group.label && <span className="edh-result-group-label">{group.label}</span>}
             <div className="edh-result-group-dice">
-              {group.items.map((item) => (
+              {group.items.map((item, index) => (
                 <div
                   key={item.key}
                   className={`edh-result-die${item.discarded ? ' is-discarded' : ''}${data.coinFace ? ' is-coin' : ''}`}
+                  style={{ '--edh-result-item-index': index } as CSSProperties}
                 >
                   <span className="edh-result-die-value">{item.text}</span>
                   {item.sub && <span className="edh-result-die-sub">{item.sub}</span>}
@@ -327,7 +392,7 @@ function ResultPanel({ data, position }: { data: PanelData; position: 'top' | 'b
           </div>
         ))}
       </div>
-      <div className="edh-result-total" style={{ color: data.accent }}>
+      <div className="edh-result-total">
         <span className="edh-result-total-label">{data.totalLabel}</span>
         <span className="edh-result-total-value">{data.total}</span>
       </div>

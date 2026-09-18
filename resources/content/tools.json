@@ -189,5 +189,15 @@
     "icon": "🩸",
     "featured": true,
     "createdAt": "2026-09-12"
+  },
+  {
+    "slug": "scratch-cards",
+    "title": "刮刮乐小店",
+    "description": "商店买票、桌上随手摆、点开像真票一样刮开涂层：四种中奖玩法；右上兑奖机换钱、右下碎纸机换纸屑，钱与德州扑克共用同一份娱乐筹码",
+    "category": "game",
+    "tags": ["scratch", "lottery", "ticket", "tabletop", "idle"],
+    "icon": "🎰",
+    "featured": true,
+    "createdAt": "2026-09-18"
   }
 ]

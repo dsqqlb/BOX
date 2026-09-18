@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import RotatableModal from '@/components/edh-life/RotatableModal';
-import { formatClock, formatDuration, type GameState, type RollRecord } from '@/lib/edh-life/types';
+import { coinFaceFromRoll, coinLabel, formatClock, formatDuration, type GameState, type RollRecord } from '@/lib/edh-life/types';
 import { deleteGame, fetchGames, listGamesLocal, type GameSummary } from '@/lib/edh-life/storage';
 
 interface ServerRoll {
@@ -72,6 +72,7 @@ export default function HistoryPanel({ game, seat, initialRotation = 0, onClose 
       panelClassName="edh-panel edh-history"
       width={760}
       initialRotation={initialRotation}
+      scrollable
       onBackdrop={onClose}
     >
         <div className="edh-history-head">
@@ -86,17 +87,19 @@ export default function HistoryPanel({ game, seat, initialRotation = 0, onClose 
           {rolls !== null && rolls.map((roll) => {
             const visible = seat === null || roll.seat === seat || roll.seat === null;
             if (!visible) return null;
+            // coinFace 是权威字段；旧存档没有它时从 values / total 反推。
+            const coinFace = roll.source === 'coin' ? coinFaceFromRoll(roll) : undefined;
             return (
               <div key={roll.id} className="edh-history-row">
                 <span className="edh-history-time">{formatClock(roll.at)}</span>
                 <span className="edh-history-notation">{roll.source === 'coin' ? '硬币' : roll.notation}</span>
                 <span className="edh-history-dice">
                   {roll.source === 'coin'
-                    ? roll.coinFace === 'one' ? '1' : '2'
+                    ? coinFace ? coinLabel(coinFace) : '—'
                     : roll.values.map((value, index) => <b key={index}>{value}</b>)}
                 </span>
                 <span className="edh-history-total">
-                  {roll.source === 'coin' ? `= ${roll.coinFace === 'one' ? '1' : '2'}` : `= ${roll.total}`}
+                  {roll.source === 'coin' ? `= ${coinFace ? coinLabel(coinFace) : '—'}` : `= ${roll.total}`}
                 </span>
                 {roll.seat !== null && <span className="edh-history-seat">P{roll.seat + 1}</span>}
               </div>
@@ -174,6 +177,7 @@ export function ArchivePanel({
         width={760}
         initialRotation={initialRotation}
         layer="archive"
+        scrollable
         onBackdrop={onClose}
       >
         <div className="edh-panel-head">

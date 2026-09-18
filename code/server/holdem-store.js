@@ -6,13 +6,19 @@
  * 筹码是纯娱乐虚拟币，与真实货币无关。设计要点：
  *   1. 余额只在「买入上桌」和「离桌/每手结束结算」两个时刻落库，牌局进行中的下注只在内存；
  *   2. 所有变动在 prisma.$transaction 里完成，并强制余额不为负；
- *   3. 余额低于最小买入时，账户可自助重置补充，重置同样留下流水。
+ *   3. 余额低于最小买入时，账户可自助重置补充，重置同样留下流水；
+ *   4. 刮刮乐的「金钱」就是这份筹码，它通过 applyChipsWithinTx 借用本模块的写入路径，
+ *      所以互通之后余额仍然只有一条写入路径（不会出现两个工具各记一套账）。
  */
 
 const { prisma } = require('./db');
 const { HOLDEM_STARTING_CHIPS, HOLDEM_MIN_BUY_IN } = require('./config');
 
-const LEDGER_KINDS = new Set(['grant', 'reset', 'buy-in', 'cash-out', 'settle']);
+const LEDGER_KINDS = new Set([
+  'grant', 'reset', 'buy-in', 'cash-out', 'settle',
+  // 刮刮乐与德州共用同一份筹码，所以它的收支也进这本流水（钱的唯一真身始终是 HoldemBalance）。
+  'scratch-buy', 'scratch-prize', 'scratch-upgrade',
+]);
 const LEDGER_PAGE_LIMIT = 50;
 
 class HoldemStoreError extends Error {
@@ -51,31 +57,46 @@ async function getAccount(username) {
   return accountDto(created);
 }
 
-/** 统一的余额变动入口：负数扣减时校验余额充足，成功后返回最新账户视图。 */
-async function adjustChips(username, { delta, kind, roomId = null, note = null, handPlayed = false, handWon = false }) {
+/** 校验并归一化一次余额变动；本模块与其它工具模块（如刮刮乐）共用同一套规则。 */
+function normalizeAdjustment({ delta, kind, roomId = null, note = null, handPlayed = false, handWon = false }) {
   const amount = Math.trunc(Number(delta));
   if (!Number.isFinite(amount)) throw new HoldemStoreError('筹码变动数额无效。');
   if (!LEDGER_KINDS.has(kind)) throw new HoldemStoreError('筹码变动类型无效。');
+  return { amount, kind, roomId: roomId || null, note: note || null, handPlayed: Boolean(handPlayed), handWon: Boolean(handWon) };
+}
+
+/**
+ * 在调用方自己的事务里改余额并写流水。
+ *
+ * 刮刮乐要「扣钱买票 + 写自己的票表」原子完成，就把这个函数放进它自己的 prisma.$transaction 里调用。
+ * 这样筹码账户永远只有这一条写入路径：余额、流水、其它表不会出现半边成功。
+ */
+async function applyChipsWithinTx(tx, ownerId, options) {
+  const { amount, kind, roomId, note, handPlayed, handWon } = normalizeAdjustment(options);
+  const current = await tx.holdemBalance.findUnique({ where: { ownerId } });
+  if (!current) throw new HoldemStoreError('筹码账户不存在。', 404);
+  const next = current.chips + amount;
+  if (next < 0) throw new HoldemStoreError(`筹码不足：当前 ${current.chips}，需要 ${Math.abs(amount)}。`, 409);
+  const balance = await tx.holdemBalance.update({
+    where: { ownerId },
+    data: {
+      chips: next,
+      handsPlayed: current.handsPlayed + (handPlayed ? 1 : 0),
+      handsWon: current.handsWon + (handWon ? 1 : 0),
+    },
+  });
+  if (amount !== 0) {
+    await tx.holdemLedger.create({ data: { ownerId, delta: amount, balance: next, kind, roomId, note } });
+  }
+  return balance;
+}
+
+/** 统一的余额变动入口：负数扣减时校验余额充足，成功后返回最新账户视图。 */
+async function adjustChips(username, options) {
+  normalizeAdjustment(options);
   const ownerId = await resolveOwnerId(username);
   await getAccount(username);
-  const updated = await prisma.$transaction(async (tx) => {
-    const current = await tx.holdemBalance.findUnique({ where: { ownerId } });
-    if (!current) throw new HoldemStoreError('筹码账户不存在。', 404);
-    const next = current.chips + amount;
-    if (next < 0) throw new HoldemStoreError(`筹码不足：当前 ${current.chips}，需要 ${Math.abs(amount)}。`, 409);
-    const balance = await tx.holdemBalance.update({
-      where: { ownerId },
-      data: {
-        chips: next,
-        handsPlayed: current.handsPlayed + (handPlayed ? 1 : 0),
-        handsWon: current.handsWon + (handWon ? 1 : 0),
-      },
-    });
-    if (amount !== 0) {
-      await tx.holdemLedger.create({ data: { ownerId, delta: amount, balance: next, kind, roomId: roomId || null, note: note || null } });
-    }
-    return balance;
-  });
+  const updated = await prisma.$transaction((tx) => applyChipsWithinTx(tx, ownerId, options));
   return accountDto(updated);
 }
 
@@ -122,4 +143,4 @@ async function listLedger(username) {
   }));
 }
 
-module.exports = { HoldemStoreError, getAccount, adjustChips, reserveBuyIn, cashOut, recordHandResult, resetChips, listLedger };
+module.exports = { HoldemStoreError, getAccount, adjustChips, applyChipsWithinTx, normalizeAdjustment, reserveBuyIn, cashOut, recordHandResult, resetChips, listLedger };

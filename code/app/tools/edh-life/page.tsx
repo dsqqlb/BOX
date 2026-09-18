@@ -6,8 +6,7 @@
  * 一张方桌四个人：2×2 中心对称，**贴近自己这一排是正的，对面那一排上下颠倒**。
  *   - 每人一个随机配色色块，大号血量居中
  *   - 色块**分左右两半**：点左半 −1、点右半 +1；按住 1 秒 −5 / +5
- *   - 色块**中央正方形**：按住 2 秒（期间数字颤抖）弹出「掉血 / 回血任意数值」
- *   - 色块下方一个「记录」入口：弹窗里只显示已有值的项目，并可按需添加其他计数器
+ *   - 色块**中央正方形**：双击打开记录面板；按住 2 秒弹「掉血 / 回血 + 记录项目」
  *   - 血量归零或中毒满 10 → 整块变灰 + 骷髅头
  *   - 中间一条窄缝隙：公共的设置 / 骰子 / 硬币 / 历史 / 计时（毛玻璃按钮 + 流光）
  *   - 骰子复用先攻主屏的 3D 引擎；硬币是金色「正 / 反」两面，投掷力度拉满
@@ -40,10 +39,17 @@ import {
   GameSync, fetchGame, fetchRunningGame, loadCurrentGameId, loadGameLocal, saveGameLocal,
   setCurrentGameId, type SyncStatus,
 } from '@/lib/edh-life/storage';
-import { coinShapeTextures, prewarmCoinTextures } from '@/lib/edh-life/coin-textures';
+import { prewarmCoinTextures } from '@/lib/edh-life/coin-textures';
 
 const DICE_SCALE_KEY = 'edh-life-dice-scale';
 const PRESETS_KEY = 'edh-life-dice-presets';
+const MODAL_FONT_SCALE_KEY = 'edh-life-modal-font-scale';
+const MODAL_PANEL_SCALE_KEY = 'edh-life-modal-panel-scale';
+const LIFE_DELTA_VISIBLE_MS = 5000;
+/** 先攻定完之后，「1st」这块牌子的高亮再多留一会儿，然后只留名次数字。 */
+const FIRST_HIGHLIGHT_MS = 2000;
+const DEFAULT_MODAL_FONT_SCALE = 1;
+const DEFAULT_MODAL_PANEL_SCALE = 1;
 
 function readNumberSetting(key: string, fallback: number): number {
   try {
@@ -84,24 +90,53 @@ export default function EdhLifePage() {
   const [showArchive, setShowArchive] = useState(false);
   const [diceError, setDiceError] = useState('');
   const [diceScale, setDiceScale] = useState(1);
+  const [modalFontScale, setModalFontScale] = useState(DEFAULT_MODAL_FONT_SCALE);
+  const [modalPanelScale, setModalPanelScale] = useState(DEFAULT_MODAL_PANEL_SCALE);
   const [presets, setPresets] = useState<string[]>(() => [...DEFAULT_DICE_PRESETS]);
 
   const [diceRequest, setDiceRequest] = useState<DiceRollRequest | null>(null);
   const [activeRoll, setActiveRoll] = useState<ActiveRoll | null>(null);
-  const [coinTextures] = useState<Record<string, string>>(() => coinShapeTextures());
+  const [lifeDeltas, setLifeDeltas] = useState<Record<number, number>>({});
+  const [firstOrder, setFirstOrder] = useState<number[]>([]);
+  const [firstHighlight, setFirstHighlight] = useState<number | null>(null);
+  const [firstRolling, setFirstRolling] = useState(false);
 
   const syncRef = useRef<GameSync | null>(null);
+  const lifeDeltaTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const lifeDeltaRevisionRef = useRef<Record<number, number>>({});
+  const firstDecisionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firstHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firstDecisionRunRef = useRef(0);
   if (!syncRef.current) syncRef.current = new GameSync((status) => setSyncStatus(status));
 
   /* ── 本机设置（骰子大小 / 预设骰式）── */
   useEffect(() => {
     setDiceScale(readNumberSetting(DICE_SCALE_KEY, 1));
+    setModalFontScale(Math.min(1.4, Math.max(0.8, readNumberSetting(MODAL_FONT_SCALE_KEY, DEFAULT_MODAL_FONT_SCALE))));
+    setModalPanelScale(Math.min(1.2, Math.max(0.8, readNumberSetting(MODAL_PANEL_SCALE_KEY, DEFAULT_MODAL_PANEL_SCALE))));
     setPresets(readPresets());
   }, []);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--edh-modal-font-scale', String(modalFontScale));
+    document.documentElement.style.setProperty('--edh-modal-panel-scale', String(modalPanelScale));
+  }, [modalFontScale, modalPanelScale]);
 
   const updateDiceScale = useCallback((value: number) => {
     setDiceScale(value);
     writeSetting(DICE_SCALE_KEY, String(value));
+  }, []);
+
+  const updateModalFontScale = useCallback((value: number) => {
+    const next = Math.min(1.4, Math.max(0.8, value));
+    setModalFontScale(next);
+    writeSetting(MODAL_FONT_SCALE_KEY, String(next));
+  }, []);
+
+  const updateModalPanelScale = useCallback((value: number) => {
+    const next = Math.min(1.2, Math.max(0.8, value));
+    setModalPanelScale(next);
+    writeSetting(MODAL_PANEL_SCALE_KEY, String(next));
   }, []);
 
   const updatePresets = useCallback((next: string[]) => {
@@ -201,9 +236,112 @@ export default function EdhLifePage() {
     setGame((current) => (current ? { ...current, players: updater(current.players).map(applyElimination) } : current));
   }, []);
 
+  const clearLifeDeltas = useCallback(() => {
+    Object.values(lifeDeltaTimersRef.current).forEach(clearTimeout);
+    lifeDeltaTimersRef.current = {};
+    lifeDeltaRevisionRef.current = {};
+    setLifeDeltas({});
+  }, []);
+
+  const resetFirstDecision = useCallback(() => {
+    firstDecisionRunRef.current += 1;
+    if (firstDecisionTimerRef.current !== null) {
+      clearTimeout(firstDecisionTimerRef.current);
+      firstDecisionTimerRef.current = null;
+    }
+    if (firstHighlightTimerRef.current !== null) {
+      clearTimeout(firstHighlightTimerRef.current);
+      firstHighlightTimerRef.current = null;
+    }
+    setFirstOrder([]);
+    setFirstHighlight(null);
+    setFirstRolling(false);
+  }, []);
+
+  useEffect(() => () => {
+    Object.values(lifeDeltaTimersRef.current).forEach(clearTimeout);
+    if (firstDecisionTimerRef.current !== null) clearTimeout(firstDecisionTimerRef.current);
+    if (firstHighlightTimerRef.current !== null) clearTimeout(firstHighlightTimerRef.current);
+  }, []);
+
   const changeLife = useCallback((seat: number, delta: number) => {
+    if (delta === 0) return;
+    const previousTimer = lifeDeltaTimersRef.current[seat];
+    if (previousTimer !== undefined) clearTimeout(previousTimer);
+    const revision = (lifeDeltaRevisionRef.current[seat] ?? 0) + 1;
+    lifeDeltaRevisionRef.current[seat] = revision;
+    setLifeDeltas((current) => ({ ...current, [seat]: (current[seat] ?? 0) + delta }));
+    lifeDeltaTimersRef.current[seat] = setTimeout(() => {
+      if (lifeDeltaRevisionRef.current[seat] !== revision) return;
+      delete lifeDeltaTimersRef.current[seat];
+      delete lifeDeltaRevisionRef.current[seat];
+      setLifeDeltas((current) => {
+        if (!(seat in current)) return current;
+        const next = { ...current };
+        delete next[seat];
+        return next;
+      });
+    }, LIFE_DELTA_VISIBLE_MS);
     updatePlayers((players) => players.map((player) => (player.seat === seat ? { ...player, life: player.life + delta } : player)));
   }, [updatePlayers]);
+
+  /* ── 先攻决定：按桌面视觉顺序轮盘高亮，随机方向、随机落点。 ── */
+  const decideFirst = useCallback(() => {
+    if (!game) return;
+    if (firstDecisionTimerRef.current !== null) clearTimeout(firstDecisionTimerRef.current);
+    firstDecisionRunRef.current += 1;
+    const run = firstDecisionRunRef.current;
+
+    const allSeats = game.players.map((player) => player.seat);
+    const visualOrder = game.playerCount === 4
+      ? [0, 1, 3, 2].filter((seat) => allSeats.includes(seat))
+      : allSeats;
+    const count = visualOrder.length;
+    if (count < 2) return;
+
+    const startIndex = Math.floor(Math.random() * count);
+    const targetIndex = Math.floor(Math.random() * count);
+    const direction = Math.random() < 0.5 ? 1 : -1;
+    const cycles = 3 + Math.floor(Math.random() * 2);
+    const distance = (((targetIndex - startIndex) * direction) % count + count) % count;
+    const totalSteps = cycles * count + distance;
+    let step = 0;
+
+    setFirstOrder([]);
+    setFirstRolling(true);
+
+    const tick = () => {
+      if (run !== firstDecisionRunRef.current) return;
+      const index = ((startIndex + direction * step) % count + count) % count;
+      const seat = visualOrder[index];
+      setFirstHighlight(seat);
+
+      if (step >= totalSteps) {
+        const ranking = Array.from({ length: count }, (_, rankIndex) => {
+          const rankPosition = ((index + direction * rankIndex) % count + count) % count;
+          return visualOrder[rankPosition];
+        });
+        setFirstOrder(ranking);
+        setFirstRolling(false);
+        firstDecisionTimerRef.current = null;
+        // 名次徽标一直留着，但「先手」的高亮只再亮一小会儿，之后只剩数字。
+        setFirstHighlight(ranking[0]);
+        if (firstHighlightTimerRef.current !== null) clearTimeout(firstHighlightTimerRef.current);
+        firstHighlightTimerRef.current = setTimeout(() => {
+          firstHighlightTimerRef.current = null;
+          setFirstHighlight(null);
+        }, FIRST_HIGHLIGHT_MS);
+        return;
+      }
+
+      const progress = step / Math.max(1, totalSteps);
+      const delay = 42 + progress * progress * 300;
+      step += 1;
+      firstDecisionTimerRef.current = setTimeout(tick, delay);
+    };
+
+    tick();
+  }, [game]);
 
   const changeCounter = useCallback((seat: number, key: CounterKey, delta: number) => {
     updatePlayers((players) => players.map((player) => (
@@ -215,6 +353,12 @@ export default function EdhLifePage() {
     updatePlayers((players) => players.map((player) => (player.seat === seat ? { ...player, name } : player)));
   }, [updatePlayers]);
 
+  const changePlayerCount = useCallback((count: number) => {
+    clearLifeDeltas();
+    resetFirstDecision();
+    setGame((current) => (current ? resizeGame(current, count) : current));
+  }, [clearLifeDeltas, resetFirstDecision]);
+
   /* ── 任意数值弹窗（掉血 / 回血合并）── */
   const openAmountMenu = useCallback((seat: number) => {
     setGame((current) => {
@@ -225,6 +369,8 @@ export default function EdhLifePage() {
             title: `${player.name} · 调整生命`,
             mode: 'sub',
             currentLife: player.life,
+            showCounters: true,
+            seat,
             initialRotation: seatRotation(current.playerCount, seat),
             onConfirm: (mode, value) => changeLife(seat, mode === 'add' ? value : -value),
           });
@@ -244,6 +390,8 @@ export default function EdhLifePage() {
             title: `${player.name} · ${meta.label}`,
             mode: 'add',
             currentLife: player[key],
+            showCounters: true,
+            seat,
             initialRotation: seatRotation(current.playerCount, seat),
             layer: 'confirm',
             onConfirm: (mode, value) => {
@@ -302,11 +450,10 @@ export default function EdhLifePage() {
     const request: DiceRollRequest = {
       id: newId('roll'),
       notation: COIN_ROLL_NOTATION,
-      shapeTextures: coinTextures as DiceRollRequest['shapeTextures'],
     };
-    setActiveRoll({ kind: 'coin', notation: COIN_NOTATION, engineNotation: COIN_ROLL_NOTATION, seat, shapeTextures: coinTextures });
+    setActiveRoll({ kind: 'coin', notation: COIN_NOTATION, engineNotation: COIN_ROLL_NOTATION, seat });
     setDiceRequest(request);
-  }, [coinTextures]);
+  }, []);
 
   const onRollComplete = useCallback((result: unknown, rollInfo: ActiveRoll, record: RollRecord) => {
     void result;
@@ -390,7 +537,9 @@ export default function EdhLifePage() {
       syncRef.current?.setCreated(false);
       return { ...base, status: 'running', endedAt: null, winnerSeat: null, timer: { base: base.durationSeconds * 1000, running: true, startedAtMs: now } };
     });
-  }, []);
+    clearLifeDeltas();
+    resetFirstDecision();
+  }, [clearLifeDeltas, resetFirstDecision]);
 
   /** 结束对局：本机立即封存并停止计时，服务器在后台同步。 */
   const finishMatch = useCallback(() => {
@@ -400,8 +549,10 @@ export default function EdhLifePage() {
     setGame(archived);
     setPendingMatchAction(null);
     setMatchNotice('本局已结束并保存为存档，计时已停止。');
+    clearLifeDeltas();
+    resetFirstDecision();
     return true;
-  }, [archiveGame, game]);
+  }, [archiveGame, clearLifeDeltas, game, resetFirstDecision]);
 
   /** 保存并重新开始：先封存进行中的对局，再立即开一局全新的。 */
   const saveAndReset = useCallback(() => {
@@ -414,8 +565,10 @@ export default function EdhLifePage() {
     setGame(fresh);
     setPendingMatchAction(null);
     setMatchNotice(wasRunning ? '本局已保存为存档，并已开始一局全新的对局。' : '已开始一局全新的对局。');
+    clearLifeDeltas();
+    resetFirstDecision();
     return true;
-  }, [archiveGame, game]);
+  }, [archiveGame, clearLifeDeltas, game, resetFirstDecision]);
 
   /** 读档：把一条已封存的存档接着打（重新开始计时）。 */
   const loadGame = useCallback(async (id: string, fromServer: boolean) => {
@@ -436,7 +589,9 @@ export default function EdhLifePage() {
     setGame(resumed);
     setShowArchive(false);
     setShowSettings(false);
-  }, []);
+    clearLifeDeltas();
+    resetFirstDecision();
+  }, [clearLifeDeltas, resetFirstDecision]);
 
   /* ── 调试接口：无头浏览器验证用 ── */
   useEffect(() => {
@@ -447,6 +602,7 @@ export default function EdhLifePage() {
       rollExpression,
       rollCoin,
       openAmountMenu,
+      decideFirst,
       startMatch,
       finishMatch,
       saveAndReset,
@@ -460,7 +616,7 @@ export default function EdhLifePage() {
       getPresets: () => presets,
       elapsed: () => (game ? elapsedSeconds(game, Date.now()) : 0),
     };
-  }, [changeCounter, changeLife, changeRound, diceScale, finishMatch, game, loadGame, openAmountMenu, presets, rerollColors, rollCoin, rollExpression, saveAndReset, startMatch, toggleTimer, updateDiceScale, updatePresets]);
+  }, [changeCounter, changeLife, changeRound, decideFirst, diceScale, finishMatch, game, loadGame, openAmountMenu, presets, rerollColors, rollCoin, rollExpression, saveAndReset, startMatch, toggleTimer, updateDiceScale, updatePresets]);
 
   const elapsed = game ? elapsedSeconds(game, clock) : 0;
   const seats = useMemo(() => (game ? game.players : []), [game]);
@@ -468,6 +624,9 @@ export default function EdhLifePage() {
   const counterPanelPlayer = counterPanelSeat === null
     ? null
     : game?.players.find((player) => player.seat === counterPanelSeat) ?? null;
+  const amountPadPlayer = amountPad?.seat === null || amountPad?.seat === undefined
+    ? null
+    : game?.players.find((player) => player.seat === amountPad.seat) ?? null;
 
   if (!game) {
     return (
@@ -492,6 +651,9 @@ export default function EdhLifePage() {
             onOpenAmountMenu={openAmountMenu}
             onOpenCounters={setCounterPanelSeat}
             onRename={renamePlayer}
+            lifeDelta={lifeDeltas[player.seat] ?? null}
+            firstRank={firstOrder.indexOf(player.seat) >= 0 ? firstOrder.indexOf(player.seat) + 1 : null}
+            rolling={firstHighlight === player.seat}
           />
         ))}
 
@@ -500,8 +662,10 @@ export default function EdhLifePage() {
           <CenterBar
             running={game.timer.running}
             syncStatus={syncStatus}
+            firstRolling={firstRolling}
             onRollDice={() => { setDiceError(''); setShowDicePicker(true); }}
             onRollCoin={() => rollCoin(null)}
+            onDecideFirst={decideFirst}
             onOpenHistory={() => { setHistorySeat(null); setShowHistory(true); }}
             onOpenSettings={() => {
               setPendingMatchAction(null);
@@ -521,7 +685,14 @@ export default function EdhLifePage() {
         onDismiss={() => setActiveRoll(null)}
       />
 
-      <AmountPad request={amountPad} onClose={() => setAmountPad(null)} />
+      <AmountPad
+        request={amountPad}
+        player={amountPadPlayer}
+        onCounterChange={amountPadPlayer
+          ? (key, delta) => changeCounter(amountPadPlayer.seat, key, delta)
+          : undefined}
+        onClose={() => setAmountPad(null)}
+      />
 
       {counterPanelPlayer && (
         <CounterPanel
@@ -600,6 +771,7 @@ export default function EdhLifePage() {
           panelClassName={`edh-panel edh-settings-panel${game.status === 'running' ? ' is-live' : ''}`}
           width={780}
           initialRotation={nearRotation}
+          scrollable
           onBackdrop={() => setShowSettings(false)}
         >
             <div className="edh-panel-head" data-match={game.status}>
@@ -608,6 +780,8 @@ export default function EdhLifePage() {
               <button type="button" className="edh-icon-btn" onPointerDown={(e) => { e.preventDefault(); setShowSettings(false); }} aria-label="关闭">✕</button>
             </div>
 
+            <div className="edh-settings-columns">
+            <div className="edh-settings-column">
             <div className="edh-settings-section">
               <div className="edh-settings-label">人数</div>
               <div className="edh-settings-row">
@@ -616,7 +790,7 @@ export default function EdhLifePage() {
                     key={count}
                     type="button"
                     className={`edh-settings-chip${game.playerCount === count ? ' is-active' : ''}`}
-                    onPointerDown={(e) => { e.preventDefault(); setGame((current) => (current ? resizeGame(current, count) : current)); }}
+                    onPointerDown={(e) => { e.preventDefault(); changePlayerCount(count); }}
                   >{count} 人</button>
                 ))}
               </div>
@@ -651,6 +825,39 @@ export default function EdhLifePage() {
             </div>
 
             <div className="edh-settings-section">
+              <div className="edh-settings-label">界面</div>
+              <div className="edh-slider-row">
+                <span className="edh-settings-hint">字号</span>
+                <input
+                  className="edh-slider"
+                  data-modal-font-scale
+                  type="range"
+                  min="0.8"
+                  max="1.4"
+                  step="0.05"
+                  value={modalFontScale}
+                  onChange={(e) => updateModalFontScale(Number(e.target.value))}
+                />
+                <span className="edh-slider-value" data-modal-font-scale-value>{Math.round(modalFontScale * 100)}%</span>
+              </div>
+              <div className="edh-slider-row">
+                <span className="edh-settings-hint">面板</span>
+                <input
+                  className="edh-slider"
+                  data-modal-panel-scale
+                  type="range"
+                  min="0.8"
+                  max="1.2"
+                  step="0.05"
+                  value={modalPanelScale}
+                  onChange={(e) => updateModalPanelScale(Number(e.target.value))}
+                />
+                <span className="edh-slider-value" data-modal-panel-scale-value>{Math.round(modalPanelScale * 100)}%</span>
+              </div>
+              <div className="edh-settings-hint">字号影响各弹窗文字，面板大小影响弹窗的横向排布。</div>
+            </div>
+
+            <div className="edh-settings-section">
               <div className="edh-settings-label">骰子</div>
               <div className="edh-slider-row">
                 <span className="edh-settings-hint">大小</span>
@@ -667,6 +874,7 @@ export default function EdhLifePage() {
                 <span className="edh-slider-value" data-dice-scale-value>{diceScale.toFixed(2)}×</span>
               </div>
               <div className="edh-settings-hint">骰子弹窗里的快捷骰式（最多 {MAX_DICE_PRESETS} 个）</div>
+              <div className="edh-preset-list">
               {presets.map((preset, index) => (
                 <div className="edh-preset-row" key={`preset-${index}`}>
                   <input
@@ -689,6 +897,7 @@ export default function EdhLifePage() {
                   >✕</button>
                 </div>
               ))}
+              </div>
               <button
                 type="button"
                 className="edh-ghost-btn"
@@ -698,6 +907,8 @@ export default function EdhLifePage() {
               >＋ 添加一个预设</button>
             </div>
 
+            </div>
+            <div className="edh-settings-column">
             <div className="edh-settings-section">
               <div className="edh-settings-label">对局</div>
               <div className="edh-settings-row">
@@ -785,6 +996,9 @@ export default function EdhLifePage() {
               <div className="edh-settings-hint">一次开始到一次结束算一条存档，过程中只记录；可以读档继续或删除。</div>
             </div>
 
+            </div>
+            </div>
+
             <div className="edh-settings-footer">
               <span className={`edh-sync edh-sync-${syncStatus}`}>
                 {syncStatus === 'saved' ? '✓ 已同步到数据库'
@@ -804,19 +1018,29 @@ export default function EdhLifePage() {
 interface CenterBarProps {
   running: boolean;
   syncStatus: SyncStatus;
+  firstRolling: boolean;
   onRollDice: () => void;
   onRollCoin: () => void;
+  onDecideFirst: () => void;
   onOpenHistory: () => void;
   onOpenSettings: () => void;
   onToggleTimer: () => void;
 }
 
 function CenterBar({
-  running, syncStatus, onRollDice, onRollCoin, onOpenHistory, onOpenSettings, onToggleTimer,
+  running, syncStatus, firstRolling,
+  onRollDice, onRollCoin, onDecideFirst, onOpenHistory, onOpenSettings, onToggleTimer,
 }: CenterBarProps) {
   return (
     <div className="edh-center-half">
       <button type="button" className="edh-center-btn" title="设置" onPointerDown={(e) => { e.preventDefault(); onOpenSettings(); }}>⚙ 设置</button>
+      <button
+        type="button"
+        className={`edh-center-btn edh-first-btn${firstRolling ? ' is-rolling' : ''}`}
+        title="随机决定先手和行动顺序"
+        disabled={firstRolling}
+        onPointerDown={(e) => { e.preventDefault(); onDecideFirst(); }}
+      >{firstRolling ? '决定中…' : '先攻决定'}</button>
       <button type="button" className="edh-center-btn" title="投骰子" onPointerDown={(e) => { e.preventDefault(); onRollDice(); }}>🎲 骰子</button>
       <button type="button" className="edh-center-btn" title="投硬币" onPointerDown={(e) => { e.preventDefault(); onRollCoin(); }}>🪙 硬币</button>
       <button type="button" className="edh-center-btn" title="掷骰历史" onPointerDown={(e) => { e.preventDefault(); onOpenHistory(); }}>🕘 历史</button>

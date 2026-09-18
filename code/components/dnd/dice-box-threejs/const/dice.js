@@ -12,12 +12,12 @@ export const DICE = {
 		type: 'd2',
 		name: 'Coin',
 		labels: [
-			'textures/silvercoin/tail.png',
-			'textures/silvercoin/heads.png'
+			'/dice-assets/textures/silvercoin/tail-v2.png',
+			'/dice-assets/textures/silvercoin/heads-v2.png'
 		],
-		setBumpMaps: [ 
-			'textures/silvercoin/tail_bump.png',
-			'textures/silvercoin/heads_bump.png'
+		bumpMaps: [
+			'/dice-assets/textures/silvercoin/tail-v2_bump.png',
+			'/dice-assets/textures/silvercoin/heads-v2_bump.png'
 		],
 		values: [ 0,1 ],
 		inertia: 8,

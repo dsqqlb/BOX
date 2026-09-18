@@ -391,7 +391,10 @@ class DiceBox {
 		// iOS Safari 上播放一段极短静音可以把 Web Audio 从"手势解锁"状态彻底激活，
 		// 之后物理碰撞随时触发都不再受自动播放限制。
 		try {
-			const silentBuffer = ctx.createBuffer(1, 1, Math.max(1, Math.floor(ctx.sampleRate * 0.01)))
+			// createBuffer(声道数, 帧数, 采样率)：第三个参数必须是 ctx.sampleRate。
+			// 之前误把「0.01 秒对应的帧数」当成采样率传进去，iPad 上会直接抛
+			// NotSupportedError，静音解锁从来没成功过。
+			const silentBuffer = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * 0.01)), ctx.sampleRate)
 			const silentSource = ctx.createBufferSource()
 			silentSource.buffer = silentBuffer
 			silentSource.connect(ctx.destination)
@@ -591,15 +594,19 @@ class DiceBox {
 					};
 				} else {
 					//coin flip
+					// 硬币要掷得更快、在空中多翻几圈：
+					//   - z 是抛出初速度（这个引擎里 z 轴朝上），调大后滞空时间变长；
+					//   - angle 会被写进 body.angularVelocity，是翻滚的角速度，
+					//     x/y 两个水平轴上的分量越大，翻的圈数越多（y 分量同时带一点"立转"）。
 					velocity = { 
-						x: velvec.x * boost / 10, 
-						y: velvec.y * boost / 10, 
-						z: 3000
+						x: velvec.x * boost / 7, 
+						y: velvec.y * boost / 7, 
+						z: 4400
 					};
 
 					angle = {
-						x: 12 * diceobj.inertia,//-(Math.random() * velvec.y * 50 + diceobj.inertia * velvec.y ) ,
-						y: 1 * diceobj.inertia,//Math.random() * velvec.x * 50 + diceobj.inertia * velvec.x ,
+						x: 22 * diceobj.inertia,
+						y: 5 * diceobj.inertia,
 						z: 0
 					};
 

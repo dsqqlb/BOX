@@ -1,33 +1,20 @@
-/* ============================================================
-   EDH 指挥官记血器
-   ------------------------------------------------------------
-   布局目标（这是整个样式文件的核心约束）：
-     · 2×2 中心对称：**贴近自己这一排是正的，对面那一排上下颠倒**
-     · 中间只有一条窄缝隙放公共工具条（毛玻璃圆角矩形按钮）
-     · 无论手机还是平板，一屏显示完，绝不出现滚动条
-     · 长按是核心操作，所以禁用文本选择、长按菜单、双击缩放、下拉刷新
-
-   尺寸策略：横向用 % / vw，纵向统一用 dvh 的百分比（--strip / --gap），
-   所以任何宽高比下都能塞进一屏且比例一致。
-============================================================ */
-
-html:has(.edh-root),
-body:has(.edh-root) {
+/* ============================================================   EDH 指挥官记血器   ------------------------------------------------------------   布局目标（这是整个样式文件的核心约束）：     · 2×2 中心对称：**贴近自己这一排是正的，对面那一排上下颠倒**     · 中间只有一条窄缝隙放公共工具条（毛玻璃圆角矩形按钮）     · 无论手机还是平板，一屏显示完，绝不出现滚动条     · 长按是核心操作，所以禁用文本选择、长按菜单、双击缩放、下拉刷新   尺寸策略：横向用 % / vw，纵向统一用 dvh 的百分比（--strip / --gap），   所以任何宽高比下都能塞进一屏且比例一致。============================================================ */
+html:has(.edh-root),body:has(.edh-root) {
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  overscroll-behavior: none;
-}
-
+  overscroll-behavior: none;}
 .edh-root {
   position: fixed;
   inset: 0;
   width: 100%;
-  height: 100vh;              /* 老浏览器兜底 */
-  height: -webkit-fill-available;
-  height: 100dvh;             /* iPad / iPhone 动态地址栏下按当前可视高度铺满 */
-  max-height: -webkit-fill-available;
+  height: 100vh;
+  /* 老浏览器兜底 */
+height: -webkit-fill-available;
+  height: 100dvh;
+  /* iPad / iPhone 动态地址栏下按当前可视高度铺满 */
+max-height: -webkit-fill-available;
   max-height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -39,48 +26,35 @@ body:has(.edh-root) {
   -webkit-tap-highlight-color: transparent;
   background: #08080a;
   color: #e6e6e6;
-  background-image: radial-gradient(ellipse at 50% 42%, rgba(90, 70, 130, 0.22), transparent 62%);
-}
-
+  background-image: radial-gradient(ellipse at 50% 42%, rgba(90, 70, 130, 0.22), transparent 62%);}
 .edh-loading {
   display: flex;
   align-items: center;
   justify-content: center;
   color: #8a8a8a;
-  letter-spacing: 2px;
-}
-
+  letter-spacing: 2px;}
 /* ── 网格 ── */
-
 .edh-grid {
   --gap: 0.6vh;
   --gap: 0.6dvh;
   --strip: 8vh;
   --strip: 8dvh;
   position: absolute;
-  inset:
-    env(safe-area-inset-top, 0px)
-    env(safe-area-inset-right, 0px)
-    env(safe-area-inset-bottom, 0px)
-    env(safe-area-inset-left, 0px);
+  inset:    env(safe-area-inset-top, 0px)    env(safe-area-inset-right, 0px)    env(safe-area-inset-bottom, 0px)    env(safe-area-inset-left, 0px);
   display: grid;
   gap: var(--gap);
-  padding: calc(var(--gap) / 2);
-}
-
+  padding: calc(var(--gap) / 2);}
 /* 2 人：下方一个（seat 0，正的）、上方一个（seat 1，倒的） */
 .edh-players-2 .edh-grid { grid-template-rows: 1fr var(--strip) 1fr; grid-template-columns: 1fr; }
 .edh-players-2 .edh-center { grid-row: 2; grid-column: 1; }
 .edh-players-2 .edh-seat[data-seat="1"] { grid-row: 1; grid-column: 1; }
 .edh-players-2 .edh-seat[data-seat="0"] { grid-row: 3; grid-column: 1; }
-
 /* 3 人：下方两个（seat 0/1）、上方一个（seat 2） */
 .edh-players-3 .edh-grid { grid-template-rows: 1fr var(--strip) 1fr; grid-template-columns: 1fr 1fr; }
 .edh-players-3 .edh-center { grid-row: 2; grid-column: 1 / span 2; }
 .edh-players-3 .edh-seat[data-seat="2"] { grid-row: 1; grid-column: 1 / span 2; max-width: 62%; margin: 0 auto; }
 .edh-players-3 .edh-seat[data-seat="0"] { grid-row: 3; grid-column: 1; }
 .edh-players-3 .edh-seat[data-seat="1"] { grid-row: 3; grid-column: 2; }
-
 /* 4 人：2×2，下排 seat 0/1（正的）、上排 seat 2/3（倒的） */
 .edh-players-4 .edh-grid { grid-template-rows: 1fr var(--strip) 1fr; grid-template-columns: 1fr 1fr; }
 .edh-players-4 .edh-center { grid-row: 2; grid-column: 1 / span 2; }
@@ -88,26 +62,23 @@ body:has(.edh-root) {
 .edh-players-4 .edh-seat[data-seat="3"] { grid-row: 1; grid-column: 2; }
 .edh-players-4 .edh-seat[data-seat="0"] { grid-row: 3; grid-column: 1; }
 .edh-players-4 .edh-seat[data-seat="1"] { grid-row: 3; grid-column: 2; }
-
 @media (max-height: 560px) {
   .edh-grid {
-    --strip: 10vh;
-    --strip: 10dvh;
-    --gap: 0.5vh;
-    --gap: 0.5dvh;
+  --strip: 10vh;
+  --strip: 10dvh;
+  --gap: 0.5vh;
+  --gap: 0.5dvh;
   }
 }
 @media (min-height: 900px) {
   .edh-grid {
-    --strip: 7vh;
-    --strip: 7dvh;
-    --gap: 0.7vh;
-    --gap: 0.7dvh;
+  --strip: 7vh;
+  --strip: 7dvh;
+  --gap: 0.7vh;
+  --gap: 0.7dvh;
   }
 }
-
 /* ── 座位色块 ── */
-
 .edh-seat {
   position: relative;
   display: flex;
@@ -116,9 +87,27 @@ body:has(.edh-root) {
   overflow: hidden;
   border: 2px solid;
   border-radius: 14px;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.45);}
+/* 先攻轮盘经过时：整块色牌强高亮，不直接改 transform，避免破坏对面座位的 180° 朝向。 */
+.edh-seat.is-rolling::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  border: 5px solid rgba(255, 249, 192, 0.98);
+  background: radial-gradient(circle at 50% 50%, rgba(255, 247, 173, 0.28), rgba(255, 220, 80, 0.08) 58%, transparent 72%);
+  box-shadow:
+    inset 0 0 34px rgba(255, 244, 150, 0.7),
+    0 0 30px rgba(255, 222, 92, 0.82);
+  animation: edh-seat-rolling 180ms ease-in-out infinite alternate;
+  pointer-events: none;}
+@keyframes edh-seat-rolling {
+  from { opacity: 0.72; filter: brightness(1); }
+  to { opacity: 1; filter: brightness(1.5); }
 }
-
+/* 先攻名次只用右上角的徽标表示：整块牌子的高亮只在轮盘转到它的那一瞬间出现，
+   定完就撤掉，不然四个人一直顶着一圈黄光，反而看不出谁是刚选出来的先手。 */
 /* 左右两半热区：铺满整块，点哪半就 ±1 */
 .edh-half-catcher {
   position: absolute;
@@ -126,9 +115,7 @@ body:has(.edh-root) {
   z-index: 0;
   cursor: pointer;
   touch-action: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
+  -webkit-tap-highlight-color: transparent;}
 /* 按住时的进度线：左半从左往右扫、右半从右往左扫；扫满后进入"持续 ±5"，线常亮并呼吸 */
 .edh-side-progress {
   position: absolute;
@@ -136,16 +123,14 @@ body:has(.edh-root) {
   height: 5px;
   width: 50%;
   background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.6);
-}
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.6);}
 .edh-side-progress-left { left: 0; transform-origin: left center; }
 .edh-side-progress-right { right: 0; transform-origin: right center; }
 .edh-side-progress.is-full { animation: edh-progress-pulse 0.5s ease-in-out infinite alternate; }
 @keyframes edh-progress-pulse {
   from { opacity: 0.55; }
-  to   { opacity: 1; }
+to   { opacity: 1; }
 }
-
 .edh-seat-inner {
   position: relative;
   z-index: 1;
@@ -158,18 +143,14 @@ body:has(.edh-root) {
   min-height: 0;
   padding: clamp(2px, 0.6vh, 8px) clamp(4px, 1.2vw, 16px);
   /* 让内容层本身不吃指针事件，只有具体元素吃；其余区域落到下面的热区 */
-  pointer-events: none;
-}
-
+pointer-events: none;}
 .edh-life-center {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   min-width: 0;
-  flex: 1;
-}
-
+  flex: 1;}
 .edh-seat-name {
   pointer-events: auto;
   max-width: 100%;
@@ -183,9 +164,7 @@ body:has(.edh-root) {
   font-size: clamp(9px, 1.5vh, 14px);
   letter-spacing: 1px;
   cursor: text;
-  padding: 0;
-}
-
+  padding: 0;}
 .edh-name-input {
   pointer-events: auto;
   width: 80%;
@@ -195,34 +174,57 @@ body:has(.edh-root) {
   color: inherit;
   font-size: clamp(10px, 1.7vh, 15px);
   text-align: center;
-  outline: none;
-}
-
+  outline: none;}
 .edh-life-value {
   font-size: clamp(46px, 13.5vh, 140px);
   font-weight: 800;
   line-height: 0.95;
   font-variant-numeric: tabular-nums;
   color: #fff;
-  text-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.95),
-    0 0 10px rgba(0, 0, 0, 0.72);
+  text-shadow:    0 1px 2px rgba(0, 0, 0, 0.95),    0 0 10px rgba(0, 0, 0, 0.72);}
+/* 血量变化后的累计缓冲值：从数字上方浮起，5 秒无操作后自动消失。 */
+.edh-life-delta {
+  position: absolute;
+  top: clamp(0px, 1.4vh, 13px);
+  left: 50%;
+  z-index: 4;
+  min-width: 2.4em;
+  padding: 0.08em 0.42em 0.14em;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: rgba(9, 9, 14, 0.8);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.45);
+  font-size: clamp(17px, 3.5vh, 34px);
+  font-weight: 900;
+  line-height: 1.1;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  animation: edh-delta-in 180ms ease-out both;}
+.edh-life-delta.is-add {
+  color: #72f09d;
+  text-shadow: 0 0 12px rgba(74, 237, 132, 0.48);}
+.edh-life-delta.is-sub {
+  color: #ff7777;
+  text-shadow: 0 0 12px rgba(255, 73, 73, 0.5);}
+.edh-life-delta.is-zero {
+  color: #c5c5cf;
+  text-shadow: none;}
+@keyframes edh-delta-in {
+  from { opacity: 0; transform: translate(-50%, 10px) scale(0.78); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
-
-/* 按住中央方块期间：血量数字颤抖（按住 2 秒的等待反馈） */
+/* 按住中央方块期间：血量数字颤抖（0.75 秒长按反馈） */
 .edh-life-value.is-trembling {
-  animation: edh-tremble 0.1s linear infinite;
-}
+  animation: edh-tremble 0.1s linear infinite;}
 @keyframes edh-tremble {
   0%   { transform: translate(0, 0) rotate(0deg); }
-  25%  { transform: translate(-2px, 1px) rotate(-0.6deg); }
-  50%  { transform: translate(2px, -1px) rotate(0.6deg); }
-  75%  { transform: translate(-1px, -2px) rotate(-0.4deg); }
-  100% { transform: translate(1px, 2px) rotate(0.4deg); }
+25%  { transform: translate(-2px, 1px) rotate(-0.6deg); }
+50%  { transform: translate(2px, -1px) rotate(0.6deg); }
+75%  { transform: translate(-1px, -2px) rotate(-0.4deg); }
+100% { transform: translate(1px, 2px) rotate(0.4deg); }
 }
-
-/* ── 中央正方形：独立的隐形触感区（无边框无背景），按住 2 秒弹"任意数值" ─ */
-
+/* ── 中央正方形：独立的隐形触感区（无边框无背景），按住 0.75 秒弹"任意数值" ─ */
 .edh-center-hold {
   pointer-events: auto;
   position: relative;
@@ -236,94 +238,116 @@ body:has(.edh-root) {
   background: none;
   cursor: pointer;
   touch-action: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
+  -webkit-tap-highlight-color: transparent;}
 /* 按住时给一点极淡的反馈（仍然是隐形的，只是让玩家知道"按住了"） */
 .edh-center-hold.is-holding {
   background: radial-gradient(circle, rgba(255, 255, 255, 0.12), transparent 70%);
-  border-radius: 18px;
-}
-
-/* 色块底部的单一入口：具体记录项在弹窗里按需显示。 */
-.edh-counter-menu {
-  pointer-events: auto;
+  border-radius: 18px;}
+/* 按住 0.75 秒的进度环：绕数字走一圈就弹窗，看得到还剩多久。 */
+.edh-center-hold::after {
+  content: '';
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background: conic-gradient(rgba(255, 255, 255, 0.42) var(--edh-hold-angle, 0deg), rgba(255, 255, 255, 0.06) 0);
+  -webkit-mask: radial-gradient(circle, transparent 0 calc(50% - 6px), #000 calc(50% - 5px));
+  mask: radial-gradient(circle, transparent 0 calc(50% - 6px), #000 calc(50% - 5px));
+  opacity: 0;
+  transition: opacity 140ms ease;
+  pointer-events: none;}
+.edh-center-hold.is-holding::after { opacity: 1; }
+/* 血量数字下面的一排：图标 + 数量，横向排列，只有 > 0 的项目才出现。 */
+.edh-seat-counters {
+  pointer-events: none;
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  gap: clamp(4px, 0.7vw, 9px);
-  min-width: clamp(96px, 18vw, 180px);
-  max-width: 78%;
-  height: clamp(28px, 5.4vh, 44px);
-  margin-bottom: clamp(2px, 0.5vh, 7px);
-  padding: 0 clamp(10px, 1.8vw, 22px);
-  border-radius: clamp(9px, 1.5vh, 14px);
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  background: rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(9px) saturate(1.25);
-  -webkit-backdrop-filter: blur(9px) saturate(1.25);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 3px 12px rgba(0, 0, 0, 0.28);
-  color: #fff;
-  font-size: clamp(11px, 1.8vh, 16px);
-  letter-spacing: 1px;
-  cursor: pointer;
-  touch-action: none;
-  -webkit-tap-highlight-color: transparent;
-}
-.edh-counter-menu:active {
-  background: rgba(255, 255, 255, 0.3);
-  transform: scale(0.96);
-}
-.edh-counter-menu img {
-  width: clamp(16px, 2.8vh, 25px);
-  height: clamp(16px, 2.8vh, 25px);
-}
-.edh-counter-menu b {
-  display: grid;
-  place-items: center;
-  min-width: 1.65em;
-  height: 1.65em;
-  padding: 0 0.3em;
+  gap: clamp(3px, 0.7vh, 7px) clamp(5px, 1vw, 11px);
+  width: 100%;
+  max-width: 100%;
+  margin-top: clamp(2px, 0.8vh, 12px);
+  padding: 0 clamp(4px, 1vw, 10px);}
+.edh-seat-counter {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: clamp(2px, 0.5vh, 5px);
+  padding: clamp(1px, 0.3vh, 3px) clamp(5px, 0.9vw, 10px) clamp(1px, 0.3vh, 3px) clamp(2px, 0.4vw, 5px);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #17171d;
-  font-size: 0.72em;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 8px rgba(0, 0, 0, 0.3);
+  line-height: 1;}
+.edh-seat-counter img {
+  display: block;
+  width: clamp(16px, 2.7vh, 27px);
+  height: clamp(16px, 2.7vh, 27px);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85));}
+.edh-seat-counter b {
+  color: #fff;
+  font-size: clamp(12px, 2vh, 20px);
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
-}
-.edh-counter-menu.is-lethal {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);}
+.edh-seat-counter.is-lethal {
   border-color: rgba(255, 142, 142, 0.95);
-  background: rgba(170, 24, 24, 0.62);
-  box-shadow: 0 0 18px rgba(255, 55, 55, 0.42);
+  background: rgba(170, 24, 24, 0.7);
+  box-shadow: 0 0 14px rgba(255, 55, 55, 0.5);}
+/* 先攻名次徽标：跟着玩家座位方向显示，坐在哪一边都能正着读。 */
+.edh-seat-rank {
+  position: absolute;
+  top: clamp(7px, 1.4vh, 15px);
+  right: clamp(8px, 1.4vw, 18px);
+  z-index: 5;
+  min-width: clamp(46px, 8vh, 76px);
+  padding: clamp(3px, 0.55vh, 7px) clamp(8px, 1.4vw, 14px);
+  border: 2px solid rgba(255, 255, 255, 0.52);
+  border-radius: 999px;
+  background: rgba(15, 15, 22, 0.82);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.5);
+  color: #f1f1f6;
+  font-size: clamp(16px, 3.2vh, 32px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;}
+.edh-seat-rank.is-first {
+  border-color: rgba(255, 240, 148, 0.98);
+  background: linear-gradient(145deg, rgba(130, 95, 12, 0.96), rgba(74, 49, 4, 0.96));
+  box-shadow: 0 0 22px rgba(255, 221, 82, 0.72), 0 5px 16px rgba(0, 0, 0, 0.5);
+  color: #fff6bd;
+  animation: edh-first-rank-in 420ms cubic-bezier(0.2, 1.4, 0.4, 1) both;}
+@keyframes edh-first-rank-in {
+  from { opacity: 0; transform: scale(0.4) rotate(-10deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
 }
-
 /* 记录面板：有值才出现在“当前记录”，值为 0 时自动回到“添加记录”。 */
 .edh-counter-panel {
   width: 100%;
-  gap: 9px;
-}
+  gap: 9px;}
 .edh-counter-panel-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  overflow: auto;
-  padding-right: 2px;
-}
+  overflow: visible;
+  padding-right: 2px;}
 .edh-counter-panel-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
+  gap: 8px;}
 .edh-counter-active-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
-}
+  gap: 7px;}
 .edh-counter-add-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-}
+  gap: 7px;}
 .edh-counter-tile {
   --counter-index: 0;
   position: relative;
@@ -337,25 +361,21 @@ body:has(.edh-root) {
   border: 1px solid rgba(255, 255, 255, 0.19);
   background: rgba(255, 255, 255, 0.07);
   animation: edh-counter-tile-in 220ms ease-out both;
-  animation-delay: calc(var(--counter-index) * 35ms);
-}
+  animation-delay: calc(var(--counter-index) * 35ms);}
 .edh-counter-tile > img {
   width: 30px;
-  height: 30px;
-}
+  height: 30px;}
 .edh-counter-tile-main {
   display: flex;
   flex-direction: column;
-  min-width: 0;
-}
+  min-width: 0;}
 .edh-counter-tile-label {
   overflow: hidden;
   color: #a9a9ba;
   font-size: 10px;
   letter-spacing: 1px;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
+  white-space: nowrap;}
 .edh-counter-tile-value {
   width: max-content;
   min-width: 2ch;
@@ -367,12 +387,10 @@ body:has(.edh-root) {
   font-weight: 800;
   line-height: 1.05;
   font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
+  cursor: pointer;}
 .edh-counter-steps {
   display: flex;
-  gap: 4px;
-}
+  gap: 4px;}
 .edh-counter-steps button {
   width: 27px;
   height: 31px;
@@ -382,26 +400,21 @@ body:has(.edh-root) {
   background: rgba(255, 255, 255, 0.07);
   color: #efeff5;
   font-size: 17px;
-  cursor: pointer;
-}
-.edh-counter-steps button:active,
-.edh-counter-add:active {
+  cursor: pointer;}
+.edh-counter-steps button:active,.edh-counter-add:active {
   background: rgba(255, 255, 255, 0.2);
-  transform: scale(0.96);
-}
+  transform: scale(0.96);}
 .edh-counter-tile.is-lethal {
   border-color: rgba(255, 132, 132, 0.85);
   background: rgba(170, 24, 24, 0.5);
-  box-shadow: 0 0 16px rgba(255, 55, 55, 0.28);
-}
+  box-shadow: 0 0 16px rgba(255, 55, 55, 0.28);}
 .edh-counter-tile-lethal {
   position: absolute;
   top: 4px;
   right: 5px;
   color: #ffd2d2;
   font-size: 9px;
-  letter-spacing: 1px;
-}
+  letter-spacing: 1px;}
 .edh-counter-add {
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr) auto;
@@ -415,39 +428,32 @@ body:has(.edh-root) {
   color: #d8d8e4;
   font-size: 13px;
   text-align: left;
-  cursor: pointer;
-}
+  cursor: pointer;}
 .edh-counter-add img {
   width: 26px;
-  height: 26px;
-}
+  height: 26px;}
 .edh-counter-add b {
   color: #c9a3ff;
-  font-size: 18px;
-}
+  font-size: 18px;}
 .edh-counter-empty {
   padding: 14px;
   border-radius: 10px;
   border: 1px dashed rgba(255, 255, 255, 0.16);
   color: #7c7c8c;
   font-size: 12px;
-  text-align: center;
-}
-
+  text-align: center;}
 @keyframes edh-counter-tile-in {
   from { opacity: 0; transform: translateY(6px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-
 @container (max-width: 500px) {
   .edh-counter-active-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .edh-counter-add-grid {
-    grid-template-columns: minmax(0, 1fr);
+.edh-counter-add-grid {
+  grid-template-columns: minmax(0, 1fr);
   }
 }
-
 /* 出局：整块压暗 + 中央骷髅头（grayscale 由内联样式控制） */
 .edh-eliminated {
   position: absolute;
@@ -459,38 +465,31 @@ body:has(.edh-root) {
   justify-content: center;
   gap: 4px;
   background: rgba(0, 0, 0, 0.45);
-  pointer-events: none;
-}
+  pointer-events: none;}
 .edh-skull {
   font-size: clamp(38px, 12vh, 110px);
   line-height: 1;
   filter: drop-shadow(0 0 14px rgba(0, 0, 0, 0.9));
-  opacity: 0.92;
-}
+  opacity: 0.92;}
 .edh-eliminated-reason { font-size: clamp(10px, 1.7vh, 16px); letter-spacing: 2px; color: #d8d8d8; }
-
 /* ── 中间缝隙：一排毛玻璃圆角矩形按钮（上下各一份，互为 180°）── */
-
 .edh-center {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   align-items: center;
   min-height: 0;
-  padding: 0 clamp(4px, 1vw, 14px);
-}
-
+  padding: 0 clamp(4px, 1vw, 14px);}
 .edh-center-half {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   flex: 1;
   align-items: center;
-  justify-content: center;
-  gap: clamp(6px, 1.6vw, 20px);
+  gap: clamp(3px, 0.75vw, 12px);
   min-height: 0;
-  width: 100%;
-}
-
-/* 整条缝隙的毛玻璃底板：让按钮看起来浮在一条玻璃条上 */
+  width: min(100%, 760px);
+  margin-inline: auto;}
+/* 整条缝隙的毛玻璃底板：让按钮看起来浮在一条玻璃条上；底色会缓慢流动 */
 .edh-center::before {
   content: '';
   position: absolute;
@@ -499,20 +498,114 @@ body:has(.edh-root) {
   height: var(--strip);
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(112deg,
+      rgba(255, 255, 255, 0.03) 0%,
+      rgba(178, 152, 255, 0.16) 22%,
+      rgba(120, 220, 255, 0.13) 42%,
+      rgba(255, 214, 120, 0.12) 62%,
+      rgba(255, 255, 255, 0.03) 100%),
+    rgba(255, 255, 255, 0.05);
+  background-size: 260% 100%, 100% 100%;
+  animation: edh-center-flow 9s ease-in-out infinite;
   backdrop-filter: blur(10px) saturate(1.3);
   -webkit-backdrop-filter: blur(10px) saturate(1.3);
-  pointer-events: none;
-}
-
+  pointer-events: none;}
 .edh-center { position: relative; }
-
+@keyframes edh-center-flow {
+  0%, 100% { background-position: 0% 0; }
+  50%      { background-position: 100% 0; }
+}
+/*
+ * 玻璃条里漂着几粒很淡的亮点：给静置状态一点"还在运转"的感觉。
+ * 单独占一层，不跟上面的渐变抢 background-position。
+ */
+.edh-center-half::before {
+  content: '';
+  position: absolute;
+  left: 0.5vw;
+  right: 0.5vw;
+  top: 50%;
+  height: var(--strip);
+  transform: translateY(-50%);
+  border-radius: 14px;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.55) 0 1.2px, transparent 2px),
+    radial-gradient(circle, rgba(168, 220, 255, 0.45) 0 1.2px, transparent 2px),
+    radial-gradient(circle, rgba(255, 224, 150, 0.42) 0 1.2px, transparent 2px),
+    radial-gradient(circle, rgba(198, 176, 255, 0.4) 0 1.2px, transparent 2px);
+  background-size: 190px 100%, 250px 100%, 310px 100%, 370px 100%;
+  animation: edh-center-motes 30s linear infinite;
+  opacity: 0.75;
+  pointer-events: none;}
+.edh-center-half::after {
+  content: '';
+  position: absolute;
+  left: 0.5vw;
+  right: 0.5vw;
+  top: 50%;
+  z-index: 0;
+  height: calc(var(--strip) - 2px);
+  transform: translateY(-50%);
+  border-radius: 14px;
+  background:
+    linear-gradient(105deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.04) 32%,
+      rgba(255, 236, 154, 0.22) 50%,
+      rgba(144, 220, 255, 0.18) 68%,
+      transparent 100%);
+  background-size: 12% 100%;
+  background-repeat: no-repeat;
+  animation: edh-center-energy 5.8s ease-in-out infinite;
+  filter: blur(0.4px);
+  opacity: 0.9;
+  pointer-events: none;}
+.edh-center-half { position: relative; }
+@keyframes edh-center-motes {
+  0%   { background-position: 0 0, 0 0, 0 0, 0 0; }
+  100% { background-position: 380px 0, -500px 0, 620px 0, -740px 0; }
+}
+@keyframes edh-center-energy {
+  0%, 100% { background-position: -18% 0; opacity: 0; }
+  16%      { opacity: 0.9; }
+  52%      { background-position: 112% 0; opacity: 0.85; }
+  68%      { background-position: 112% 0; opacity: 0; }
+}
+/* 时不时有一道扫描光横穿整条缝，让中间那条玻璃条"活着" */
+.edh-center::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.5vw;
+  width: 20%;
+  height: var(--strip);
+  transform: translate(-40%, -50%);
+  border-radius: 14px;
+  background: linear-gradient(100deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.26) 38%,
+    rgba(168, 226, 255, 0.22) 58%,
+    transparent 100%);
+  filter: blur(2px);
+  opacity: 0;
+  animation: edh-center-scan 7.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  pointer-events: none;}
+@keyframes edh-center-scan {
+  0%   { transform: translate(-40%, -50%); opacity: 0; }
+  6%   { opacity: 0.95; }
+  46%  { transform: translate(430%, -50%); opacity: 0.8; }
+  52%  { transform: translate(430%, -50%); opacity: 0; }
+  100% { transform: translate(430%, -50%); opacity: 0; }
+}
 .edh-center-btn {
   position: relative;
+  z-index: 1;
   overflow: hidden;
-  min-width: clamp(54px, 13vw, 116px);
+  width: 100%;
+  min-width: 0;
   height: clamp(28px, 6.4vh, 52px);
-  padding: 0 clamp(8px, 1.6vw, 18px);
+  padding: 0 clamp(2px, 0.6vw, 12px);
   border-radius: clamp(8px, 1.6vh, 14px);
   border: 1px solid rgba(255, 255, 255, 0.26);
   background: rgba(255, 255, 255, 0.14);
@@ -520,17 +613,89 @@ body:has(.edh-root) {
   -webkit-backdrop-filter: blur(9px) saturate(1.25);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 3px 10px rgba(0, 0, 0, 0.25);
   color: #ececf4;
-  font-size: clamp(11px, 2vh, 18px);
-  letter-spacing: 1px;
+  font-size: clamp(10px, 1.5vw, 17px);
+  letter-spacing: 0;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
+  -webkit-tap-highlight-color: transparent;}
 .edh-center-btn:active { background: rgba(255, 255, 255, 0.26); transform: scale(0.97); }
-
+/* 按钮常态呼吸：边框和底部辉光缓慢明暗，整条缝就不会显得死板 */
+.edh-center-btn:not(.edh-first-btn) {
+  animation: edh-center-btn-breathe 6.2s ease-in-out infinite;
+  animation-delay: calc(var(--sheen-delay, 0) * 0.42s);}
+@keyframes edh-center-btn-breathe {
+  0%, 100% {
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      0 0 0 rgba(140, 200, 255, 0),
+      0 3px 10px rgba(0, 0, 0, 0.25);
+  }
+  33% {
+    border-color: rgba(196, 224, 255, 0.52);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.4),
+      0 0 18px rgba(140, 200, 255, 0.3),
+      0 3px 10px rgba(0, 0, 0, 0.25);
+  }
+  66% {
+    border-color: rgba(255, 218, 150, 0.5);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.4),
+      0 0 18px rgba(255, 205, 120, 0.28),
+      0 3px 10px rgba(0, 0, 0, 0.25);
+  }
+}
+.edh-first-btn {
+  border-color: rgba(255, 224, 118, 0.55);
+  background: linear-gradient(145deg, rgba(176, 123, 22, 0.34), rgba(255, 214, 82, 0.12));
+  color: #ffe59a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 0 16px rgba(255, 203, 62, 0.18);}
+.edh-first-btn:not(.is-rolling) {
+  animation: edh-first-btn-breathe 4.8s ease-in-out infinite;}
+@keyframes edh-first-btn-breathe {
+  0%, 100% {
+    border-color: rgba(255, 224, 118, 0.5);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 0 12px rgba(255, 203, 62, 0.16);
+  }
+  50% {
+    border-color: rgba(255, 240, 170, 0.9);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 0 26px rgba(255, 214, 82, 0.5);
+  }
+}
+.edh-first-btn.is-rolling {
+  border-color: rgba(255, 244, 174, 0.95);
+  background: linear-gradient(145deg, rgba(218, 158, 30, 0.7), rgba(255, 226, 105, 0.38));
+  color: #fff9d1;
+  animation:
+    edh-first-button-pulse 420ms ease-in-out infinite alternate,
+    edh-first-ring 1.15s ease-out infinite;}
+/* 往外扩的一圈金色涟漪。box-shadow 动画不额外占层，跟已有的 ::after 扫光不打架。 */
+@keyframes edh-first-ring {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(255, 238, 150, 0.75),
+      0 0 22px rgba(255, 218, 74, 0.62),
+      inset 0 0 16px rgba(255, 255, 255, 0.22);
+  }
+  100% {
+    box-shadow:
+      0 0 0 14px rgba(255, 238, 150, 0),
+      0 0 30px rgba(255, 218, 74, 0.5),
+      inset 0 0 16px rgba(255, 255, 255, 0.22);
+  }
+}
+.edh-center-btn:disabled {
+  cursor: default;
+  opacity: 0.78;}
+@keyframes edh-first-button-pulse {
+  from { transform: scale(0.98); }
+  to { transform: scale(1.02); }
+}
 /* 时不时扫过一道流光，让工具条"活着" */
 .edh-center-btn::after {
   content: '';
@@ -543,38 +708,41 @@ body:has(.edh-root) {
   transform: skewX(-18deg);
   animation: edh-sheen 4.6s ease-in-out infinite;
   animation-delay: calc(var(--sheen-delay, 0) * 1s);
-  pointer-events: none;
-}
+  pointer-events: none;}
 .edh-center-btn:nth-of-type(1) { --sheen-delay: 0; }
 .edh-center-btn:nth-of-type(2) { --sheen-delay: 1.1; }
 .edh-center-btn:nth-of-type(3) { --sheen-delay: 2.2; }
 .edh-center-btn:nth-of-type(4) { --sheen-delay: 3.3; }
-
+.edh-center-btn:nth-of-type(5) { --sheen-delay: 4.4; }
+.edh-center-btn:nth-of-type(6) { --sheen-delay: 5.5; }
 @keyframes edh-sheen {
   0%   { left: -40%; opacity: 0; }
-  12%  { opacity: 1; }
-  38%  { left: 118%; opacity: 0; }
-  100% { left: 118%; opacity: 0; }
+12%  { opacity: 1; }
+38%  { left: 118%; opacity: 0; }
+100% { left: 118%; opacity: 0; }
 }
-
 /* 计时播放/暂停按钮：一个小圆点表示当前状态 */
 .edh-center-timer-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #6fdc8f;
-  box-shadow: 0 0 8px rgba(111, 220, 143, 0.9);
-}
+  box-shadow: 0 0 8px rgba(111, 220, 143, 0.9);}
 .edh-center-btn.is-paused .edh-center-timer-dot { background: #d8c46a; box-shadow: none; }
-
-.edh-center-sync { font-size: clamp(10px, 1.6vh, 14px); color: #7f7f92; }
+.edh-center-sync {
+  position: absolute;
+  right: 1px;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+  font-size: clamp(9px, 1.4vh, 12px);
+  color: #7f7f92;
+  pointer-events: none;}
 .edh-sync-saved { color: #6fcf8f; }
 .edh-sync-saving { color: #d8c46a; }
 .edh-sync-offline { color: #d88a6a; }
 .edh-sync-error { color: #e06a6a; }
-
 /* ── 3D 骰盘 / 硬币遮罩 ── */
-
 .edh-dice-overlay {
   position: fixed;
   inset: 0;
@@ -583,69 +751,101 @@ body:has(.edh-root) {
   pointer-events: none;
   transition: opacity 320ms ease;
   background: rgba(6, 6, 10, 0.72);
-  backdrop-filter: blur(2px);
-}
+  backdrop-filter: blur(2px);}
 .edh-dice-overlay.is-visible { opacity: 1; pointer-events: auto; }
 .edh-dice-canvas { position: absolute; inset: 0; }
-
-/* 结果面板：上下各一份，下面那份旋转 180°，四个方向都读得到 */
+/* 结果面板：上下各一份、互为 180°，四个方向都能正着读到；内容居中放大。
+   旋转角度走 --edh-result-rot，所以弹出动画和 180° 朝向可以同时生效。 */
 .edh-result-panel {
+  --edh-result-rot: 0deg;
+  --edh-result-accent: #c9a3ff;
   position: absolute;
   left: 50%;
+  width: min(560px, 92vw);
+  padding: clamp(12px, 2vh, 20px) clamp(14px, 2vw, 24px);
+  border-radius: 18px;
+  border: 1px solid rgba(200, 170, 255, 0.5);
+  background: radial-gradient(ellipse at 50% 0%, rgba(122, 92, 190, 0.34), rgba(10, 8, 18, 0.9) 72%);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.66), 0 0 30px rgba(154, 122, 224, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transform: translateX(-50%) rotate(var(--edh-result-rot));
   transform-origin: center center;
-  width: min(460px, 92vw);
-  margin-left: min(-230px, -46vw);
-  padding: 10px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(200, 170, 255, 0.4);
-  background: rgba(10, 8, 18, 0.82);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-  pointer-events: none;
-}
-.edh-result-top { top: calc(env(safe-area-inset-top, 0px) + 10px); }
-.edh-result-bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); }
-
+  animation: edh-result-pop 420ms cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+  text-align: center;
+  pointer-events: none;}
+.edh-result-panel.is-coin-result {
+  border-color: rgba(240, 194, 90, 0.62);
+  background: radial-gradient(ellipse at 50% 0%, rgba(240, 194, 90, 0.28), rgba(16, 11, 4, 0.92) 72%);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.66), 0 0 34px rgba(240, 194, 90, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.16);}
+.edh-result-top { top: calc(env(safe-area-inset-top, 0px) + clamp(10px, 2vh, 22px)); }
+.edh-result-bottom {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(10px, 2vh, 22px));
+  --edh-result-rot: 180deg;}
+@keyframes edh-result-pop {
+  from { opacity: 0; transform: translateX(-50%) rotate(var(--edh-result-rot)) scale(0.84); }
+  65%  { opacity: 1; }
+  to   { opacity: 1; transform: translateX(-50%) rotate(var(--edh-result-rot)) scale(1); }}
 .edh-result-head {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  font-size: 12px;
+  justify-content: center;
+  gap: clamp(8px, 1.4vw, 18px);
+  font-size: clamp(12px, 1.9vh, 18px);
   letter-spacing: 2px;
-  color: #b9a6e0;
-  margin-bottom: 6px;
-}
-.edh-result-notation { opacity: 0.75; letter-spacing: 1px; }
-
-.edh-result-items { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
-.edh-result-group { display: flex; flex-direction: column; gap: 3px; }
-.edh-result-group-label { font-size: 10px; color: #9a8fc0; letter-spacing: 1px; }
-.edh-result-group-dice { display: flex; flex-wrap: wrap; gap: 6px; }
-
+  color: #cbb8f2;
+  margin-bottom: clamp(6px, 1.2vh, 14px);}
+.edh-result-title { font-weight: 700; }
+.edh-result-notation { opacity: 0.7; letter-spacing: 1px; font-size: 0.82em; }
+.edh-result-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: clamp(8px, 1.6vh, 18px);
+  margin-bottom: clamp(6px, 1.2vh, 14px);}
+.edh-result-group { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.edh-result-group-label { font-size: clamp(10px, 1.4vh, 13px); color: #a294cc; letter-spacing: 1px; }
+.edh-result-group-dice { display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(6px, 1vh, 12px); }
 .edh-result-die {
+  --edh-die-opacity: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 42px;
-  padding: 3px 7px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.07);
-}
+  min-width: clamp(48px, 7.4vh, 84px);
+  padding: clamp(4px, 0.8vh, 9px) clamp(7px, 1vw, 14px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  animation: edh-result-die-in 380ms cubic-bezier(0.2, 0.9, 0.25, 1.2) both;
+  animation-delay: calc(var(--edh-result-item-index, 0) * 70ms + 90ms);}
 .edh-result-die.is-coin {
-  min-width: 54px;
-  border-color: rgba(240, 194, 90, 0.8);
-  background: rgba(240, 194, 90, 0.16);
-}
-.edh-result-die.is-discarded { opacity: 0.42; border-style: dashed; }
+  min-width: clamp(66px, 10vh, 116px);
+  border-color: rgba(240, 194, 90, 0.85);
+  background: rgba(240, 194, 90, 0.18);
+  box-shadow: 0 0 22px rgba(240, 194, 90, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  animation-name: edh-result-coin-in;
+  animation-duration: 620ms;}
+.edh-result-die.is-discarded { --edh-die-opacity: 0.42; border-style: dashed; }
 .edh-result-die.is-discarded .edh-result-die-value { text-decoration: line-through; }
-.edh-result-die-value { font-size: 22px; font-weight: 800; line-height: 1.1; }
-.edh-result-die-sub { font-size: 9px; opacity: 0.6; letter-spacing: 0.5px; }
-
-.edh-result-total { display: flex; align-items: baseline; justify-content: flex-end; gap: 8px; }
-.edh-result-total-label { font-size: 11px; opacity: 0.6; letter-spacing: 2px; }
-.edh-result-total-value { font-size: 30px; font-weight: 800; line-height: 1; }
-
+.edh-result-die-value { font-size: clamp(26px, 4.6vh, 52px); font-weight: 800; line-height: 1.05; }
+.edh-result-die-sub { font-size: clamp(10px, 1.5vh, 14px); opacity: 0.62; letter-spacing: 0.5px; }
+@keyframes edh-result-die-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.7); }
+  to   { opacity: var(--edh-die-opacity); transform: translateY(0) scale(1); }}
+@keyframes edh-result-coin-in {
+  from { opacity: 0; transform: rotateY(-170deg) scale(0.55); }
+  55%  { opacity: 1; }
+  to   { opacity: var(--edh-die-opacity); transform: rotateY(0deg) scale(1); }}
+.edh-result-total { display: flex; align-items: baseline; justify-content: center; gap: clamp(8px, 1.2vw, 16px); }
+.edh-result-total-label { font-size: clamp(11px, 1.6vh, 15px); opacity: 0.66; letter-spacing: 2px; }
+.edh-result-total-value {
+  font-size: clamp(34px, 6.4vh, 72px);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--edh-result-accent);
+  text-shadow: 0 0 24px rgba(255, 255, 255, 0.28);}
 .edh-dice-hint {
   position: absolute;
   left: 50%;
@@ -655,93 +855,181 @@ body:has(.edh-root) {
   letter-spacing: 2px;
   color: rgba(255, 255, 255, 0.45);
   pointer-events: none;
-  white-space: nowrap;
-}
-
+  white-space: nowrap;}
 /* ── 弹窗共用 ── */
-
 .edh-modal-backdrop {
+  /* 右上角旋转按钮的"点击盒"尺寸；面板标题按钮按它让位，避免被盖住点不到。 */
+  --edh-rotate-box: clamp(118px, 15vh, 156px);
   position: fixed;
   inset: 0;
   z-index: 70;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding:
-    max(16px, env(safe-area-inset-top, 0px))
-    max(16px, env(safe-area-inset-right, 0px))
-    max(16px, env(safe-area-inset-bottom, 0px))
-    max(16px, env(safe-area-inset-left, 0px));
+  padding:    max(16px, env(safe-area-inset-top, 0px))    max(16px, env(safe-area-inset-right, 0px))    max(16px, env(safe-area-inset-bottom, 0px))    max(16px, env(safe-area-inset-left, 0px));
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(3px);
-  overscroll-behavior: none;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: none;}
+/* 只有内容多的设置页允许面板内部纵向滚动，其余弹窗仍然一屏锁死。 */
+.edh-modal-backdrop.is-scrollable { touch-action: manipulation; }
+/*
+ * 手机/小屏：弹窗直接占满可用屏幕，不再给右上角按钮单独扣一条高度。
+ * 旋转按钮固定在遮罩层右上角覆盖显示；内容确实放不下时只在面板内部滚动。
+ */
+.edh-modal-backdrop.is-compact {
+  --edh-rotate-box: clamp(96px, 26vw, 132px);
+  --edh-compact-top: max(6px, env(safe-area-inset-top, 0px));
+  --edh-compact-right: max(8px, env(safe-area-inset-right, 0px));
+  --edh-compact-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  --edh-compact-left: max(8px, env(safe-area-inset-left, 0px));
+  align-items: center;
+  padding: var(--edh-compact-top) var(--edh-compact-right) var(--edh-compact-bottom) var(--edh-compact-left);
+  touch-action: pan-y;}
+.edh-modal-backdrop.is-compact .edh-rotatable-stage {
+  width: min(
+    calc(var(--edh-modal-width) * var(--edh-modal-panel-scale, 1)),
+    calc(100vw - var(--edh-compact-left) - var(--edh-compact-right))
+  );
+  max-width: none;
+  max-height: calc(100dvh - var(--edh-compact-top) - var(--edh-compact-bottom));
+  max-height: calc(100svh - var(--edh-compact-top) - var(--edh-compact-bottom));
+  align-items: stretch;}
+.edh-modal-backdrop.is-compact .edh-rotatable-card,
+.edh-modal-backdrop.is-compact .edh-rotatable-scaler {
+  width: 100%;
+  max-height: 100%;}
+.edh-modal-backdrop.is-compact .edh-rotatable-surface {
+  width: 100%;
+  max-height: calc(100dvh - var(--edh-compact-top) - var(--edh-compact-bottom));
+  max-height: calc(100svh - var(--edh-compact-top) - var(--edh-compact-bottom));
+  /*
+   * 普通弹窗在手机上也按整块缩放，保证一屏能看完；
+   * 只有显式标记 scrollable 的设置页允许内部纵向滚动。
+   */
+  overflow: hidden;
+  touch-action: manipulation;
+  overscroll-behavior: none;}
+.edh-modal-backdrop.is-compact.is-scrollable .edh-rotatable-surface {
+  overflow-x: hidden;
+  overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.26) transparent;}
+.edh-modal-backdrop.is-compact.is-scrollable .edh-rotatable-scaler {
+  transform: none !important;}
+.edh-modal-backdrop.is-compact .edh-rotatable-surface::-webkit-scrollbar { width: 6px; }
+.edh-modal-backdrop.is-compact .edh-rotatable-surface::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);}
+/*
+ * 平板竖屏等窄视口：面板已经贴近视口右边缘，固定在右上角的旋转按钮会压住标题栏关闭键。
+ * 这里只把标题栏右侧留白让给按钮，不改动排版结构。
+ */
+@media (max-width: 1024px) {
+  .edh-modal-backdrop .edh-panel-head,
+  .edh-modal-backdrop .edh-history-head {
+    padding-right: calc(var(--edh-rotate-box) + 18px);}
 }
-
+/* 给不会随卡片旋转的右上角按钮让出标题空间，避免手机上和关闭键挤在一起。 */
+.edh-modal-backdrop.is-compact .edh-panel-head,
+.edh-modal-backdrop.is-compact .edh-history-head {
+  padding-right: calc(var(--edh-rotate-box) + 18px);}
+.edh-modal-backdrop.is-compact .edh-confirm {
+  padding-top: clamp(70px, 20vw, 112px);}
 .edh-modal-layer-base { z-index: 70; }
 .edh-modal-layer-archive { z-index: 90; }
 .edh-modal-layer-confirm { z-index: 110; }
-
 .edh-rotatable-stage {
   --edh-modal-width: 420px;
-  /* 两个方向都按最短视口边约束，旋转前后舞台尺寸不再跳变。 */
+  /*
+   * 只按"视口宽度"约束舞台宽度：本工具只做 180° 翻转，横竖方向包围盒完全一致，
+   * 所以不再用最短视口边压窄弹窗（那样在手机上会把弹窗挤得特别小）。
+   * 面板大小滑块（--edh-modal-panel-scale）直接放大/缩小这里的排布宽度。
+   */
   width: min(
-    var(--edh-modal-width),
-    calc(100vw - 32px),
-    calc(100dvh - 32px)
+    calc(var(--edh-modal-width) * var(--edh-modal-panel-scale, 1)),
+    calc(100vw - 24px)
   );
+  max-height: calc(100dvh - 24px);
+  max-height: calc(100svh - 24px);
   max-width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   container-type: inline-size;
-  animation: edh-modal-stage-in 180ms ease-out both;
-}
-
+  animation: edh-modal-stage-in 180ms ease-out both;}
 .edh-rotatable-card {
   position: relative;
   width: 100%;
-  max-height: min(calc(100dvh - 32px), calc(100vw - 32px));
+  /*
+   * 只动 transform：rotate 属性 + transform 混用会让浏览器在动画结束时换一条合成路径，
+   * 那一下重新栅格化就是用户看到的"抽搐"。这里全程一个矩阵，一个图层。
+   */
+  transform: translate3d(0, 0, 0) rotate(0deg);
   transform-origin: center center;
-  transition: transform 260ms cubic-bezier(0.2, 0.75, 0.25, 1);
-  will-change: transform;
-}
-
-.edh-rotatable-card.edh-panel {
+  transition: transform 300ms cubic-bezier(0.25, 0.8, 0.3, 1);
+  will-change: transform;}
+.edh-rotatable-scaler {
+  position: relative;
   width: 100%;
-}
-
+  transform-origin: center center;}
+.edh-rotatable-surface {
+  width: 100%;}
 .edh-modal-rotate {
   position: fixed;
-  top: max(12px, env(safe-area-inset-top, 0px));
-  right: max(12px, env(safe-area-inset-right, 0px));
+  top: max(8px, env(safe-area-inset-top, 0px));
+  right: max(8px, env(safe-area-inset-right, 0px));
   z-index: 8;
-  width: 52px;
-  height: 52px;
-  padding: 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  background: rgba(24, 24, 32, 0.86);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.48);
+  /* 只有一个 SVG：不要底板、不要圆角矩形、不要边框盒子。 */
+  width: var(--edh-rotate-box);
+  height: var(--edh-rotate-box);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  backdrop-filter: blur(8px);
-}
+  transform-origin: 62% 38%;
+  will-change: transform;
+  /* 出现时抖一下抓注意力，之后每隔几秒轻轻晃一下，避免一直抢视线。 */
+  animation:
+    edh-rotate-intro 760ms cubic-bezier(0.3, 1.4, 0.5, 1) 1,
+    edh-rotate-wobble 4.2s ease-in-out 760ms infinite;}
 .edh-modal-rotate:active {
-  background: rgba(255, 255, 255, 0.22);
-}
+  animation: none;
+  transform: scale(0.92);
+  filter: brightness(1.25);}
 .edh-modal-rotate img {
   display: block;
   width: 100%;
   height: 100%;
-  pointer-events: none;
+  /* 纯白 SVG，无外发光、无底板。 */
+  pointer-events: none;}
+@keyframes edh-rotate-intro {
+  0%   { transform: rotate(-26deg) scale(0.72); opacity: 0; }
+  38%  { transform: rotate(16deg) scale(1.16); opacity: 1; }
+  58%  { transform: rotate(-11deg) scale(1.06); }
+  76%  { transform: rotate(7deg) scale(1.03); }
+  100% { transform: rotate(0deg) scale(1); }
 }
-
+/* 每 4.2 秒轻晃一次：看得见、不打扰。 */
+@keyframes edh-rotate-wobble {
+  0%, 76%, 100% { transform: rotate(0deg) scale(1); }
+  81% { transform: rotate(-12deg) scale(1.08); }
+  86% { transform: rotate(10deg) scale(1.08); }
+  91% { transform: rotate(-5deg) scale(1.03); }
+  96% { transform: rotate(0deg) scale(1); }
+}
 @keyframes edh-modal-stage-in {
   from { opacity: 0; transform: scale(0.94); }
-  to   { opacity: 1; transform: scale(1); }
+to   { opacity: 1; transform: scale(1); }
 }
-
 .edh-icon-btn {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.24);
@@ -749,15 +1037,13 @@ body:has(.edh-root) {
   color: #c8c8d6;
   font-size: 13px;
   padding: 4px 10px;
-  cursor: pointer;
-}
+  cursor: pointer;}
 .edh-icon-btn:active { background: rgba(255, 255, 255, 0.22); }
-
 .edh-panel {
-  width: min(360px, 94vw);
-  max-height: 94vh;
-  max-height: 94dvh;
-  overflow: auto;
+  width: 100%;
+  /* 固定内容靠外层统一缩放适配；不再用内部滚动条。 */
+  max-height: none;
+  overflow: visible;
   padding: 14px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.22);
@@ -768,88 +1054,189 @@ body:has(.edh-root) {
   flex-direction: column;
   gap: 12px;
   position: relative;
-  touch-action: pan-y;
-  overscroll-behavior: contain;
-}
-
-/* 对局进行中：直接呼吸卡片自身的边框和阴影，滚动内容不会把光圈带偏。 */
+  touch-action: none;
+  overscroll-behavior: contain;}
+/* 对局进行中：光圈直接挂在面板上，滚动、缩放和旋转时都不会和面板错位。 */
 .edh-panel.is-live {
   border-color: rgba(255, 90, 90, 0.75);
-  animation: edh-live-breathe 1.8s ease-in-out infinite;
-}
-
+  outline: 2px solid rgba(255, 90, 90, 0.72);
+  outline-offset: 4px;
+  animation: edh-live-breathe 1.8s ease-in-out infinite;}
 @keyframes edh-live-breathe {
   0%, 100% {
-    border-color: rgba(255, 82, 82, 0.58);
-    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.7), 0 0 12px rgba(255, 70, 70, 0.24);
+    border-color: rgba(255, 82, 82, 0.5);
+    outline-color: rgba(255, 82, 82, 0.45);
+    box-shadow: 0 0 14px rgba(255, 70, 70, 0.24), inset 0 0 10px rgba(255, 70, 70, 0.12);
   }
   50% {
-    border-color: rgba(255, 132, 132, 1);
-    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.7), 0 0 26px rgba(255, 70, 70, 0.62);
+    border-color: rgba(255, 140, 140, 1);
+    outline-color: rgba(255, 140, 140, 1);
+    box-shadow: 0 0 32px rgba(255, 70, 70, 0.66), inset 0 0 22px rgba(255, 70, 70, 0.26);
   }
 }
-
 .edh-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  /* 只按视口高度限高：手机上不再被宽度二次压扁，内容多了就自己纵向滚动。 */
+  max-height: calc(100dvh - 36px);
+  max-height: calc(100svh - 36px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;}
+.edh-settings-panel::-webkit-scrollbar { width: 7px; }
+.edh-settings-panel::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);}
+/* 设置页固定左右两栏：左边常规对局设置，右边对局操作与存档。 */
+.edh-settings-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-content: start;
-  gap: 10px 12px;
-}
-.edh-settings-panel > .edh-panel-head,
-.edh-settings-panel > .edh-settings-footer {
-  grid-column: 1 / -1;
-}
-.edh-settings-panel > .edh-settings-section {
+  gap: 9px;
+  align-items: start;}
+.edh-settings-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;}
+.edh-settings-column > .edh-settings-section {
   min-width: 0;
-  padding: 10px;
+  padding: 7px 9px 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 11px;
   background: rgba(255, 255, 255, 0.025);
-}
-.edh-settings-panel > .edh-settings-section:last-of-type {
-  padding-bottom: 10px;
-}
-
-@container (max-width: 620px) {
-  .edh-settings-panel {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .edh-settings-panel > .edh-panel-head,
-  .edh-settings-panel > .edh-settings-footer {
-    grid-column: 1;
-  }
-}
-
+  display: flex;
+  flex-direction: column;
+  gap: 6px;}
+.edh-settings-column > .edh-settings-section:last-of-type {
+  padding-bottom: 10px;}
 .edh-panel-head {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 14px;
   letter-spacing: 2px;
-  color: #e4e4ee;
-}
+  color: #e4e4ee;}
 .edh-panel-head .edh-icon-btn { margin-left: auto; }
 .edh-panel-sub { margin-left: auto; font-size: 10px; color: #7c7c8c; letter-spacing: 1px; }
-
 /* 数值显示区（数字键盘与控制台共用） */
 .edh-display {
   padding: 8px 12px 10px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(0, 0, 0, 0.38);
-  text-align: right;
-}
+  text-align: right;}
 .edh-display-amount {
   display: block;
   font-size: 44px;
   font-weight: 800;
   line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
+  font-variant-numeric: tabular-nums;}
 .edh-display-hint { font-size: 12px; color: #8a8a99; min-height: 16px; }
 .edh-display-hint.is-add { color: #7ad8a0; }
 .edh-display-hint.is-sub { color: #e08a8a; }
-
+/* 长按血量的那个弹窗：左边数字键盘，右边同一屏里管记录项目，两边都不用滚动。 */
+.edh-amount-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;}
+.edh-amount-body.is-split {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(300px, 1fr);
+  gap: clamp(10px, 1.4vw, 18px);
+  align-items: start;}
+.edh-amount-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;}
+.edh-amount-counters {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px 13px 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.025);}
+.edh-amount-counters-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;}
+.edh-amount-counters-hint { font-size: 10px; color: #6f6f80; }
+.edh-counter-rows {
+  /* 指示物横向铺开成"图标 + 数量"的小格子，不再排成一列清单。 */
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;}
+.edh-counter-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 32px;
+  grid-template-areas:
+    "icon name  minus"
+    "icon value plus";
+  align-items: center;
+  gap: 2px 6px;
+  padding: 7px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.26);}
+.edh-counter-row img {
+  grid-area: icon;
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));}
+.edh-counter-row-name {
+  grid-area: name;
+  min-width: 0;
+  color: #e2e2ec;
+  font-size: 12px;
+  letter-spacing: 0;
+  white-space: nowrap;}
+.edh-counter-row button {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.07);
+  color: #efeff5;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;}
+.edh-counter-row button[data-counter-minus] { grid-area: minus; }
+.edh-counter-row button[data-counter-plus] { grid-area: plus; }
+.edh-counter-row button:active {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(0.96);}
+.edh-counter-row-value {
+  grid-area: value;
+  min-width: 2ch;
+  text-align: left;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;}
+.edh-counter-row.is-lethal {
+  border-color: rgba(255, 132, 132, 0.85);
+  background: rgba(170, 24, 24, 0.45);}
+.edh-counter-row.is-lethal .edh-counter-row-value { color: #ffd2d2; }
+@container (max-width: 560px) {
+  .edh-amount-body.is-split {
+    /* 手机上也要保持"左计算器、右指示物"的左右分栏，只收紧间距。 */
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: 6px;}}
+/* 弹窗足够宽时指示物铺成三列，窄下来自动回到两列，始终横向排布。 */
+@container (min-width: 840px) {
+  .edh-counter-rows {
+    grid-template-columns: repeat(3, minmax(0, 1fr));}}
 /* 模式切换（掉血 / 回血） */
 .edh-mode-switch { display: flex; gap: 8px; }
 .edh-mode-btn {
@@ -861,26 +1248,29 @@ body:has(.edh-root) {
   color: #c8c8d4;
   font-size: 14px;
   letter-spacing: 1px;
-  cursor: pointer;
-}
+  cursor: pointer;}
 .edh-mode-btn.is-active[data-mode="add"] { border-color: #57c07a; color: #7ad8a0; background: rgba(87, 192, 122, 0.16); }
 .edh-mode-btn.is-active[data-mode="sub"] { border-color: #e0574f; color: #e08a8a; background: rgba(224, 87, 79, 0.16); }
-
-/* 数字键盘 */
-.edh-numpad-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+/* 数字键盘：4 列，基础键 16 个 + 退格/0/清空/空格 = 20 个，正好 5 行排满 */
+.edh-numpad-pad {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;}
 .edh-numpad-key {
-  padding: 12px 0;
+  padding: 10px 0;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.07);
   color: #e8e8f2;
-  font-size: 22px;
+  font-size: calc(20px * var(--edh-modal-font-scale, 1));
   font-weight: 700;
   cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
+  -webkit-tap-highlight-color: transparent;}
+.edh-numpad-key[data-key="kh"],
+.edh-numpad-key[data-key="kl"] {
+  font-size: calc(16px * var(--edh-modal-font-scale, 1));
+  letter-spacing: 1px;}
 .edh-numpad-key:active { background: rgba(255, 255, 255, 0.2); }
-
 .edh-numpad-actions { display: flex; gap: 8px; }
 .edh-numpad-action {
   flex: 1;
@@ -891,13 +1281,11 @@ body:has(.edh-root) {
   color: #c8c8d4;
   font-size: 15px;
   letter-spacing: 2px;
-  cursor: pointer;
-}
+  cursor: pointer;}
 .edh-numpad-action:active { background: rgba(255, 255, 255, 0.14); }
 .edh-numpad-action.is-primary { border-color: #9a7ae0; color: #c9a3ff; }
 .edh-numpad-action.is-primary:active { background: rgba(154, 122, 224, 0.25); }
 .edh-numpad-action:disabled { border-color: #2c2c34; color: #55555f; }
-
 /* 骰式选择 */
 .edh-picker-shortcuts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .edh-picker-key {
@@ -907,22 +1295,18 @@ body:has(.edh-root) {
   background: rgba(255, 255, 255, 0.07);
   color: #e8e8f2;
   font-size: 16px;
-  cursor: pointer;
-}
+  cursor: pointer;}
 .edh-picker-key:active { background: rgba(255, 255, 255, 0.2); }
-
 .edh-ghost-btn {
-  padding: 11px 0;
+  padding: 8px 0;
   border-radius: 10px;
   border: 1px dashed rgba(255, 255, 255, 0.28);
   background: none;
   color: #b8b8c8;
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: 1px;
-  cursor: pointer;
-}
+  cursor: pointer;}
 .edh-ghost-btn:active { background: rgba(255, 255, 255, 0.1); }
-
 .edh-picker-error {
   padding: 7px 10px;
   border-radius: 8px;
@@ -930,51 +1314,39 @@ body:has(.edh-root) {
   background: rgba(150, 60, 60, 0.2);
   color: #f0b0b0;
   font-size: 12px;
-  line-height: 1.5;
-}
-
+  line-height: 1.5;}
 /* 设置 / 历史 */
 .edh-settings-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);}
 .edh-settings-section:last-of-type { border-bottom: none; padding-bottom: 0; }
-.edh-settings-panel > .edh-settings-section,
-.edh-settings-panel > .edh-settings-section:last-of-type {
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-.edh-settings-label { font-size: 12px; letter-spacing: 2px; color: #9a9aab; }
-.edh-settings-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.edh-settings-hint { font-size: 11px; line-height: 1.6; color: #7c7c8c; }
-
+.edh-settings-panel > .edh-settings-section,.edh-settings-panel > .edh-settings-section:last-of-type {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);}
+.edh-settings-label { font-size: 11px; letter-spacing: 1.5px; color: #9a9aab; }
+.edh-settings-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.edh-settings-hint { font-size: 11px; line-height: 1.45; color: #7c7c8c; }
 .edh-settings-chip {
-  padding: 8px 14px;
+  padding: 6px 11px;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.06);
   color: #dcdce8;
-  font-size: 13px;
-  cursor: pointer;
-}
+  font-size: 12.5px;
+  cursor: pointer;}
 .edh-settings-chip:active { background: rgba(255, 255, 255, 0.18); }
 .edh-settings-chip.is-active { border-color: #9a7ae0; color: #c9a3ff; background: rgba(154, 122, 224, 0.18); }
 .edh-settings-chip.is-wide { width: 100%; }
 .edh-settings-chip.is-primary { border-color: #6fcf8f; color: #8fe0ac; background: rgba(111, 207, 143, 0.14); }
 .edh-settings-chip.is-danger { border-color: #c9584f; color: #f0a09a; background: rgba(201, 88, 79, 0.16); }
 .edh-settings-chip.is-warning { border-color: #c99f4f; color: #f0d29a; background: rgba(201, 159, 79, 0.16); }
-
 /* 对局结束 / 重新开始的二次确认：就放在按钮下面，不跳系统弹窗。 */
 .edh-match-confirm {
-  position: absolute;
-  bottom: 12px;
-  left: 50%;
-  z-index: 5;
-  width: min(460px, calc(100% - 24px));
-  transform: translateX(-50%);
+  position: static;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -983,17 +1355,14 @@ body:has(.edh-root) {
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(24, 24, 32, 0.98);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.68);
-  animation: edh-match-confirm-in 160ms ease-out both;
-}
+  animation: edh-match-confirm-in 160ms ease-out both;}
 .edh-match-confirm-text { font-size: 12px; line-height: 1.55; color: #d8d8e4; }
 .edh-match-confirm-actions { display: flex; gap: 8px; }
 .edh-match-confirm-actions .edh-settings-chip { flex: 1; }
-
 @keyframes edh-match-confirm-in {
-  from { opacity: 0; transform: translate(-50%, 8px); }
-  to   { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translateY(8px); }
+to   { opacity: 1; transform: translateY(0); }
 }
-
 /* 面板内的说明/提示条（比如"已删除 xxx"） */
 .edh-panel-note {
   padding: 7px 10px;
@@ -1001,9 +1370,7 @@ body:has(.edh-root) {
   border: 1px solid rgba(111, 207, 143, 0.45);
   background: rgba(111, 207, 143, 0.12);
   color: #8fe0ac;
-  font-size: 12px;
-}
-
+  font-size: 12px;}
 /* 删除存档的确认弹窗 */
 .edh-confirm {
   width: min(320px, 92vw);
@@ -1014,47 +1381,49 @@ body:has(.edh-root) {
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.75);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
+  gap: 10px;}
 .edh-confirm-title { font-size: 15px; letter-spacing: 1px; color: #f0b0aa; }
 .edh-confirm-body { font-size: 12px; line-height: 1.7; color: #c8c8d4; }
 .edh-numpad-action.is-danger { border-color: #c9584f; color: #f0a09a; }
 .edh-numpad-action.is-danger:active { background: rgba(201, 88, 79, 0.25); }
-
 .edh-settings-swatches { display: flex; gap: 6px; }
 .edh-swatch { width: 20px; height: 20px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.3); }
-
 /* 骰子大小 / 力度之类的小滑块 */
 .edh-slider-row { display: flex; align-items: center; gap: 10px; }
 .edh-slider { flex: 1; accent-color: #9a7ae0; }
 .edh-slider-value { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; color: #b8b8c8; }
-
 /* 预设骰式编辑 */
+.edh-preset-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  }
+@container (max-width: 420px) {
+  .edh-preset-list {
+    grid-template-columns: minmax(0, 1fr);}}
 .edh-preset-row { display: flex; align-items: center; gap: 6px; }
 .edh-preset-input {
   flex: 1;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-radius: 9px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(0, 0, 0, 0.35);
   color: #e8e8f2;
-  font-size: 13px;
-  outline: none;
-}
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  outline: none;}
 .edh-preset-remove {
-  width: 32px;
-  height: 32px;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
   border-radius: 9px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.06);
   color: #d09090;
-  cursor: pointer;
-}
-
+  cursor: pointer;}
 .edh-settings-footer { display: flex; justify-content: flex-end; }
 .edh-sync { font-size: 11px; letter-spacing: 1px; }
-
 /* 读档列表 */
 .edh-load-row {
   display: flex;
@@ -1064,8 +1433,7 @@ body:has(.edh-root) {
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.04);
-  font-size: 12px;
-}
+  font-size: 12px;}
 .edh-load-main { flex: 1; min-width: 0; }
 .edh-load-title { display: block; color: #e0e0ec; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edh-load-meta { display: block; color: #8a8a9c; font-size: 11px; margin-top: 2px; }
@@ -1080,21 +1448,19 @@ body:has(.edh-root) {
   color: #c9a3ff;
   font-size: 12px;
   cursor: pointer;
-  white-space: nowrap;
-}
+  white-space: nowrap;}
 .edh-load-btn.is-danger {
   border-color: #c9584f;
   background: rgba(201, 88, 79, 0.14);
-  color: #f0a09a;
-}
-
+  color: #f0a09a;}
 /* 历史列表 */
 .edh-history {
   width: 100%;
   padding: 0;
   gap: 0;
-  overflow: hidden;
-}
+  max-height: calc(100dvh - 32px);
+  max-height: calc(100svh - 32px);
+  overflow: hidden;}
 .edh-history-head {
   display: flex;
   align-items: center;
@@ -1103,33 +1469,49 @@ body:has(.edh-root) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   font-size: 14px;
   letter-spacing: 2px;
-  color: #e4e4ee;
-}
+  color: #e4e4ee;}
 .edh-history-title {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
+  white-space: nowrap;}
 .edh-history-source {
   margin-left: auto;
   color: #7c7c8c;
   font-size: 10px;
   letter-spacing: 1px;
-  white-space: nowrap;
-}
+  white-space: nowrap;}
 .edh-history-list {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   flex: 1;
-  flex-direction: column;
-  gap: 5px;
+  min-width: 0;
   min-height: 0;
-  overflow: auto;
+  gap: 5px;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 10px;
-}
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.26) transparent;}
+.edh-history-list::-webkit-scrollbar { width: 6px; }
+.edh-history-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);}
+.edh-archive-panel {
+  max-height: calc(100dvh - 32px);
+  max-height: calc(100svh - 32px);
+  overflow: hidden;}
 .edh-archive-panel .edh-history-list {
-  max-height: min(62dvh, 560px);
-}
-.edh-history-empty { padding: 18px 0; text-align: center; color: #7c7c8c; font-size: 12px; }
+  max-height: none;}
+.edh-history-empty {
+  grid-column: 1 / -1;
+  padding: 18px 0;
+  text-align: center;
+  color: #7c7c8c;
+  font-size: 12px;}
 .edh-history-row {
   display: flex;
   align-items: center;
@@ -1138,8 +1520,7 @@ body:has(.edh-root) {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
-  font-size: 13px;
-}
+  font-size: 13px;}
 .edh-history-time { color: #7c7c8c; font-variant-numeric: tabular-nums; font-size: 11px; }
 .edh-history-notation { color: #b9a6e0; min-width: 58px; }
 .edh-history-dice { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -1149,7 +1530,204 @@ body:has(.edh-root) {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.08);
   text-align: center;
-  font-weight: 700;
-}
+  font-weight: 700;}
 .edh-history-total { margin-left: auto; color: #e0d0ff; font-weight: 700; font-variant-numeric: tabular-nums; }
 .edh-history-seat { font-size: 10px; color: #7c7c8c; }
+
+/* ── 弹窗字号滑块：把设置里的缩放值真正覆盖到所有弹窗文字 ── */
+.edh-panel-head,
+.edh-history-head {
+  font-size: calc(14px * var(--edh-modal-font-scale, 1));}
+.edh-panel-head > span:first-child,
+.edh-history-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;}
+.edh-panel-sub,
+.edh-history-source,
+.edh-settings-label,
+.edh-settings-hint,
+.edh-slider-value,
+.edh-history-seat,
+.edh-history-time {
+  font-size: calc(11px * var(--edh-modal-font-scale, 1));}
+.edh-display-amount {
+  font-size: calc(44px * var(--edh-modal-font-scale, 1));}
+.edh-display-hint,
+.edh-picker-error,
+.edh-panel-note,
+.edh-match-confirm-text {
+  font-size: calc(12px * var(--edh-modal-font-scale, 1));}
+.edh-mode-btn,
+.edh-numpad-action,
+.edh-ghost-btn,
+.edh-counter-add,
+.edh-history-row,
+.edh-load-row {
+  font-size: calc(14px * var(--edh-modal-font-scale, 1));}
+.edh-picker-key {
+  font-size: calc(16px * var(--edh-modal-font-scale, 1));}
+.edh-settings-chip,
+.edh-load-btn,
+.edh-history-empty {
+  font-size: calc(12.5px * var(--edh-modal-font-scale, 1));}
+.edh-counter-row-name,
+.edh-counter-tile-label {
+  font-size: calc(12px * var(--edh-modal-font-scale, 1));}
+.edh-counter-row-value,
+.edh-counter-tile-value {
+  font-size: calc(23px * var(--edh-modal-font-scale, 1));}
+.edh-confirm-title {
+  font-size: calc(15px * var(--edh-modal-font-scale, 1));}
+.edh-confirm-body,
+.edh-load-meta,
+.edh-history-notation,
+.edh-history-dice b {
+  font-size: calc(12px * var(--edh-modal-font-scale, 1));}
+.edh-icon-btn,
+.edh-preset-input {
+  font-size: calc(13px * var(--edh-modal-font-scale, 1));}
+
+/* 面板大小滑块：除了改变宽度，也同步调整弹窗内边距和主间距。 */
+.edh-panel {
+  padding: calc(14px * var(--edh-modal-panel-scale, 1));
+  gap: calc(12px * var(--edh-modal-panel-scale, 1));}
+
+/* 骰式输入固定成 4 列 × 5 行，每个键的尺寸由网格统一决定。 */
+.edh-expression-panel .edh-numpad-pad {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(5, minmax(42px, auto));}
+.edh-expression-panel .edh-numpad-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: clamp(42px, 7vh, 58px);}
+
+/* 中间玻璃缝：在原本的流光和星点上再补一层轻微呼吸辉光。 */
+.edh-center::before {
+  animation:
+    edh-center-flow 9s ease-in-out infinite,
+    edh-center-glass-glow 5.4s ease-in-out infinite;}
+@keyframes edh-center-glass-glow {
+  0%, 100% {
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 0 18px rgba(150, 190, 255, 0.04), 0 0 12px rgba(120, 180, 255, 0.05);
+  }
+  50% {
+    border-color: rgba(220, 235, 255, 0.34);
+    box-shadow: inset 0 0 28px rgba(150, 200, 255, 0.12), 0 0 24px rgba(160, 190, 255, 0.14);
+  }
+}
+.edh-center-half::after {
+  animation:
+    edh-center-energy 5.8s ease-in-out infinite,
+    edh-center-energy-glow 2.9s ease-in-out infinite;}
+@keyframes edh-center-energy-glow {
+  0%, 100% { filter: blur(0.6px) brightness(0.9); }
+  50% {
+    filter:
+      blur(0.2px)
+      brightness(1.55)
+      drop-shadow(0 0 9px rgba(255, 236, 154, 0.55));
+  }
+}
+
+/* 手机弹窗默认拉到接近满宽；只有内容真的超出高度时才出现内部滚动。 */
+@media (max-width: 720px) {
+  .edh-modal-backdrop.is-compact .edh-rotatable-stage {
+    width: min(
+      calc(var(--edh-modal-width) * var(--edh-modal-panel-scale, 1)),
+      calc(100vw - var(--edh-compact-left) - var(--edh-compact-right))
+    );}
+  .edh-modal-backdrop.is-compact .edh-panel {
+    border-radius: 14px;}
+
+  /* 设置页固定左右两栏；窄屏只压缩留白和控件内边距，不改成一上一下。 */
+  .edh-settings-panel {
+    padding: 10px;}
+  .edh-settings-columns {
+    gap: 6px;}
+  .edh-settings-column {
+    gap: 6px;}
+  .edh-settings-column > .edh-settings-section {
+    padding: 6px 7px 7px;
+    gap: 5px;}
+  .edh-settings-row {
+    gap: 4px;}
+  .edh-settings-chip {
+    padding: 5px 7px;
+    font-size: calc(11.5px * var(--edh-modal-font-scale, 1));
+    letter-spacing: 0;}
+  .edh-settings-label {
+    font-size: calc(10.5px * var(--edh-modal-font-scale, 1));
+    letter-spacing: 1px;}
+  .edh-settings-hint {
+    font-size: calc(10.5px * var(--edh-modal-font-scale, 1));}
+  .edh-settings-panel .edh-panel-head {
+    /* 手机上箭头按钮很大，标题栏要吸顶并留出它的高度，右栏第一项才不会被压住。 */
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    min-height: calc(var(--edh-rotate-box) * 0.86);
+    align-items: center;
+    background: rgba(22, 22, 30, 0.97);
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+    padding-right: calc(var(--edh-rotate-box) + 18px);
+    font-size: calc(13px * var(--edh-modal-font-scale, 1));}
+}
+
+/* 手机弹窗（含长按血量弹窗）的紧凑版式：保持左右分栏，只压尺寸。
+   这几条写在文件最后，才能盖住前面按字号滑块生成的换算值。 */
+@container (max-width: 560px) {
+  .edh-amount-body.is-split {
+    gap: 6px;}
+  .edh-amount-counters {
+    padding: 7px 6px 8px;
+    gap: 6px;}
+  .edh-amount-counters-head {
+    gap: 4px;}
+  /* 手机上没有多余位置写提示语，留标题就够。 */
+  .edh-amount-counters-hint {
+    display: none;}
+  .edh-counter-rows {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;}
+  .edh-counter-row {
+    grid-template-columns: 20px minmax(0, 1fr) 22px;
+    gap: 1px 3px;
+    padding: 4px 4px;
+    border-radius: 8px;}
+  .edh-counter-row img {
+    width: 20px;
+    height: 20px;}
+  .edh-counter-row-name {
+    font-size: calc(9.5px * var(--edh-modal-font-scale, 1));}
+  .edh-counter-row-value {
+    font-size: calc(15px * var(--edh-modal-font-scale, 1));}
+  .edh-counter-row button {
+    width: 22px;
+    height: 19px;
+    border-radius: 5px;
+    font-size: 12px;}
+  .edh-numpad-pad {
+    gap: 4px;}
+  .edh-numpad-key {
+    padding: 7px 0;
+    border-radius: 8px;
+    font-size: calc(16px * var(--edh-modal-font-scale, 1));}
+  .edh-display-amount {
+    font-size: calc(30px * var(--edh-modal-font-scale, 1));}
+  .edh-numpad-action {
+    padding: 8px 0;
+    font-size: calc(12.5px * var(--edh-modal-font-scale, 1));}
+}
+
+/* 手机视口下历史条目改成单列，避免两列各 150px 左右挤成一团。 */
+@media (max-width: 640px) {
+  .edh-rotatable-stage .edh-history-list {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);}
+}

@@ -9,10 +9,10 @@
 /** 引擎内置硬币骰引用的文件名（resources/public/dice-assets/textures/silvercoin/ 下）。 */
 export const COIN_TEXTURE_KEYS = {
   /** 太阳面（引擎里的 heads） */
-  sunFile: 'heads.png',
-  /** 数字 1 面（引擎里的 tail） */
-  oneFile: 'tail.png',
+  sunFile: 'heads-v2.png',
+  /** 反面（引擎里的 tail） */
+  oneFile: 'tail-v2.png',
   /** 传给引擎的纹理名：DICE.dc.labels[1] 是 heads，对应硬币值 1（太阳） */
-  sun: 'textures/silvercoin/heads.png',
-  one: 'textures/silvercoin/tail.png',
+  sun: '/dice-assets/textures/silvercoin/heads-v2.png',
+  one: '/dice-assets/textures/silvercoin/tail-v2.png',
 } as const;

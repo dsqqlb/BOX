@@ -53,6 +53,19 @@ export class DicePreset {
 		} else {
 			tab = this.normals;
 		}
+
+		// 硬币(d2)是双面圆盘：几何的 materialIndex 1/2 分别对应反面/正面，
+		// 这里必须用加载好的图片直接替换掉原始路径数组。
+		// 否则路径字符串会残留在数组里，并作为文字标签被画到硬币面上。
+		if (this.shape == 'd2') {
+			const coinFaces = ['', faces[0], faces[1]];
+			if (type == "labels") {
+				this.labels = coinFaces;
+			} else {
+				this.normals = coinFaces;
+			}
+			return;
+		}
 		
 		tab.unshift('');
 		if(!["d2","d10"].includes(this.shape)) tab.unshift('');

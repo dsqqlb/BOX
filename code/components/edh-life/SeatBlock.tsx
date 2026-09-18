@@ -16,8 +16,7 @@
  *   - **色块左半**：单击 −1；**按住 1 秒**开始 −5，**继续按住则每 0.55 秒再 −5**
  *   - **色块右半**：单击 +1；按住同理持续 +5
  *   - **中央隐形正方形**（就是大数字所在的位置，没有任何描边）：
- *     按住 2 秒弹出「掉血 / 回血任意数值」弹窗，按住期间数字颤抖
- *   - 记录按钮：打开该玩家专属的记录面板
+ *     双击打开该玩家的记录面板；按住 1.5 秒弹出「掉血 / 回血任意数值」弹窗
  *   - 血量 ≤ 0 或中毒满 10 → 整块变灰 + 骷髅头
  *
  * 左右两半按屏幕上的视觉位置判定，再根据座位旋转映射到游戏逻辑：
@@ -36,7 +35,8 @@ import {
 const HOLD_MS = 1000;          // 按住多久开始 ±5
 const HOLD_REPEAT_MS = 550;    // 开始之后每隔多久再 ±5（持续按住就持续掉/回血）
 const HOLD_STEP = 5;
-const CENTER_HOLD_MS = 2000;   // 中央隐形方块按住多久弹出任意数值弹窗
+const CENTER_HOLD_MS = 1500;   // 中央长按阈值（进度环同步走满一圈就弹出）
+const DOUBLE_TAP_MS = 340;     // 中央方块两次轻点在这个时间内算双击
 const MOVE_TOLERANCE_PX = 28;  // 指针移动超过这个距离就取消长按
 
 type Side = 'left' | 'right';
@@ -45,15 +45,30 @@ interface SeatBlockProps {
   player: PlayerState;
   rotation: 0 | 180;
   onLifeChange: (seat: number, delta: number) => void;
-  /** 中央方块按住 2 秒 → 打开「掉血 / 回血任意数值」弹窗 */
+  /** 中央方块长按 → 打开「掉血 / 回血任意数值」弹窗 */
   onOpenAmountMenu: (seat: number) => void;
   onOpenCounters: (seat: number) => void;
   onRename: (seat: number, name: string) => void;
+  /** 最近一段时间的累计血量变化；null 表示超时已隐藏，0 表示累计回到 0 */
+  lifeDelta?: number | null;
+  /** 先攻名次：1 = 1st，2 = 2nd …；null/undefined 表示还没决定 */
+  firstRank?: number | null;
+  /** 先攻轮盘经过这个座位时高亮 */
+  rolling?: boolean;
+}
+
+const RANK_LABELS = ['1st', '2nd', '3rd', '4th'];
+
+function buzz(ms: number) {
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    try { navigator.vibrate(ms); } catch { /* 忽略 */ }
+  }
 }
 
 export default function SeatBlock({
   player, rotation,
   onLifeChange, onOpenAmountMenu, onOpenCounters, onRename,
+  lifeDelta, firstRank, rolling,
 }: SeatBlockProps) {
   const [sideHold, setSideHold] = useState<{ side: Side; progress: number } | null>(null);
   const [centerHold, setCenterHold] = useState<number | null>(null);
@@ -71,15 +86,10 @@ export default function SeatBlock({
     raf: number;
   } | null>(null);
   const centerRef = useRef<{ pointerId: number; startedAt: number; startX: number; startY: number; fired: boolean; raf: number } | null>(null);
+  const lastCenterTapRef = useRef(0);
 
   const movedAway = (x: number, y: number, startX: number, startY: number) =>
     Math.abs(x - startX) > MOVE_TOLERANCE_PX || Math.abs(y - startY) > MOVE_TOLERANCE_PX;
-
-  const buzz = (ms: number) => {
-    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      try { navigator.vibrate(ms); } catch { /* 忽略 */ }
-    }
-  };
 
   /* ── 左右两半：单击 ±1；按住 1 秒后每 0.55 秒 ±5 ── */
 
@@ -155,7 +165,7 @@ export default function SeatBlock({
     hold.raf = requestAnimationFrame(tick);
   }, [cancelSide, editingName, onLifeChange, player.seat, rotation]);
 
-  /* ── 中央正方形：独立触感区，按住 2 秒 → 任意数值弹窗；单击不做任何事 ── */
+  /* ── 中央正方形：双击记录面板；按住 1.5 秒 → 任意数值弹窗 ── */
 
   const cancelCenter = useCallback(() => {
     const hold = centerRef.current;
@@ -165,14 +175,26 @@ export default function SeatBlock({
     setCenterHold(null);
   }, []);
 
-  const finishCenter = useCallback(() => {
+  const finishCenter = useCallback((pointerId: number) => {
     const hold = centerRef.current;
-    if (!hold) return;
+    if (!hold || hold.pointerId !== pointerId) return;
     if (hold.raf) cancelAnimationFrame(hold.raf);
     centerRef.current = null;
     setCenterHold(null);
-    // 单击中央什么都不做（避免误触改血）；只有按满 2 秒才弹窗
-  }, []);
+    if (hold.fired) {
+      lastCenterTapRef.current = 0;
+      return;
+    }
+    const now = performance.now();
+    if (now - lastCenterTapRef.current <= DOUBLE_TAP_MS) {
+      lastCenterTapRef.current = 0;
+      buzz(25);
+      onOpenCounters(player.seat);
+      return;
+    }
+    // 第一次轻点只记时间，不做任何血量操作。
+    lastCenterTapRef.current = now;
+  }, [onOpenCounters, player.seat]);
 
   const startCenter = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (editingName) return;
@@ -197,6 +219,7 @@ export default function SeatBlock({
       if (progress >= 1) {
         current.fired = true;
         buzz(40);
+        lastCenterTapRef.current = 0;
         centerRef.current = null;
         setCenterHold(null);
         onOpenAmountMenu(player.seat);
@@ -220,8 +243,7 @@ export default function SeatBlock({
   const deepColor = darken(player.color, 0.55);
   const dimmed = player.eliminated;
   const holding = centerHold !== null;
-  const recordedCount = COUNTERS.filter((meta) => player[meta.key] > 0).length;
-  const lethalCounter = COUNTERS.some((meta) => meta.lethalAt !== null && player[meta.key] >= meta.lethalAt);
+  const recordedCounters = COUNTERS.filter((meta) => player[meta.key] > 0);
 
   const blockStyle: React.CSSProperties = {
     background: dimmed
@@ -234,7 +256,12 @@ export default function SeatBlock({
   };
 
   return (
-    <section className="edh-seat" style={blockStyle} data-seat={player.seat} data-eliminated={dimmed ? 'true' : 'false'}>
+    <section
+      className={`edh-seat${rolling ? ' is-rolling' : ''}`}
+      style={blockStyle}
+      data-seat={player.seat}
+      data-eliminated={dimmed ? 'true' : 'false'}
+    >
       <div
         className="edh-half-catcher"
         onPointerDown={(e) => startSide(e.clientX, e.clientY, e)}
@@ -280,13 +307,14 @@ export default function SeatBlock({
               title="点击改名"
             >{player.name}</button>
           )}
-          {/* 中央正方形：独立的隐形触感区，按住 2 秒弹"任意数值"；单击不做任何事。
+          {/* 中央正方形：双击打开记录，按住 1.5 秒弹"任意数值"。
               它只居中占一块，所以左右的 ±1 依然占满剩余宽度。 */}
           <div
             className={`edh-center-hold${holding ? ' is-holding' : ''}`}
             data-hold-progress={centerHold === null ? '' : centerHold.toFixed(2)}
+            style={{ '--edh-hold-angle': `${(centerHold ?? 0) * 360}deg` } as React.CSSProperties}
             onPointerDown={startCenter}
-            onPointerUp={finishCenter}
+            onPointerUp={(e) => finishCenter(e.pointerId)}
             onPointerCancel={cancelCenter}
             onPointerMove={(e) => {
               const hold = centerRef.current;
@@ -295,25 +323,32 @@ export default function SeatBlock({
             onLostPointerCapture={cancelCenter}
             onContextMenu={(e) => e.preventDefault()}
           >
+            {lifeDelta !== null && lifeDelta !== undefined && (
+              <span
+                key={lifeDelta}
+                className={`edh-life-delta${lifeDelta > 0 ? ' is-add' : lifeDelta < 0 ? ' is-sub' : ' is-zero'}`}
+                data-life-delta={lifeDelta}
+              >
+                {lifeDelta > 0 ? `+${lifeDelta}` : lifeDelta}
+              </span>
+            )}
             <span className={`edh-life-value${holding ? ' is-trembling' : ''}`}>{player.life}</span>
           </div>
-        </div>
 
-        <button
-          type="button"
-          className={`edh-counter-menu${lethalCounter ? ' is-lethal' : ''}`}
-          data-counter-menu
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpenCounters(player.seat);
-          }}
-          title="打开记录面板"
-        >
-          <img src="/icons/edh-life/counter-menu.svg" alt="" aria-hidden="true" />
-          <span>记录</span>
-          {recordedCount > 0 && <b>{recordedCount}</b>}
-        </button>
+          {recordedCounters.length > 0 && (
+            <div className="edh-seat-counters" aria-label="记录项目">
+              {recordedCounters.map((meta) => {
+                const lethal = meta.lethalAt !== null && player[meta.key] >= meta.lethalAt;
+                return (
+                  <span key={meta.key} className={`edh-seat-counter${lethal ? ' is-lethal' : ''}`} title={meta.label}>
+                    <img src={meta.icon} alt="" aria-hidden="true" />
+                    <b>{player[meta.key]}</b>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {dimmed && (
@@ -321,6 +356,15 @@ export default function SeatBlock({
           <span className="edh-skull">☠</span>
           {player.eliminatedReason && <span className="edh-eliminated-reason">{player.eliminatedReason}</span>}
         </div>
+      )}
+
+      {firstRank !== null && firstRank !== undefined && (
+        <span
+          className={`edh-seat-rank${firstRank === 1 && rolling ? ' is-first' : ''}`}
+          data-first-rank={firstRank}
+        >
+          {RANK_LABELS[firstRank - 1] ?? `${firstRank}th`}
+        </span>
       )}
     </section>
   );

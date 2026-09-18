@@ -9,8 +9,29 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import RotatableModal from '@/components/edh-life/RotatableModal';
+import { COUNTERS, type CounterKey, type PlayerState } from '@/lib/edh-life/types';
 
 const MAX_DIGITS = 4;
+
+/**
+ * 数字键盘固定 4 列 × 3 行。
+ * 每行顺序写死，退格 / 清零 / 0 不会因为插在数字后面而挤到奇怪的格子里。
+ */
+const NUMPAD_ROWS: string[][] = [
+  ['7', '8', '9', 'back'],
+  ['4', '5', '6', 'clear'],
+  ['1', '2', '3', '0'],
+];
+
+const NUMPAD_LABELS: Record<string, string> = {
+  back: '⌫',
+  clear: 'C',
+};
+
+const NUMPAD_ARIA: Record<string, string> = {
+  back: '退格',
+  clear: '清零',
+};
 
 export interface AmountPadRequest {
   title: string;
@@ -19,6 +40,10 @@ export interface AmountPadRequest {
   /** 当前血量，用于实时预告 */
   currentLife: number;
   maxHp?: number | null;
+  /** 从色块中央长按打开时：右边并排显示这个玩家的记录项目 */
+  showCounters?: boolean;
+  /** 这个弹窗属于哪个座位（用来实时取玩家的记录项目） */
+  seat?: number | null;
   /** 打开弹窗时跟随对应玩家的座位朝向。 */
   initialRotation?: number;
   /** 从记录面板内打开时放在确认层。 */
@@ -28,10 +53,13 @@ export interface AmountPadRequest {
 
 interface AmountPadProps {
   request: AmountPadRequest | null;
+  /** 记录项目跟着玩家状态实时刷新，所以走 props 而不是 request 快照 */
+  player?: PlayerState | null;
+  onCounterChange?: (key: CounterKey, delta: number) => void;
   onClose: () => void;
 }
 
-export default function AmountPad({ request, onClose }: AmountPadProps) {
+export default function AmountPad({ request, player, onCounterChange, onClose }: AmountPadProps) {
   const [mode, setMode] = useState<'add' | 'sub'>('sub');
   const [entry, setEntry] = useState('');
 
@@ -81,12 +109,13 @@ export default function AmountPad({ request, onClose }: AmountPadProps) {
   const preview = amount <= 0 ? '输入数值后显示结果' : mode === 'sub'
     ? `${life} → ${Math.max(0, life - amount)}`
     : `${life} → ${life + amount}`;
+  const withCounters = Boolean(request.showCounters && player && onCounterChange);
 
   return (
     <RotatableModal
       label={request.title}
-      panelClassName="edh-panel edh-amount-panel"
-      width={390}
+      panelClassName={`edh-panel edh-amount-panel${withCounters ? ' is-wide' : ''}`}
+      width={withCounters ? 860 : 390}
       initialRotation={request.initialRotation ?? 0}
       layer={request.layer ?? 'base'}
       onBackdrop={onClose}
@@ -96,6 +125,8 @@ export default function AmountPad({ request, onClose }: AmountPadProps) {
         <button type="button" className="edh-icon-btn" onPointerDown={(e) => { e.preventDefault(); onClose(); }} aria-label="关闭">✕</button>
       </div>
 
+      <div className={`edh-amount-body${withCounters ? ' is-split' : ''}`}>
+      <div className="edh-amount-main">
       <div className="edh-mode-switch">
         <button
           type="button"
@@ -119,12 +150,16 @@ export default function AmountPad({ request, onClose }: AmountPadProps) {
       </div>
 
       <div className="edh-numpad-pad">
-        {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((digit) => (
-          <button key={digit} type="button" className="edh-numpad-key" data-key={digit} onPointerDown={(e) => { e.preventDefault(); input(digit); }}>{digit}</button>
+        {NUMPAD_ROWS.flat().map((key) => (
+          <button
+            key={key}
+            type="button"
+            className="edh-numpad-key"
+            data-key={key}
+            aria-label={NUMPAD_ARIA[key]}
+            onPointerDown={(e) => { e.preventDefault(); input(key); }}
+          >{NUMPAD_LABELS[key] ?? key}</button>
         ))}
-        <button type="button" className="edh-numpad-key" data-key="back" onPointerDown={(e) => { e.preventDefault(); input('back'); }} aria-label="退格">⌫</button>
-        <button type="button" className="edh-numpad-key" data-key="0" onPointerDown={(e) => { e.preventDefault(); input('0'); }}>0</button>
-        <button type="button" className="edh-numpad-key" data-key="clear" onPointerDown={(e) => { e.preventDefault(); input('clear'); }} aria-label="清零">C</button>
       </div>
 
       <div className="edh-numpad-actions">
@@ -136,6 +171,55 @@ export default function AmountPad({ request, onClose }: AmountPadProps) {
           disabled={amount <= 0}
           onPointerDown={(e) => { e.preventDefault(); confirm(); }}
         >确认</button>
+      </div>
+      </div>
+
+      {withCounters && player && (
+        <section className="edh-amount-counters" aria-label="指示物">
+          <div className="edh-amount-counters-head">
+            <span className="edh-settings-label">指示物调整</span>
+            <span className="edh-amount-counters-hint">点加减直接记录</span>
+          </div>
+          <div className="edh-counter-rows">
+            {COUNTERS.map((meta) => {
+              const value = player[meta.key];
+              const lethal = meta.lethalAt !== null && value >= meta.lethalAt;
+              return (
+                <div
+                  key={meta.key}
+                  className={`edh-counter-row${lethal ? ' is-lethal' : ''}`}
+                  data-amount-counter={meta.key}
+                  title={`${meta.label}：${value}`}
+                >
+                  <img src={meta.icon} alt="" aria-hidden="true" />
+                  <span className="edh-counter-row-name">{meta.label}</span>
+                  <button
+                    type="button"
+                    data-counter-minus={meta.key}
+                    aria-label={`${meta.label} 减 1`}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onCounterChange?.(meta.key, -1);
+                    }}
+                  >−</button>
+                  <b className="edh-counter-row-value">{value}</b>
+                  <button
+                    type="button"
+                    data-counter-plus={meta.key}
+                    aria-label={`${meta.label} 加 1`}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onCounterChange?.(meta.key, 1);
+                    }}
+                  >＋</button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
       </div>
     </RotatableModal>
   );

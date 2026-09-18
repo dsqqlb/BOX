@@ -20,6 +20,8 @@ const kardsDecks = require('./kards-decks');
 const chatStore = require('./chat-store');
 // EDH 记血器：纯 SQLite 读写、不持有连接状态，所以像 edhCards/images 一样直接 require。
 const edhLife = require('./edh-life');
+// 刮刮乐：同样是纯 SQLite 读写、不持有连接状态；「金钱」借用 holdem-store 的筹码账户。
+const scratchStore = require('./scratch-store');
 
 function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config, adminTracking }) {
   function isAuthorizedForRequest(req, user, pathname) {
@@ -400,6 +402,80 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
     if (pathname === '/api/holdem/rooms') {
       if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
       return httpUtils.sendJson(res, { rooms: holdemRoomServer.lobbyList() });
+    }
+
+    // 刮刮乐：单人玩法，全部接口按账户隔离，写操作要求同源。
+    // 「金钱」就是德州扑克那份筹码（HoldemBalance），本模块不另存余额；纸屑与票面结果存 SQLite。
+    // 未刮开的票不下发答案，所以客户端改不出奖。
+    if (pathname === '/api/scratch/profile' || pathname.startsWith('/api/scratch/')) {
+      const rest = pathname.slice('/api/scratch/'.length).replace(/^\/+/, '');
+      try {
+        if (rest === 'profile') {
+          if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+          return httpUtils.sendJson(res, await scratchStore.getProfile(requestUser.username));
+        }
+
+        if (rest === 'catalog') {
+          if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+          return httpUtils.sendJson(res, await scratchStore.getCatalog(requestUser.username));
+        }
+
+        if (rest === 'ledger') {
+          if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+          return httpUtils.sendJson(res, await scratchStore.listLedger(requestUser.username));
+        }
+
+        if (rest === 'tickets') {
+          if (req.method === 'GET') return httpUtils.sendJson(res, await scratchStore.listTickets(requestUser.username));
+          if (req.method === 'POST') {
+            if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+            const body = await httpUtils.readBody(req);
+            if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+            const bought = await scratchStore.buyTicket(requestUser.username, body.kind, { posX: body.posX, posY: body.posY });
+            return httpUtils.sendJson(res, bought, 201);
+          }
+          return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+        }
+
+        if (rest.startsWith('tickets/')) {
+          const segments = rest.slice('tickets/'.length).split('/');
+          const ticketId = segments[0];
+          if (!ticketId) return httpUtils.sendAuthError(res, 404, '票不存在。');
+
+          // 刮开揭晓 / 兑奖 / 碎纸：都是「对某一张票做的动作」，方法、同源校验一致，只有 reveal 需要请求体。
+          if (segments.length === 2) {
+            const action = segments[1];
+            if (action !== 'reveal' && action !== 'redeem' && action !== 'shred') {
+              return httpUtils.sendAuthError(res, 404, '没有这个接口。');
+            }
+            if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+            if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+            if (action === 'reveal') {
+              const body = await httpUtils.readBody(req);
+              if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+              return httpUtils.sendJson(res, await scratchStore.revealTicket(requestUser.username, ticketId, body.scratchRatio));
+            }
+            if (action === 'redeem') {
+              return httpUtils.sendJson(res, await scratchStore.redeemTicket(requestUser.username, ticketId));
+            }
+            return httpUtils.sendJson(res, await scratchStore.shredTicket(requestUser.username, ticketId));
+          }
+
+          if (segments.length !== 1) return httpUtils.sendAuthError(res, 404, '票不存在。');
+          if (req.method === 'PATCH') {
+            if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+            const body = await httpUtils.readBody(req);
+            if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+            return httpUtils.sendJson(res, await scratchStore.updateTicketPosition(requestUser.username, ticketId, body));
+          }
+          return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+        }
+
+        return httpUtils.sendAuthError(res, 404, '没有这个接口。');
+      } catch (error) {
+        if (error instanceof scratchStore.ScratchStoreError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
+        throw error;
+      }
     }
 
     // 先攻场景媒体：共享资源库在 SQLite 记录元数据，字节只通过受保护的 Range 流接口读取。

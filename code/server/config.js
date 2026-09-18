@@ -48,7 +48,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 // 静态产物目录（生产环境用）：next build + output:'export' 的产物
 const STATIC_DIR = path.resolve(process.env.STATIC_DIR || path.join(CODE_ROOT, 'out'));
 // 角色卡是一套独立的纯静态应用（HTML/CSS/JS/音效），按代码类管理，随 code/ 一起进 Git 与发布包。
-// 它不使用 Next 的 code/public/：静态导出不会复制 public/，开发模式还会绕过本项目自身的鉴权。
+// 它不放进 Next 的 public 目录：开发模式会绕过本项目自身的鉴权，且资源统一由 resources/public 托管。
 const DND_APP_DIR = path.resolve(process.env.DND_APP_DIR || path.join(CODE_ROOT, 'dnd-app'));
 // 图片目录只有一个真实来源：resources/public/image。
 // 构建产物里不再复制一份（那会让每次发布包多出几百 MB），静态托管会回退到这里。
@@ -58,6 +58,8 @@ const ENEMY_DIR = path.join(IMAGE_DIR, 'enemies');
 const PLAYER_DIR = path.join(IMAGE_DIR, 'player');
 const EDH_CARDS_FILE = path.join(DATA_DIR, 'edh', 'cards.json');
 const KARDS_CARDS_FILE = path.join(CONTENT_DIR, 'kards', 'cards.json');
+// 刮刮乐票种与奖池表：服务端与客户端读同一份 JSON，规则不会两头不一致。
+const SCRATCH_TICKETS_FILE = path.join(CONTENT_DIR, 'scratch', 'tickets.json');
 const CHAT_DIR = path.join(DATA_DIR, 'chat');
 const CHAT_UPLOAD_DIR = path.join(CHAT_DIR, 'uploads');
 const configuredChatUploadBytes = Number(process.env.CHAT_MAX_UPLOAD_BYTES || 1073741824);
@@ -125,6 +127,7 @@ const TOOL_SLUGS = [
   'texas-holdem',
   'static-sites',
   'edh-life',
+  'scratch-cards',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 
@@ -146,6 +149,7 @@ module.exports = {
   PLAYER_DIR,
   EDH_CARDS_FILE,
   KARDS_CARDS_FILE,
+  SCRATCH_TICKETS_FILE,
   CHAT_DIR,
   CHAT_UPLOAD_DIR,
   CHAT_MAX_UPLOAD_BYTES,

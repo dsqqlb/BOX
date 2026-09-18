@@ -1,0 +1,722 @@
+/* ============================================================
+   刮刮乐（/tools/scratch-cards）
+   ------------------------------------------------------------
+   布局目标：
+     · 一屏不滚动：顶部货币条 + 中间桌子（1fr）+ 底部商店条，全部用 dvh 百分比分配；
+     · 桌子右上角是兑奖机、右下角是碎纸机，位置固定在桌面百分比坐标上；
+     · 票按 posX/posY（桌面百分比）绝对定位，所以任何宽高比下位置比例一致。
+   阶段 1 只到这里：票能买、能落位、能看流水；拖动/刮开/兑奖/碎纸在后续阶段接入。
+   ============================================================ */
+
+html:has(.scr-root),
+body:has(.scr-root) {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.scr-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6dvh;
+  padding: calc(env(safe-area-inset-top, 0px) + 0.6dvh) calc(env(safe-area-inset-right, 0px) + 0.8vw)
+           calc(env(safe-area-inset-bottom, 0px) + 0.6dvh) calc(env(safe-area-inset-left, 0px));
+  width: 100%;
+  height: 100vh;
+  height: -webkit-fill-available;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  background: #07090c;
+  background-image: radial-gradient(ellipse at 50% 0%, rgba(245, 196, 81, 0.12), transparent 60%);
+  color: #eae6dd;
+}
+
+.scr-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  letter-spacing: 2px;
+  color: #8a8a8a;
+}
+
+/* ── 顶部：余额 / 纸屑 / 桌面槽位 ── */
+
+.scr-top {
+  display: flex;
+  align-items: center;
+  gap: 0.8vw;
+  flex: 0 0 auto;
+  padding: 0.8dvh 1.2vw;
+  border: 1px solid rgba(245, 196, 81, 0.22);
+  border-radius: 1.2dvh;
+  background: linear-gradient(180deg, rgba(28, 30, 36, 0.92), rgba(14, 16, 20, 0.92));
+}
+
+.scr-brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  margin-right: auto;
+}
+
+.scr-brand-title {
+  font-size: clamp(12px, 1.5dvh, 17px);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #f5c451;
+}
+
+.scr-brand-sub {
+  font-size: clamp(9px, 1.05dvh, 11px);
+  color: rgba(234, 230, 221, 0.5);
+}
+
+.scr-wallet {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4vw;
+  padding: 0.5dvh 1vw;
+  border: 1px solid rgba(245, 196, 81, 0.3);
+  border-radius: 999px;
+  background: rgba(245, 196, 81, 0.08);
+  font-variant-numeric: tabular-nums;
+}
+
+.scr-wallet-value {
+  font-size: clamp(14px, 2.2dvh, 22px);
+  font-weight: 900;
+  color: #fbe6ae;
+}
+
+.scr-wallet-label {
+  font-size: clamp(9px, 1.1dvh, 12px);
+  color: rgba(251, 230, 174, 0.7);
+}
+
+.scr-wallet.is-scraps {
+  border-color: rgba(150, 200, 255, 0.28);
+  background: rgba(150, 200, 255, 0.08);
+}
+
+.scr-wallet.is-scraps .scr-wallet-value { color: #cfe4ff; }
+.scr-wallet.is-scraps .scr-wallet-label { color: rgba(207, 228, 255, 0.7); }
+
+.scr-top-button {
+  padding: 0.6dvh 1.1vw;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.9dvh;
+  background: rgba(255, 255, 255, 0.06);
+  color: #eae6dd;
+  font-size: clamp(10px, 1.3dvh, 13px);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.scr-top-button:hover { background: rgba(255, 255, 255, 0.13); }
+
+/* ── 主体：左商店 + 右桌子 ── */
+
+.scr-body {
+  display: flex;
+  align-items: stretch;
+  gap: 0.7vw;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── 桌子 ── */
+
+.scr-table {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 1.6dvh;
+  border: 1px solid rgba(120, 200, 160, 0.18);
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(30, 120, 90, 0.32), transparent 66%),
+    linear-gradient(180deg, #0d3a2c, #07231b);
+  box-shadow: inset 0 0 6dvh rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.scr-table-hint {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  font-size: clamp(10px, 1.5dvh, 14px);
+  line-height: 1.7;
+  color: rgba(220, 240, 230, 0.42);
+  pointer-events: none;
+}
+
+/* ── 桌子右侧的两台机器（阶段 4 接入逻辑，现在只是占位） ── */
+
+.scr-machine {
+  position: absolute;
+  right: 1.2%;
+  width: 17%;
+  min-width: 92px;
+  max-width: 190px;
+  aspect-ratio: 3 / 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6dvh;
+  padding: 1dvh 0.6vw;
+  border-radius: 1.4dvh;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  background: rgba(6, 12, 10, 0.55);
+  color: rgba(234, 230, 221, 0.55);
+  text-align: center;
+}
+
+.scr-machine.is-redeem { top: 3%; border-color: rgba(245, 196, 81, 0.3); }
+.scr-machine.is-shred { bottom: 3%; border-color: rgba(150, 200, 255, 0.26); }
+
+/* 拖动中的票悬在机器上方时，机器亮起来（阶段 4 会在这里结算） */
+.scr-machine.is-active {
+  border-style: solid;
+  background: rgba(245, 196, 81, 0.14);
+  color: #fbe6ae;
+  transform: scale(1.04);
+}
+
+.scr-machine-icon { font-size: clamp(20px, 4dvh, 40px); line-height: 1; }
+.scr-machine-name { font-size: clamp(10px, 1.35dvh, 14px); font-weight: 900; }
+.scr-machine-note { font-size: clamp(8px, 1.05dvh, 11px); line-height: 1.5; }
+
+.scr-machine.is-redeem .scr-machine-name { color: #f5c451; }
+.scr-machine.is-shred .scr-machine-name { color: #cfe4ff; }
+
+/* ── 桌面上的票（票面由 TicketArt 按配置画，这里只管位置、尺寸与手感） ── */
+
+.scr-ticket {
+  position: absolute;
+  min-width: 56px;
+  transform: translate(-50%, -50%);
+  /* 手指当指针：不让系统手势抢走拖动 */
+  touch-action: none;
+  cursor: grab;
+  filter: drop-shadow(0 0.8dvh 1.6dvh rgba(0, 0, 0, 0.5));
+  transition: filter 0.14s ease, transform 0.12s ease;
+}
+
+.scr-ticket.is-tall { min-width: 40px; }
+
+.scr-ticket-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.scr-ticket.is-dragging {
+  cursor: grabbing;
+  transform: translate(-50%, -50%) scale(1.06);
+  filter: drop-shadow(0 2dvh 3dvh rgba(0, 0, 0, 0.62));
+}
+
+.scr-ticket-status {
+  position: absolute;
+  left: 50%;
+  bottom: -1.2dvh;
+  transform: translateX(-50%);
+  padding: 0.1dvh 0.5vw;
+  border-radius: 999px;
+  background: rgba(6, 12, 10, 0.78);
+  color: rgba(234, 230, 221, 0.82);
+  font-size: clamp(8px, 1.05dvh, 11px);
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.scr-ticket.is-won .scr-ticket-status {
+  background: rgba(245, 196, 81, 0.92);
+  color: #2a1f06;
+}
+
+/* ── 左侧竖排商店 ── */
+
+.scr-shop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6dvh;
+  flex: 0 0 auto;
+  width: clamp(180px, 23vw, 272px);
+  min-height: 0;
+  padding: 0.9dvh 0.7vw;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.4dvh;
+  background: linear-gradient(180deg, rgba(24, 26, 32, 0.95), rgba(12, 14, 18, 0.95));
+  overflow: hidden;
+}
+
+.scr-shop-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15dvh;
+  flex: 0 0 auto;
+}
+
+.scr-shop-head-title {
+  font-size: clamp(11px, 1.5dvh, 15px);
+  font-weight: 900;
+  color: #f5c451;
+}
+
+.scr-shop-head-note {
+  font-size: clamp(8px, 1.05dvh, 11px);
+  color: rgba(234, 230, 221, 0.45);
+}
+
+.scr-shop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6dvh;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.2vw;
+}
+
+.scr-shop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4dvh;
+  flex: 0 0 auto;
+  padding: 0.7dvh 0.6vw;
+  border-radius: 1.1dvh;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+/* 票面尺寸由配置里的 aspect-ratio 决定 → 四张待售票天生大小形状都不一样 */
+.scr-shop-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  filter: drop-shadow(0 0.6dvh 1dvh rgba(0, 0, 0, 0.45));
+}
+
+.scr-shop-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.scr-shop-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25dvh;
+}
+
+.scr-shop-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4vw;
+  flex-wrap: wrap;
+}
+
+.scr-shop-name {
+  font-size: clamp(11px, 1.45dvh, 15px);
+  font-weight: 900;
+}
+
+.scr-shop-tagline {
+  font-size: clamp(8px, 1.05dvh, 11px);
+  color: rgba(234, 230, 221, 0.55);
+}
+
+.scr-shop-rules {
+  font-size: clamp(8px, 1.02dvh, 11px);
+  line-height: 1.5;
+  color: rgba(234, 230, 221, 0.45);
+}
+
+.scr-shop-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35vw;
+  margin-top: 0.2dvh;
+  font-size: clamp(8px, 1.02dvh, 11px);
+  color: rgba(234, 230, 221, 0.62);
+  font-variant-numeric: tabular-nums;
+}
+
+.scr-shop-buy {
+  margin-top: 0.4dvh;
+  padding: 0.75dvh 0.6vw;
+  border: none;
+  border-radius: 0.9dvh;
+  background: linear-gradient(180deg, #f7cd67, #dda42a);
+  color: #2a1f06;
+  font-size: clamp(10px, 1.35dvh, 14px);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.scr-shop-buy:disabled {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+}
+
+.scr-chip {
+  padding: 0.15dvh 0.5vw;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.scr-chip.is-warn { background: rgba(255, 120, 120, 0.18); color: #ffc9c9; }
+
+/* ── 流水面板（覆盖层，不参与一屏布局） ── */
+
+.scr-ledger {
+  position: absolute;
+  inset: 6dvh 12vw 6dvh auto;
+  width: min(420px, 52vw);
+  display: flex;
+  flex-direction: column;
+  padding: 1.4dvh 1.2vw;
+  border: 1px solid rgba(245, 196, 81, 0.28);
+  border-radius: 1.4dvh;
+  background: rgba(10, 12, 16, 0.96);
+  box-shadow: 0 2dvh 6dvh rgba(0, 0, 0, 0.6);
+  z-index: 20;
+}
+
+.scr-ledger-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: clamp(11px, 1.5dvh, 15px);
+  font-weight: 900;
+  color: #f5c451;
+}
+
+.scr-ledger-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 1dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5dvh;
+}
+
+.scr-ledger-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6vw;
+  padding: 0.6dvh 0.6vw;
+  border-radius: 0.8dvh;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: clamp(9px, 1.2dvh, 12px);
+  font-variant-numeric: tabular-nums;
+}
+
+.scr-ledger-row .is-plus { color: #8fe3b0; font-weight: 900; }
+.scr-ledger-row .is-minus { color: #ff9c9c; font-weight: 900; }
+.scr-ledger-note { color: rgba(234, 230, 221, 0.55); }
+.scr-ledger-time { margin-left: auto; color: rgba(234, 230, 221, 0.35); }
+
+/* ── 提示条 ── */
+
+.scr-notice {
+  position: absolute;
+  left: 50%;
+  bottom: 2dvh;
+  transform: translateX(-50%);
+  max-width: 70vw;
+  padding: 0.8dvh 1.4vw;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 196, 81, 0.35);
+  background: rgba(12, 14, 18, 0.96);
+  color: #fbe6ae;
+  font-size: clamp(10px, 1.3dvh, 13px);
+  font-weight: 700;
+  z-index: 30;
+}
+
+.scr-notice.is-error { border-color: rgba(255, 120, 120, 0.45); color: #ffc9c9; }
+
+/* ── 聚焦视图：把票放大成一张真票来刮 ── */
+
+.scr-focus {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.6dvh;
+  padding: calc(env(safe-area-inset-top, 0px) + 2dvh) 2vw calc(env(safe-area-inset-bottom, 0px) + 2dvh);
+  background: rgba(4, 6, 8, 0.84);
+  backdrop-filter: blur(6px);
+  animation: scr-focus-in 0.18s ease-out;
+}
+
+@keyframes scr-focus-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.scr-focus-ticket {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8dvh;
+  max-height: 92dvh;
+  padding: 1.2dvh 1.4vw;
+  border: 2px solid;
+  box-shadow: 0 3dvh 8dvh rgba(0, 0, 0, 0.6);
+  touch-action: none;
+  user-select: none;
+  animation: scr-focus-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scr-focus-pop {
+  from { transform: scale(0.94); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.scr-focus-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1vw;
+  flex: 0 0 auto;
+  padding: 0.6dvh 1vw;
+  font-weight: 900;
+}
+
+.scr-focus-name { font-size: clamp(13px, 2.2dvh, 24px); letter-spacing: 0.04em; }
+.scr-focus-price { font-size: clamp(11px, 1.7dvh, 18px); font-variant-numeric: tabular-nums; }
+
+.scr-focus-rules {
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: clamp(9px, 1.3dvh, 13px);
+  line-height: 1.5;
+  opacity: 0.78;
+}
+
+.scr-focus-legend { font-weight: 900; }
+
+/* 游戏区：格子网格 + 覆盖在上面的涂层画布 */
+.scr-focus-play {
+  position: relative;
+  display: grid;
+  grid-auto-rows: 1fr;
+  gap: 1.4%;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.scr-focus-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed;
+  border-radius: 0.6dvh;
+  font-size: clamp(13px, 3.4dvh, 34px);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+}
+
+.scr-focus-cell.is-prize { animation: scr-cell-pop 0.24s cubic-bezier(0.16, 1, 0.3, 1); }
+.scr-focus-cell.is-blank { opacity: 0.62; }
+
+/* 一格被刮开得差不多了：印刷内容亮出来；如果这格是中奖格，再加一圈金光 */
+.scr-focus-cell.is-scratched {
+  border-style: solid;
+  opacity: 1;
+}
+
+.scr-focus-cell.is-hit {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55), 0 0 2.4dvh rgba(245, 196, 81, 0.75);
+  animation: scr-cell-hit 0.5s ease-out;
+}
+
+@keyframes scr-cell-hit {
+  0% { transform: scale(0.92); }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@keyframes scr-cell-pop {
+  from { transform: scale(0.86); }
+  to { transform: scale(1); }
+}
+
+.scr-coating {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.scr-focus-ticket.is-revealed .scr-focus-coating {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.scr-focus-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 3dvh;
+  font-size: clamp(9px, 1.35dvh, 14px);
+}
+
+.scr-focus-progress { opacity: 0.65; font-variant-numeric: tabular-nums; }
+
+.scr-focus-outcome {
+  padding: 0.5dvh 1.4vw;
+  border-radius: 999px;
+  font-size: clamp(11px, 1.9dvh, 20px);
+  font-weight: 900;
+}
+
+.scr-focus-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.8vw;
+  font-size: clamp(9px, 1.3dvh, 13px);
+  color: rgba(234, 230, 221, 0.8);
+}
+
+.scr-focus-hint { color: rgba(234, 230, 221, 0.7); }
+.scr-focus-error { color: #ffc9c9; font-weight: 800; }
+
+/* 桌面上的票：刮开后把结果显示在票上方 */
+.scr-ticket-result {
+  position: absolute;
+  left: 50%;
+  top: -1.3dvh;
+  transform: translateX(-50%);
+  padding: 0.1dvh 0.5vw;
+  border-radius: 999px;
+  background: rgba(6, 12, 10, 0.82);
+  color: rgba(234, 230, 221, 0.82);
+  font-size: clamp(8px, 1.05dvh, 11px);
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.scr-ticket-result.is-win {
+  background: rgba(245, 196, 81, 0.94);
+  color: #2a1f06;
+}
+
+/* ── 碎纸机吐出来的纸屑（纯视觉，1.4s 后自动清掉） ── */
+
+.scr-scrap {
+  position: absolute;
+  width: 0.7dvh;
+  height: 1dvh;
+  margin: -0.5dvh 0 0 -0.35dvh;
+  border-radius: 0.1dvh;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 40;
+  animation: scr-scrap-fly 1.1s cubic-bezier(0.22, 0.86, 0.3, 1) forwards;
+}
+
+@keyframes scr-scrap-fly {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  70% { opacity: 1; }
+  100% {
+    transform: translate(var(--scr-dx, 0), var(--scr-dy, 0)) rotate(var(--scr-rot, 0deg));
+    opacity: 0;
+  }
+}
+
+/* ── 桌面上的二次确认条（拖未刮开的票进碎纸机时出现） ── */
+
+.scr-confirm {
+  position: absolute;
+  left: 50%;
+  bottom: 2dvh;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.7vw;
+  max-width: 92%;
+  padding: 0.8dvh 1.2vw;
+  border: 1px solid rgba(255, 120, 120, 0.45);
+  border-radius: 1.1dvh;
+  background: rgba(12, 14, 18, 0.97);
+  color: #ffc9c9;
+  font-size: clamp(10px, 1.3dvh, 13px);
+  font-weight: 700;
+  z-index: 35;
+}
+
+/* 主操作按钮（兑奖 / 碎纸） */
+.scr-top-button.is-primary {
+  border-color: rgba(245, 196, 81, 0.5);
+  background: linear-gradient(180deg, #f7cd67, #dda42a);
+  color: #2a1f06;
+  font-weight: 900;
+}
+
+.scr-top-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── 窄屏（手机竖屏）：侧边栏收窄、机器缩小，仍然一屏不滚动 ── */
+
+@media (max-width: 760px) {
+  .scr-top { gap: 0.5vw; padding: 0.6dvh 0.8vw; }
+  .scr-brand-sub { display: none; }
+  .scr-wallet-label { display: none; }
+
+  .scr-shop { width: 148px; padding: 0.7dvh 0.5vw; }
+  .scr-shop-head-note { display: none; }
+  .scr-shop-rules { display: none; }
+  .scr-shop-card { padding: 0.5dvh 0.45vw; border-radius: 0.9dvh; }
+  .scr-shop-buy { padding: 0.6dvh 0.3vw; }
+
+  .scr-machine { width: 22%; min-width: 62px; }
+  .scr-machine-note { display: none; }
+  .scr-machine-icon { font-size: clamp(18px, 3dvh, 28px); }
+
+  .scr-ticket { min-width: 44px; }
+  .scr-ticket.is-tall { min-width: 34px; }
+  .scr-ledger { inset: 8dvh 5vw 8dvh auto; width: 80vw; }
+
+  .scr-focus-ticket { padding: 1dvh 2.5vw; }
+  .scr-focus-rules { display: none; }
+  .scr-focus-cell { font-size: clamp(12px, 3.2dvh, 24px); }
+  .scr-ticket-result { display: none; }
+}

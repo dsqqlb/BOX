@@ -63,7 +63,7 @@ export interface RollRecord {
   seat: number | null;
   /** 每颗骰子的点数明细（硬币存全部面值） */
   values: number[];
-  /** 硬币专用：正面「1」还是反面「日」 */
+  /** 硬币专用：正面「正」还是反面「反」 */
   coinFace?: 'one' | 'sun';
 }
 
@@ -217,29 +217,82 @@ export const DEFAULT_DICE_PRESETS = ['1d20', '1d6'];
 export const MAX_DICE_PRESETS = 6;
 export const MIN_DICE_PRESETS = 1;
 
-/** 硬币：引擎内置的 d2 硬币骰，两面是"正 / 反"。 */
-export const COIN_NOTATION = '1d2';
+/**
+ * 硬币：引擎内置的 **dc**（Coin）骰，不是普通 d2。
+ *
+ * 用 del d2 的问题：d2 的两面是数字，页面再往引擎里塞一张自定义纹理时，
+ * 两张面会用到同一张图，于是"1 有时是正、有时是反"。
+ * dc 自带 tail.png / heads.png 两张独立贴图，两面永远对应得死死的。
+ */
+export const COIN_NOTATION = '1dc';
 /**
  * 投掷力度：引擎把表达式里的 '!' 当力度倍数（每个 '!' = +4，最多 3 个）。
  * 默认力度对硬币来说太小、几乎不翻面，所以要显式加满，才有"快速多次翻转"的观感。
  */
-export const COIN_ROLL_NOTATION = '1d2!!!';
+export const COIN_ROLL_NOTATION = '1dc!!!';
 
 /**
  * 引擎返回的硬币面值 → 面别。
  *
- * DICE.dc 里 labels 是 [tail.png, heads.png]、values 是 [0, 1]，
- * 引擎取的是"翻到的面在 values 里的值 + 1"，所以会拿到 1 或 2：
- *   1 → tail.png（我们画的是数字 2）
- *   2 → heads.png（我们画的是数字 1）
+ * DICE.dc 里 labels 是 [tail.png, heads.png]、values 是 [0, 1]：
+ *   0 → tail.png  → 反
+ *   1 → heads.png → 正
  */
 export function coinFaceForValue(value: number): 'one' | 'sun' {
   return value === 1 ? 'sun' : 'one';
 }
 
-/** 硬币两面的名字：数字 1 / 数字 2。 */
+/**
+ * 面别 → 引擎面值（0 = 反，1 = 正）。
+ * 新记录统一用这一套，不要再出现"记录里 1 是正、面板里 1 是反"的两套含义。
+ */
+export function coinValueForFace(face: 'one' | 'sun'): number {
+  return face === 'sun' ? 1 : 0;
+}
+
+/**
+ * 从一条掷骰记录里取硬币面别，顺带兼容旧存档。
+ *
+ * 新记录两个字段都有，且 values / total 都是引擎约定（0 = 反、1 = 正）。
+ * 旧记录可能只有 coinFace；更老的记录连 coinFace 都没有，total 用的是
+ * "1 = 反、2 = 正"。拿不准就返回 undefined，历史里显示"—"。
+ */
+export function coinFaceFromRoll(roll: {
+  total?: number;
+  values?: number[];
+  coinFace?: 'one' | 'sun';
+}): 'one' | 'sun' | undefined {
+  if (roll.coinFace) return roll.coinFace;
+  const value = roll.values && roll.values.length === 1 ? roll.values[0] : undefined;
+  if (value === 0 || value === 1) return coinFaceForValue(value);
+  if (roll.total === 2) return 'sun';
+  if (roll.total === 1) return 'one';
+  return undefined;
+}
+
+/**
+ * 引擎返回的骰面 label → 面别。
+ *
+ * 引擎返回的 label 就是这张面用的贴图路径（textures/silvercoin/heads.png 等），
+ * 它是"这颗骰子到底翻到哪一面"最可靠的来源；数值只当兜底。
+ * 拿不准就返回 null，交给 coinFaceForValue 兜底，绝不猜出一个面来。
+ */
+export function coinFaceFromLabel(label: unknown): 'one' | 'sun' | null {
+  const source = typeof label === 'string'
+    ? label
+    : label && typeof label === 'object' && typeof (label as { src?: unknown }).src === 'string'
+      ? (label as { src: string }).src
+      : '';
+  if (!source) return null;
+  const text = source.toLowerCase();
+  if (text.includes('heads')) return 'sun';
+  if (text.includes('tail')) return 'one';
+  return null;
+}
+
+/** 硬币两面的名字：反 / 正。 */
 export function coinLabel(face: 'one' | 'sun'): string {
-  return face === 'one' ? '1' : '2';
+  return face === 'one' ? '反' : '正';
 }
 
 /* ============================================================
