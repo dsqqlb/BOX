@@ -2,6 +2,7 @@
   "version": 1,
   "note": "刮刮乐票种与奖池配置。服务端 code/server/scratch-rules.js 与客户端 code/lib/scratch/catalog.ts 读同一份文件：格子布局、奖池权重、中奖概率、解锁条件、碎纸产出都改这里，不用改代码。",
   "shapeNote": "票的形状一律是矩形，只有长宽比不同（shape.aspect = 宽 ÷ 高）：>1 是横票、=1 是方票、<1 是竖票。不要给票加锯齿、斜切、圆孔之类的外部轮廓。",
+  "unlockNote": "unlock.level 指「票种保险柜」的等级：0 表示开局即得，1/2 需要把保险柜升到对应等级。",
   "moneyNote": "price 与 prize 的单位都是「金钱」——它就是德州扑克那份娱乐筹码（HoldemBalance.chips），两边的余额是同一个数字。",
   "tickets": [
     {
@@ -12,7 +13,7 @@
       "rulesText": "刮开 6 格，如果出现三个完全相同的金额，就中该金额。",
       "price": 10,
       "grid": { "rows": 2, "cols": 3 },
-      "scratch": { "threshold": 0.6, "brush": 30 },
+      "scratch": { "threshold": 0.6, "brush": 6 },
       "winChance": 0.38,
       "prize": { "values": [5, 10, 20, 50, 100], "weights": [38, 30, 20, 10, 2] },
       "shredScraps": 1,
@@ -28,7 +29,7 @@
       "rulesText": "票面公布本张的中奖符号，刮开后若出现三个该符号即中奖。",
       "price": 20,
       "grid": { "rows": 2, "cols": 3 },
-      "scratch": { "threshold": 0.6, "brush": 30 },
+      "scratch": { "threshold": 0.6, "brush": 6 },
       "winChance": 0.32,
       "prize": { "values": [10, 20, 50, 100, 200], "weights": [40, 28, 18, 10, 4] },
       "symbols": ["★", "❀", "◆", "☘", "♠", "☂"],
@@ -45,7 +46,7 @@
       "rulesText": "3 组「你的数字 vs 庄家数字」，赢 2 组中 30、赢 3 组中 150。",
       "price": 30,
       "grid": { "rows": 3, "cols": 2 },
-      "scratch": { "threshold": 0.6, "brush": 30 },
+      "scratch": { "threshold": 0.6, "brush": 6 },
       "winChance": 0.42,
       "prize": {
         "table": [
@@ -67,7 +68,7 @@
       "rulesText": "刮开 9 格，出现 1 个「中奖」得 4、出现 2 个得 15。",
       "price": 5,
       "grid": { "rows": 3, "cols": 3 },
-      "scratch": { "threshold": 0.6, "brush": 30 },
+      "scratch": { "threshold": 0.6, "brush": 6 },
       "winChance": 0.5,
       "prize": {
         "table": [
@@ -79,6 +80,39 @@
       "shape": { "kind": "rounded", "aspect": 1.45, "tableWidth": 11 },
       "theme": { "accent": "#ffb08f", "paper": "#fff4ee", "ink": "#7a2a10", "foil": "#cbb6ab", "edge": "#d9724a" },
       "unlock": { "level": 0, "note": "开局即得" }
+    },
+    {
+      "key": "line-connect",
+      "name": "连线",
+      "tagline": "三格连成一线",
+      "rules": "line-connect",
+      "rulesText": "刮开 9 格，任意一行、一列或一条对角线出现三个相同符号即中奖。",
+      "price": 40,
+      "grid": { "rows": 3, "cols": 3 },
+      "scratch": { "threshold": 0.65, "brush": 6 },
+      "winChance": 0.22,
+      "prize": { "values": [40, 80, 200, 500], "weights": [45, 30, 20, 5] },
+      "symbols": ["★", "☘", "♠", "☂"],
+      "shredScraps": 1,
+      "shape": { "kind": "square", "aspect": 1, "tableWidth": 10 },
+      "theme": { "accent": "#c9a8ff", "paper": "#f6f2ff", "ink": "#3a2360", "foil": "#b9b3c4", "edge": "#8b6fd0" },
+      "unlock": { "level": 1, "note": "票种保险柜 1 级" }
+    },
+    {
+      "key": "jackpot",
+      "name": "头奖轮",
+      "tagline": "刮出「头奖」就拿走",
+      "rules": "jackpot",
+      "rulesText": "刮开 6 格，只要出现一格「头奖」，就中头奖奖金。",
+      "price": 20,
+      "grid": { "rows": 2, "cols": 3 },
+      "scratch": { "threshold": 0.6, "brush": 6 },
+      "winChance": 0.05,
+      "prize": { "values": [250], "weights": [100] },
+      "shredScraps": 1,
+      "shape": { "kind": "wide", "aspect": 1.7, "tableWidth": 12 },
+      "theme": { "accent": "#ff9d8a", "paper": "#fff3f0", "ink": "#7a1414", "foil": "#d8b46a", "edge": "#d24545" },
+      "unlock": { "level": 2, "note": "票种保险柜 2 级" }
     }
   ]
 }

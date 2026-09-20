@@ -17,7 +17,7 @@ const { HOLDEM_STARTING_CHIPS, HOLDEM_MIN_BUY_IN } = require('./config');
 const LEDGER_KINDS = new Set([
   'grant', 'reset', 'buy-in', 'cash-out', 'settle',
   // 刮刮乐与德州共用同一份筹码，所以它的收支也进这本流水（钱的唯一真身始终是 HoldemBalance）。
-  'scratch-buy', 'scratch-prize', 'scratch-upgrade',
+  'scratch-buy', 'scratch-prize', 'scratch-upgrade', 'scratch-smelt', 'scratch-reset',
 ]);
 const LEDGER_PAGE_LIMIT = 50;
 

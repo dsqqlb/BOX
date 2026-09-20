@@ -1,0 +1,293 @@
+{
+  "version": 3,
+  "note": "刮刮乐技能树。等级存在 ScratchProfile.levelsJson 里；效果完全由 effect 决定，服务端汇总成 effects 下发（客户端只显示与使用）。",
+  "layoutNote": "布局是横向长条：column 是第几列（0 = 起点那列，之后每个分支一列），row 是这一列里的第几行。所以树只往左右长、高度固定，面板里可以左右拖动或滚轮查看。requires 是前置（'id' = ≥1 级，'id@3' = ≥3 级），前置没点亮就买不了后面的节点——点亮一个节点会带出它下面的子树。shelf: true 的节点会作为「永久物品」出现在桌面顶部的物品栏里。root: true 是树的起点，开局就点亮。",
+  "effectNote": "effect.kind：brush（笔刷宽度）· threshold（结算门槛，负数是更早结算）· auto（每秒自动刮点数）· prizeBonus（兑奖加成）· crit（暴击概率，配合 multiplier 翻倍）· shredBonus（每张多产纸屑）· exchange（纸屑熔炼：每 N 纸屑换 1 币）· discount + tableSlotsPerLevel（折扣与桌面容量）· luck（中奖率）· ticketLuck（指定票种的中奖率，字段 ticket）· unlock（解锁票种）· flag（布尔开关，给客户端功能用）· none（纯节点）。同一 kind 的多个节点会**累加**。未识别的 kind 不会报错，会原样累加进 effects.custom。",
+  "categories": [
+    { "id": "core", "name": "核心", "icon": "🎰", "color": "#f5c451" },
+    { "id": "scratch", "name": "刮奖工具", "icon": "🔪", "color": "#ffd166" },
+    { "id": "automation", "name": "自动化", "icon": "🤖", "color": "#7ee0b0" },
+    { "id": "cash", "name": "兑奖线", "icon": "🏦", "color": "#8fb8ff" },
+    { "id": "paper", "name": "碎纸线", "icon": "♻️", "color": "#c9a8ff" },
+    { "id": "shop", "name": "商店经营", "icon": "🏷️", "color": "#ff9d8a" },
+    { "id": "fortune", "name": "运气", "icon": "🍀", "color": "#f7a4d0" },
+    { "id": "vault", "name": "票种收藏", "icon": "🔓", "color": "#a2e3f5" }
+  ],
+  "upgrades": [
+    {
+      "id": "workshop",
+      "name": "刮刮乐工坊",
+      "icon": "🎰",
+      "category": "core",
+      "column": 0,
+      "row": 0,
+      "root": true,
+      "desc": "一张桌子、一台兑奖机、一台碎纸机。所有升级都从这里长出去。",
+      "maxLevel": 1,
+      "effect": { "kind": "none" },
+      "cost": []
+    },
+    {
+      "id": "scraper",
+      "name": "刮刀",
+      "icon": "🔪",
+      "category": "scratch",
+      "column": 1,
+      "row": 0,
+      "requires": ["workshop"],
+      "shelf": true,
+      "desc": "笔刷更宽，同样划一下擦掉的面积更大。开局只有 6%，升满能到 40% 以上。",
+      "maxLevel": 5,
+      "effect": { "kind": "brush", "base": 6, "perLevel": 7 },
+      "cost": [
+        { "money": 40, "scraps": 2 },
+        { "money": 90, "scraps": 5 },
+        { "money": 180, "scraps": 9 },
+        { "money": 320, "scraps": 14 },
+        { "money": 520, "scraps": 20 }
+      ]
+    },
+    {
+      "id": "precision",
+      "name": "精准刮刀",
+      "icon": "📐",
+      "category": "scratch",
+      "column": 1,
+      "row": 1,
+      "requires": ["scraper@3"],
+      "shelf": true,
+      "desc": "降低结算门槛：不用刮掉那么多涂层就能结算（要先点满刮刀 3 级才能研究）。",
+      "maxLevel": 3,
+      "effect": { "kind": "threshold", "perLevel": -0.06 },
+      "cost": [
+        { "money": 260, "scraps": 12 },
+        { "money": 480, "scraps": 22 },
+        { "money": 760, "scraps": 34 }
+      ]
+    },
+    {
+      "id": "auto",
+      "name": "自动刮机器",
+      "icon": "🤖",
+      "category": "automation",
+      "column": 2,
+      "row": 0,
+      "requires": ["workshop"],
+      "shelf": true,
+      "desc": "桌面会出现一台「自动刮奖机」：把票拖进去，它会自己刮完再弹回桌面；等级越高刮得越快（满级立刻完成）。",
+      "maxLevel": 5,
+      "effect": { "kind": "auto", "base": 0, "perLevel": 12, "machineBaseMs": 5200, "machinePerLevelMs": 1100 },
+      "cost": [
+        { "money": 120, "scraps": 6 },
+        { "money": 240, "scraps": 12 },
+        { "money": 420, "scraps": 20 },
+        { "money": 680, "scraps": 30 },
+        { "money": 1000, "scraps": 42 }
+      ]
+    },
+    {
+      "id": "autofocus",
+      "name": "自动巡桌",
+      "icon": "🛎️",
+      "category": "automation",
+      "column": 2,
+      "row": 1,
+      "requires": ["auto@3"],
+      "shelf": true,
+      "desc": "让机器替你巡桌：桌面上未刮开的票可以一键全部刮开（物品栏里会出现这个按钮）。",
+      "maxLevel": 1,
+      "effect": { "kind": "flag", "flag": "autoScratchAll" },
+      "cost": [
+        { "money": 600, "scraps": 28 }
+      ]
+    },
+    {
+      "id": "bank",
+      "name": "兑奖机",
+      "icon": "🏦",
+      "category": "cash",
+      "column": 3,
+      "row": 0,
+      "requires": ["workshop"],
+      "desc": "兑奖时按比例加价，中奖直接多拿钱。",
+      "maxLevel": 5,
+      "effect": { "kind": "prizeBonus", "perLevel": 0.05 },
+      "cost": [
+        { "money": 100, "scraps": 4 },
+        { "money": 200, "scraps": 9 },
+        { "money": 360, "scraps": 15 },
+        { "money": 600, "scraps": 22 },
+        { "money": 900, "scraps": 30 }
+      ]
+    },
+    {
+      "id": "autobank",
+      "name": "自动兑奖",
+      "icon": "🧾",
+      "category": "cash",
+      "column": 3,
+      "row": 1,
+      "requires": ["bank@3"],
+      "shelf": true,
+      "desc": "兑奖机自己会数票：桌面上所有中奖的票可以一键全部兑掉（物品栏里会出现这个按钮）。",
+      "maxLevel": 1,
+      "effect": { "kind": "flag", "flag": "autoRedeemAll" },
+      "cost": [
+        { "money": 480, "scraps": 22 }
+      ]
+    },
+    {
+      "id": "shredder",
+      "name": "碎纸机",
+      "icon": "🗑️",
+      "category": "paper",
+      "column": 4,
+      "row": 0,
+      "requires": ["workshop"],
+      "desc": "每张票碎出的纸屑更多（基础是 1 单位）。1 级不要纸屑，方便起步。",
+      "maxLevel": 5,
+      "effect": { "kind": "shredBonus", "perLevel": 1 },
+      "cost": [
+        { "money": 60, "scraps": 0 },
+        { "money": 150, "scraps": 6 },
+        { "money": 300, "scraps": 14 },
+        { "money": 520, "scraps": 24 },
+        { "money": 800, "scraps": 36 }
+      ]
+    },
+    {
+      "id": "smelter",
+      "name": "纸屑熔炼炉",
+      "icon": "⚗️",
+      "category": "paper",
+      "column": 4,
+      "row": 1,
+      "requires": ["shredder@2"],
+      "shelf": true,
+      "desc": "把纸屑熔成钱：按当前炉温，每 N 单位纸屑换 1 币（等级越高越划算）。",
+      "maxLevel": 3,
+      "effect": { "kind": "exchange", "base": 10, "perLevel": -2 },
+      "cost": [
+        { "money": 120, "scraps": 10 },
+        { "money": 320, "scraps": 22 },
+        { "money": 560, "scraps": 36 }
+      ]
+    },
+    {
+      "id": "autoshred",
+      "name": "自动碎纸",
+      "icon": "♻️",
+      "category": "paper",
+      "column": 4,
+      "row": 2,
+      "requires": ["shredder@3"],
+      "shelf": true,
+      "desc": "没中奖的票自动进碎纸机：桌面上所有没中奖的票可以一键全部碎掉。",
+      "maxLevel": 1,
+      "effect": { "kind": "flag", "flag": "autoShredAll" },
+      "cost": [
+        { "money": 420, "scraps": 20 }
+      ]
+    },
+    {
+      "id": "shop",
+      "name": "商店会员",
+      "icon": "🏷️",
+      "category": "shop",
+      "column": 5,
+      "row": 0,
+      "requires": ["workshop"],
+      "desc": "买票打折，同时桌面上能多摆几张票。",
+      "maxLevel": 3,
+      "effect": { "kind": "discount", "perLevel": 0.05, "maxDiscount": 0.5, "tableSlotsPerLevel": 2 },
+      "cost": [
+        { "money": 200, "scraps": 8 },
+        { "money": 450, "scraps": 18 },
+        { "money": 800, "scraps": 30 }
+      ]
+    },
+    {
+      "id": "vip",
+      "name": "会员专柜",
+      "icon": "🛍️",
+      "category": "shop",
+      "column": 5,
+      "row": 1,
+      "requires": ["shop@2"],
+      "desc": "再加一档折扣（与商店会员的折扣叠加）。",
+      "maxLevel": 2,
+      "effect": { "kind": "discount", "perLevel": 0.03, "maxDiscount": 0.5 },
+      "cost": [
+        { "money": 700, "scraps": 26 },
+        { "money": 1300, "scraps": 44 }
+      ]
+    },
+    {
+      "id": "luck",
+      "name": "幸运护符",
+      "icon": "🍀",
+      "category": "fortune",
+      "column": 6,
+      "row": 0,
+      "requires": ["workshop"],
+      "shelf": true,
+      "desc": "提高每一张票的中奖概率（在票种基础上叠加）。",
+      "maxLevel": 3,
+      "effect": { "kind": "luck", "perLevel": 0.02 },
+      "cost": [
+        { "money": 300, "scraps": 15 },
+        { "money": 700, "scraps": 30 },
+        { "money": 1200, "scraps": 50 }
+      ]
+    },
+    {
+      "id": "crit",
+      "name": "暴击",
+      "icon": "💥",
+      "category": "fortune",
+      "column": 6,
+      "row": 1,
+      "requires": ["luck@2"],
+      "desc": "兑奖时有概率翻倍：每级 +5% 概率，命中就按 2 倍发钱（会自动记进流水）。",
+      "maxLevel": 2,
+      "effect": { "kind": "crit", "perLevel": 0.05, "multiplier": 2 },
+      "cost": [
+        { "money": 420, "scraps": 18 },
+        { "money": 900, "scraps": 34 }
+      ]
+    },
+    {
+      "id": "vault",
+      "name": "票种保险柜",
+      "icon": "🔓",
+      "category": "vault",
+      "column": 7,
+      "row": 0,
+      "requires": ["workshop"],
+      "desc": "解锁新票种：1 级开「连线」，2 级开「头奖轮」。",
+      "maxLevel": 2,
+      "effect": { "kind": "unlock", "unlockByLevel": [["line-connect"], ["jackpot"]] },
+      "cost": [
+        { "money": 150, "scraps": 10 },
+        { "money": 400, "scraps": 25 }
+      ]
+    },
+    {
+      "id": "jackpotFan",
+      "name": "头奖信仰",
+      "icon": "🎯",
+      "category": "vault",
+      "column": 7,
+      "row": 1,
+      "requires": ["vault@2"],
+      "desc": "只对「头奖轮」生效：这张票的中奖率再 +1%/级（头奖轮基础是 5%）。",
+      "maxLevel": 3,
+      "effect": { "kind": "ticketLuck", "ticket": "jackpot", "perLevel": 0.01 },
+      "cost": [
+        { "money": 260, "scraps": 14 },
+        { "money": 620, "scraps": 30 },
+        { "money": 1100, "scraps": 52 }
+      ]
+    }
+  ]
+}

@@ -19,6 +19,18 @@ import type { ScratchOutcome, ScratchTicket, ScratchTicketDefinition } from '@/l
 interface TicketFocusProps {
   definition: ScratchTicketDefinition;
   ticket: ScratchTicket;
+  /** 刮开层的笔刷宽度（含「刮刀」升级）。 */
+  brushPercent: number;
+  /** 自动刮机器速度（0 = 还没升级过）。 */
+  autoPointsPerSecond: number;
+  /** 兑奖加成（用于按钮上显示实际到账金额）。 */
+  prizeBonus: number;
+  /** 暴击概率（用于提示里说明还有暴击机会）。 */
+  critChance: number;
+  /** 这一张碎掉能拿多少纸屑（含碎纸机升级）。 */
+  shredReward: number;
+  /** 实际结算门槛（含「精准刮刀」升级）。 */
+  threshold: number;
   /** 刮开达标 → 服务端结算；成功返回结算结果（没中奖也有值，只是 prize = 0）。 */
   onReveal: (ratio: number) => Promise<ScratchOutcome | null>;
   /** 送入兑奖机（中奖票）。 */
@@ -31,13 +43,18 @@ interface TicketFocusProps {
 /** 单格被刮开多少就算「露出内容」了（用来点亮那一格）。 */
 const CELL_LIT_RATIO = 0.55;
 
-export default function TicketFocus({ definition, ticket, onReveal, onRedeem, onShred, onClose }: TicketFocusProps) {
+export default function TicketFocus({
+  definition, ticket, brushPercent, autoPointsPerSecond, prizeBonus, critChance, shredReward, threshold,
+  onReveal, onRedeem, onShred, onClose,
+}: TicketFocusProps) {
   const [progress, setProgress] = useState(ticket.scratchRatio || 0);
   const [outcome, setOutcome] = useState<ScratchOutcome | null>(ticket.outcome);
   const [cellRatios, setCellRatios] = useState<number[]>([]);
   const [revealing, setRevealing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmShred, setConfirmShred] = useState(false);
+  /** 自动刮机器开关（升级过才显示）。 */
+  const [auto, setAuto] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ratioRef = useRef(ticket.scratchRatio || 0);
 
@@ -46,6 +63,8 @@ export default function TicketFocus({ definition, ticket, onReveal, onRedeem, on
   const grid = ticket.print?.grid || definition.grid;
   const cells = ticket.print?.cells || [];
   const legend = ticket.print?.legend ?? null;
+  /** 兑奖实际到账金额（含「兑奖机」升级加成）。 */
+  const payout = outcome ? Math.max(1, Math.round(outcome.prize * (1 + prizeBonus))) : 0;
 
   /** 刮开达标 → 让服务端结算。 */
   const handleRevealed = useCallback(async () => {
@@ -53,7 +72,7 @@ export default function TicketFocus({ definition, ticket, onReveal, onRedeem, on
     setRevealing(true);
     setError(null);
     try {
-      const next = await onReveal(Math.max(ratioRef.current, definition.scratch.threshold));
+      const next = await onReveal(Math.max(ratioRef.current, threshold));
       if (next) setOutcome(next);
       else setError('刮开了，但没能结算，再刮一下试试。');
     } catch (caught) {
@@ -61,7 +80,7 @@ export default function TicketFocus({ definition, ticket, onReveal, onRedeem, on
     } finally {
       setRevealing(false);
     }
-  }, [definition.scratch.threshold, onReveal, outcome, revealing]);
+  }, [onReveal, outcome, revealing, threshold]);
 
   const runAction = useCallback(async (action: () => Promise<void>, label: string) => {
     if (busy) return;
@@ -139,10 +158,11 @@ export default function TicketFocus({ definition, ticket, onReveal, onRedeem, on
           {!outcome && (
             <ScratchCanvas
               className="scr-focus-coating"
-              brushPercent={definition.scratch.brush}
-              threshold={definition.scratch.threshold}
+              brushPercent={brushPercent}
+              threshold={threshold}
               coatingColor={theme.foil}
               cellGrid={grid}
+              autoPointsPerSecond={auto ? autoPointsPerSecond : 0}
               onCells={setCellRatios}
               onProgress={(ratio) => { ratioRef.current = ratio; setProgress(ratio); }}
               onRevealed={() => { void handleRevealed(); }}
@@ -162,7 +182,7 @@ export default function TicketFocus({ definition, ticket, onReveal, onRedeem, on
             </span>
           ) : (
             <span className="scr-focus-progress" style={{ color: theme.ink }}>
-              已刮 {Math.round(progress * 100)}% · 刮到 {Math.round(definition.scratch.threshold * 100)}% 自动结算
+              已刮 {Math.round(progress * 100)}% · 刮到 {Math.round(threshold * 100)}% 自动结算
             </span>
           )}
         </footer>
@@ -174,9 +194,21 @@ export default function TicketFocus({ definition, ticket, onReveal, onRedeem, on
 
         {!outcome && !confirmShred && (
           <>
-            <span className="scr-focus-hint">刮开涂层就能看到格子里的内容；刮到 {Math.round(definition.scratch.threshold * 100)}% 自动结算。</span>
+            <span className="scr-focus-hint">
+              刮开涂层就能看到格子里的内容；刮到 {Math.round(threshold * 100)}% 自动结算。
+            </span>
+            {autoPointsPerSecond > 0 && (
+              <button
+                type="button"
+                className={`scr-top-button${auto ? ' is-primary' : ''}`}
+                onClick={() => setAuto((value) => !value)}
+                disabled={busy}
+              >
+                {auto ? '关掉自动刮' : `开自动刮（约 ${Math.round(autoPointsPerSecond)} 点/秒）`}
+              </button>
+            )}
             <button type="button" className="scr-top-button" onClick={() => setConfirmShred(true)} disabled={busy}>
-              碎掉这张票（{definition.shredScraps} 纸屑）
+              碎掉这张票（{shredReward} 纸屑）
             </button>
           </>
         )}
@@ -199,7 +231,9 @@ export default function TicketFocus({ definition, ticket, onReveal, onRedeem, on
         {outcome?.won && (
           <>
             <span className="scr-focus-hint">
-              中奖了！兑奖机会把钱打到与德州扑克共用的那份余额里。
+              中奖了！兑奖机会把钱打到与德州扑克共用的那份余额里
+              {prizeBonus > 0 ? `（兑奖机 +${Math.round(prizeBonus * 100)}%）` : ''}
+              {critChance > 0 ? `，还有 ${Math.round(critChance * 100)}% 概率暴击翻倍` : ''}。
             </span>
             <button
               type="button"
@@ -207,21 +241,21 @@ export default function TicketFocus({ definition, ticket, onReveal, onRedeem, on
               disabled={busy}
               onClick={() => { void runAction(onRedeem, '兑奖'); }}
             >
-              {busy ? '兑奖中…' : `送入兑奖机（+${outcome.prize} 币）`}
+              {busy ? '兑奖中…' : `送入兑奖机（+${payout} 币）`}
             </button>
           </>
         )}
 
         {outcome && !outcome.won && (
           <>
-            <span className="scr-focus-hint">没中奖——碎掉换纸屑，攒着升级刮刀和机器。</span>
+            <span className="scr-focus-hint">没中奖——碎掉换 {shredReward} 纸屑，攒着升级刮刀和机器。</span>
             <button
               type="button"
               className="scr-top-button is-primary"
               disabled={busy}
               onClick={() => { void runAction(onShred, '碎纸'); }}
             >
-              {busy ? '碎纸中…' : `送入碎纸机（+${definition.shredScraps} 纸屑）`}
+              {busy ? '碎纸中…' : `送入碎纸机（+${shredReward} 纸屑）`}
             </button>
           </>
         )}

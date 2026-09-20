@@ -425,6 +425,44 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
           return httpUtils.sendJson(res, await scratchStore.listLedger(requestUser.username));
         }
 
+        // 升级树：GET 看价格与效果，POST 升一级（金钱 + 纸屑在同一个事务里扣）。
+        if (rest === 'upgrades') {
+          if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+          return httpUtils.sendJson(res, await scratchStore.getUpgrades(requestUser.username));
+        }
+        if (rest === 'upgrade') {
+          if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+          return httpUtils.sendJson(res, await scratchStore.buyUpgrade(requestUser.username, body.id));
+        }
+
+        // 纸屑熔炼：把纸屑按当前汇率换成钱（不传数量就全部熔掉）。
+        if (rest === 'smelt') {
+          if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+          return httpUtils.sendJson(res, await scratchStore.smeltScraps(requestUser.username, body.scraps));
+        }
+
+        // 重置技能树：清空所有等级并全额退还已花的金钱与纸屑（前端会先弹确认框）。
+        if (rest === 'reset') {
+          if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          return httpUtils.sendJson(res, await scratchStore.resetUpgrades(requestUser.username));
+        }
+
+        // 桌面机器：保存位置或收起状态（收起 = 放进「能力」栏）。
+        if (rest === 'machines') {
+          if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          if (!body || typeof body !== 'object' || typeof body.id !== 'string') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+          return httpUtils.sendJson(res, await scratchStore.updateMachine(requestUser.username, body.id, body));
+        }
+
         if (rest === 'tickets') {
           if (req.method === 'GET') return httpUtils.sendJson(res, await scratchStore.listTickets(requestUser.username));
           if (req.method === 'POST') {

@@ -1,6 +1,8 @@
 import {
-  ScratchBuyPayload, ScratchCatalog, ScratchLedgerPayload, ScratchProfile,
-  ScratchRedeemPayload, ScratchRevealPayload, ScratchShredPayload, ScratchTicket, ScratchTicketsPayload,
+  ScratchBuyPayload, ScratchCatalog, ScratchLedgerPayload, ScratchMachineId, ScratchMachinePayload,
+  ScratchMachineState, ScratchProfile, ScratchRedeemPayload, ScratchResetPayload,
+  ScratchRevealPayload, ScratchShredPayload, ScratchSmeltPayload, ScratchTicket,
+  ScratchTicketsPayload, ScratchUpgradesPayload,
 } from './types';
 
 /** 刮刮乐接口封装：全部走受保护的 /api/scratch/*，未登录或没权限时服务端直接返回 401/403。 */
@@ -42,8 +44,8 @@ export function buyTicket(kind: string): Promise<ScratchBuyPayload> {
   return request<ScratchBuyPayload>('/api/scratch/tickets', { method: 'POST', body: JSON.stringify({ kind }) });
 }
 
-/** 保存桌面坐标（拖动松手时调用）。 */
-export function saveTicketPosition(id: string, patch: { posX?: number; posY?: number; z?: number }): Promise<{ ticket: ScratchTicket }> {
+/** 保存桌面坐标与摆放角度（拖动松手、摆正时调用）。 */
+export function saveTicketPosition(id: string, patch: { posX?: number; posY?: number; z?: number; rotation?: number }): Promise<{ ticket: ScratchTicket }> {
   return request(`/api/scratch/tickets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
@@ -63,4 +65,32 @@ export function redeemTicket(id: string): Promise<ScratchRedeemPayload> {
 /** 碎纸：把票送进碎纸机，产出纸屑。 */
 export function shredTicket(id: string): Promise<ScratchShredPayload> {
   return request<ScratchShredPayload>(`/api/scratch/tickets/${encodeURIComponent(id)}/shred`, { method: 'POST' });
+}
+
+/** 升级树：每项升级的等级、下一级价格与效果说明。 */
+export function fetchUpgrades(): Promise<ScratchUpgradesPayload> {
+  return request<ScratchUpgradesPayload>('/api/scratch/upgrades');
+}
+
+/** 升一级（金钱 + 纸屑由服务端在同一事务里扣）。 */
+export function buyUpgrade(id: string): Promise<ScratchUpgradesPayload> {
+  return request<ScratchUpgradesPayload>('/api/scratch/upgrade', { method: 'POST', body: JSON.stringify({ id }) });
+}
+
+/** 纸屑熔炼：把纸屑按当前汇率换成钱（不传数量 = 全部熔掉）。 */
+export function smeltScraps(scraps?: number): Promise<ScratchSmeltPayload> {
+  return request<ScratchSmeltPayload>('/api/scratch/smelt', { method: 'POST', body: JSON.stringify({ scraps }) });
+}
+
+/** 重置技能树：清空所有等级，并按配置价格全额退还已花的金钱与纸屑。 */
+export function resetUpgrades(): Promise<ScratchResetPayload> {
+  return request<ScratchResetPayload>('/api/scratch/reset', { method: 'POST', body: '{}' });
+}
+
+/** 保存桌面机器（兑奖机 / 碎纸机 / 自动刮奖机）的位置或收起状态（收起 = 放进「能力」栏）。 */
+export function saveMachine(id: ScratchMachineId, patch: Partial<ScratchMachineState>): Promise<ScratchMachinePayload> {
+  return request<ScratchMachinePayload>('/api/scratch/machines', {
+    method: 'POST',
+    body: JSON.stringify({ id, ...patch }),
+  });
 }

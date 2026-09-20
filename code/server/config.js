@@ -60,6 +60,8 @@ const EDH_CARDS_FILE = path.join(DATA_DIR, 'edh', 'cards.json');
 const KARDS_CARDS_FILE = path.join(CONTENT_DIR, 'kards', 'cards.json');
 // 刮刮乐票种与奖池表：服务端与客户端读同一份 JSON，规则不会两头不一致。
 const SCRATCH_TICKETS_FILE = path.join(CONTENT_DIR, 'scratch', 'tickets.json');
+// 刮刮乐升级树：同样两端共用（服务端算总效果，客户端只显示）。
+const SCRATCH_UPGRADES_FILE = path.join(CONTENT_DIR, 'scratch', 'upgrades.json');
 const CHAT_DIR = path.join(DATA_DIR, 'chat');
 const CHAT_UPLOAD_DIR = path.join(CHAT_DIR, 'uploads');
 const configuredChatUploadBytes = Number(process.env.CHAT_MAX_UPLOAD_BYTES || 1073741824);
@@ -150,6 +152,7 @@ module.exports = {
   EDH_CARDS_FILE,
   KARDS_CARDS_FILE,
   SCRATCH_TICKETS_FILE,
+  SCRATCH_UPGRADES_FILE,
   CHAT_DIR,
   CHAT_UPLOAD_DIR,
   CHAT_MAX_UPLOAD_BYTES,

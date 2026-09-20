@@ -14,7 +14,7 @@
 
 const crypto = require('crypto');
 
-const RULES = new Set(['three-match', 'lucky-symbol', 'high-low', 'find-word']);
+const RULES = new Set(['three-match', 'lucky-symbol', 'high-low', 'find-word', 'line-connect', 'jackpot']);
 const MONEY_UNIT = '币';
 
 /* ── 可复现随机数 ── */
@@ -108,6 +108,15 @@ function validateTicket(ticket) {
   if (ticket.rules === 'find-word') {
     if (!Array.isArray(ticket.prize?.table)) problems.push('find-word 需要 prize.table。');
     if (cells < 3) problems.push('find-word 至少需要 3 格。');
+  }
+  if (ticket.rules === 'line-connect') {
+    if (cells !== 9) problems.push('line-connect 必须是 3×3（9 格），否则「连线」判定不成立。');
+    if (!Array.isArray(ticket.symbols) || ticket.symbols.length < 3) problems.push('line-connect 需要至少 3 个符号。');
+    if (!Array.isArray(ticket.prize?.values) || !Array.isArray(ticket.prize?.weights)) problems.push('line-connect 需要 prize.values 与 prize.weights。');
+  }
+  if (ticket.rules === 'jackpot') {
+    if (cells < 4) problems.push('jackpot 至少需要 4 格。');
+    if (!Array.isArray(ticket.prize?.values) || !Array.isArray(ticket.prize?.weights)) problems.push('jackpot 需要 prize.values 与 prize.weights。');
   }
   return problems;
 }
@@ -255,21 +264,102 @@ function generateFindWord(rng, ticket) {
   };
 }
 
+const LINES = [
+  [0, 1, 2], [3, 4, 5], [6, 7, 8],   // 三行
+  [0, 3, 6], [1, 4, 7], [2, 5, 8],   // 三列
+  [0, 4, 8], [2, 4, 6],              // 两条对角线
+];
+
+/** 3×3 里三格全相同的线。 */
+function identicalLines(grid) {
+  return LINES.filter((line) => grid[line[0]] === grid[line[1]] && grid[line[1]] === grid[line[2]]);
+}
+
+/**
+ * 连线：任意一行/一列/一条对角线出现三个相同符号即中奖。
+ * 随机撒 9 格再检查「恰好几条线三连」，命中就采纳；实在不命中时用两组已验证的确定性布局兜底，
+ * 所以不会出现「看来连成线却不中奖」的歧义票面。
+ */
+function generateLineConnect(rng, ticket) {
+  const symbols = ticket.symbols;
+  const won = rngFloat(rng) < Number(ticket.winChance);
+  let grid = null;
+  for (let attempt = 0; attempt < 300 && !grid; attempt += 1) {
+    const candidate = Array.from({ length: 9 }, () => symbols[rngInt(rng, 0, symbols.length - 1)]);
+    if (identicalLines(candidate).length === (won ? 1 : 0)) grid = candidate;
+  }
+  if (!grid) {
+    // 兜底布局（已验证：任一行/列/对角都不会三连；中奖版只有第一行三连），再随机镜像与换符号保持新鲜感
+    const base = won ? [0, 0, 0, 0, 1, 1, 2, 1, 0] : [0, 0, 1, 0, 1, 1, 2, 1, 0];
+    const picked = shuffle(rng, symbols).slice(0, 3);
+    const flipRows = rngFloat(rng) < 0.5;
+    const flipCols = rngFloat(rng) < 0.5;
+    grid = base.map((_, index) => {
+      const row = Math.floor(index / 3);
+      const col = index % 3;
+      const source = (flipRows ? 2 - row : row) * 3 + (flipCols ? 2 - col : col);
+      return picked[base[source]];
+    });
+  }
+
+  const lines = identicalLines(grid);
+  const prizeLine = lines[0] || [];
+  const prize = won ? pickWeighted(rng, ticket.prize.values, ticket.prize.weights) : 0;
+  const cells = grid.map((symbol, index) => ({
+    id: index,
+    label: symbol,
+    tag: won && prizeLine.includes(index) ? 'prize' : 'blank',
+  }));
+  return {
+    won: Boolean(won) && prize > 0,
+    prize,
+    headline: prize > 0 ? `连成一线，中 ${prize} 币！` : '谢谢参与',
+    cells,
+    detail: { lines: lines.length },
+  };
+}
+
+/** 头奖轮：6 格，只要出现一格「头奖」就拿走大奖（概率很低，所以是「头奖」）。 */
+function generateJackpot(rng, ticket) {
+  const { cells: cellCount } = gridSize(ticket);
+  const won = rngFloat(rng) < Number(ticket.winChance);
+  const prize = won ? pickWeighted(rng, ticket.prize.values, ticket.prize.weights) : 0;
+  const filled = Array.from({ length: cellCount }, () => ({ label: '✕', tag: 'blank' }));
+  if (won) filled[rngInt(rng, 0, cellCount - 1)] = { label: '头奖', tag: 'prize' };
+  const cells = shuffle(rng, filled).map((cell, id) => ({ ...cell, id }));
+  return {
+    won: Boolean(won) && prize > 0,
+    prize,
+    headline: prize > 0 ? `头奖！中 ${prize} 币` : '谢谢参与',
+    cells,
+    detail: { jackpot: Boolean(won) },
+  };
+}
+
 const GENERATORS = {
   'three-match': generateThreeMatch,
   'lucky-symbol': generateLuckySymbol,
   'high-low': generateHighLow,
   'find-word': generateFindWord,
+  'line-connect': generateLineConnect,
+  jackpot: generateJackpot,
 };
 
 /**
  * 生成一张票的结果（返回值里没有 seed，seed 只留在数据库里）。
  * 同一个 seed + 同一份配置 → 完全相同的 result，所以可以复现、可以让冒烟测试断言。
+ *
+ * options.winChance：覆盖本张票的中奖概率（「幸运护符」升级用），只覆盖这一个字段，
+ * 不改缓存的配置对象，所以对其他票没有影响。生成器里用到的 winChance 都从这里读。
  */
-function generateResult(ticket, seed) {
+function generateResult(ticket, seed, options = {}) {
   const generate = GENERATORS[ticket.rules];
   if (!generate) throw new Error(`未知的刮刮乐玩法：${ticket.rules}`);
-  const generated = generate(createRng(seed), ticket);
+  const override = Number(options.winChance);
+  const effective = Number.isFinite(override)
+    ? { ...ticket, winChance: Math.min(1, Math.max(0, override)) }
+    : ticket;
+  const generated = generate(createRng(seed), effective);
   return {
     version: 1,
     kind: ticket.key,

@@ -28,6 +28,8 @@ interface ScratchCanvasProps {
   cellGrid?: { rows: number; cols: number };
   /** 每格已刮开比例（0~1，长度 = rows × cols），用于让刮到的那一格亮起来。 */
   onCells?: (ratios: number[]) => void;
+  /** 自动刮机器：每秒自动擦掉的点数（0 = 关闭）。升级了「自动刮机器」才会传非 0。 */
+  autoPointsPerSecond?: number;
   className?: string;
 }
 
@@ -36,7 +38,8 @@ const ALPHA_THRESHOLD = 24;
 const SAMPLE_STEP = 4;
 
 export default function ScratchCanvas({
-  brushPercent, threshold, coatingColor, onRevealed, onProgress, cellGrid, onCells, className = '',
+  brushPercent, threshold, coatingColor, onRevealed, onProgress, cellGrid, onCells,
+  autoPointsPerSecond = 0, className = '',
 }: ScratchCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -205,6 +208,25 @@ export default function ScratchCanvas({
     ctx.restore();
     lastPointRef.current = point;
   }, []);
+
+  // 自动刮机器：按等级每秒擦掉若干个点（每 100ms 擦一小撮），刮到达标自动停；机器是「跳跃式」擦，不连成线。
+  useEffect(() => {
+    if (!autoPointsPerSecond || autoPointsPerSecond <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      const canvas = canvasRef.current;
+      if (!canvas || doneRef.current) return;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      if (width < 2 || height < 2) return;
+      const points = Math.max(1, Math.round(autoPointsPerSecond / 10));
+      for (let index = 0; index < points; index += 1) {
+        lastPointRef.current = null;
+        scratchTo({ x: Math.random() * width, y: Math.random() * height });
+      }
+      measure(true);
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [autoPointsPerSecond, measure, scratchTo]);
 
   return (
     <canvas

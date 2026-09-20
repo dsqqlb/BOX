@@ -8,7 +8,7 @@
  * 颜色、长宽比、票名价格都来自 resources/content/scratch/tickets.json，加票种不用写新组件。
  */
 
-import { useId } from 'react';
+import { memo, useId } from 'react';
 import type { ScratchLegend, ScratchTicketDefinition } from '@/lib/scratch/types';
 
 const W = 200;
@@ -20,7 +20,8 @@ interface TicketArtProps {
   className?: string;
 }
 
-export default function TicketArt({ ticket, legend = null, className = '' }: TicketArtProps) {
+/** 票面美术（React.memo：桌面拖动时不重画这堆 SVG，避免掉帧）。 */
+function TicketArt({ ticket, legend = null, className = '' }: TicketArtProps) {
   const rawId = useId();
   // React 的 useId 里可能带 : 或 «» 之类的字符，清成字母数字再拼 id；清空了就兜一个常量。
   const uid = rawId.replace(/[^a-zA-Z0-9]/g, '') || 'ticket';
@@ -77,6 +78,8 @@ export default function TicketArt({ ticket, legend = null, className = '' }: Tic
     </svg>
   );
 }
+
+export default memo(TicketArt);
 
 /** 每种玩法的印刷图案：让四种票一眼分得开，尺寸随票的长宽比自适应。 */
 function Motif({ ticket, top, height, pad }: { ticket: ScratchTicketDefinition; top: number; height: number; pad: number }) {
@@ -141,6 +144,47 @@ function Motif({ ticket, top, height, pad }: { ticket: ScratchTicketDefinition; 
         <text x={W / 2} y={midY + plateH * 0.2} fontSize={Math.min(height * 0.5, plateH * 0.7)} fontWeight="900" fill={edge} textAnchor="middle">VS</text>
         <rect x={W - pad - plateW} y={plateY} width={plateW} height={plateH} rx={plateH * 0.12} fill={ink} opacity="0.18" stroke={edge} strokeWidth={Math.max(1, plateH * 0.05)} />
         <text x={W - pad - plateW / 2} y={plateY + plateH * 0.72} fontSize={plateH * 0.62} fontWeight="900" fill={ink} textAnchor="middle">?</text>
+      </g>
+    );
+  }
+
+  if (ticket.rules === 'line-connect') {
+    const symbols = ticket.symbols && ticket.symbols.length ? ticket.symbols : ['★'];
+    const dot = Math.min(height * 0.13, avail / 12);
+    const step = dot * 2.5;
+    return (
+      <g>
+        {[0, 1, 2].map((row) => [0, 1, 2].map((col) => {
+          const lit = row === 1;   // 中间一整行点亮，暗示「三格连成一线」
+          return (
+            <g key={`lc-${row}-${col}`}>
+              {lit && <circle cx={W / 2 + (col - 1) * step} cy={midY + (row - 1) * step} r={dot * 1.6} fill={edge} opacity="0.25" />}
+              <text
+                x={W / 2 + (col - 1) * step}
+                y={midY + (row - 1) * step + dot * 0.5}
+                fontSize={dot * 1.7}
+                fontWeight="900"
+                fill={lit ? edge : accent}
+                textAnchor="middle"
+              >
+                {symbols[(row + col) % symbols.length]}
+              </text>
+            </g>
+          );
+        }))}
+      </g>
+    );
+  }
+
+  if (ticket.rules === 'jackpot') {
+    const r = Math.min(height * 0.34, avail / 5);
+    return (
+      <g>
+        <circle cx={W / 2} cy={midY} r={r} fill={edge} opacity="0.18" stroke={edge} strokeWidth={Math.max(1, r * 0.06)} />
+        <text x={W / 2} y={midY + r * 0.32} fontSize={r * 0.8} fontWeight="900" fill={ink} textAnchor="middle">头奖</text>
+        {[[-1.9, -0.45], [1.9, -0.45], [-1.7, 0.75], [1.7, 0.75]].map(([ox, oy], index) => (
+          <text key={`jx-${index}`} x={W / 2 + ox * r} y={midY + oy * r} fontSize={r * 0.55} fontWeight="900" fill={accent} textAnchor="middle" opacity="0.85">✕</text>
+        ))}
       </g>
     );
   }
