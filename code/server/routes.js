@@ -22,6 +22,8 @@ const chatStore = require('./chat-store');
 const edhLife = require('./edh-life');
 // 刮刮乐：同样是纯 SQLite 读写、不持有连接状态；「金钱」借用 holdem-store 的筹码账户。
 const scratchStore = require('./scratch-store');
+// NoteQuest 单人地牢探索：一局 = 一条存档（含完整快照），死亡时另写一条墓地记录。
+const noteQuestStore = require('./notequest-store');
 // 先攻追踪器遥控器的备选角色池：纯 SQLite 读写，按账户一人一行。
 const initiativePool = require('./initiative-pool');
 
@@ -409,6 +411,56 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
     // 刮刮乐：单人玩法，全部接口按账户隔离，写操作要求同源。
     // 「金钱」就是德州扑克那份筹码（HoldemBalance），本模块不另存余额；纸屑与票面结果存 SQLite。
     // 未刮开的票不下发答案，所以客户端改不出奖。
+    // NoteQuest 单人地牢探索：引擎跑在浏览器里，服务端只管存取快照与墓地记录。
+    if (pathname === '/api/notequest/runs' || pathname.startsWith('/api/notequest/runs/') || pathname === '/api/notequest/graves') {
+      try {
+        if (pathname === '/api/notequest/graves') {
+          if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+          return httpUtils.sendJson(res, { graves: await noteQuestStore.listGraves(requestUser.username) });
+        }
+
+        const rest = pathname.slice('/api/notequest/runs'.length).replace(/^\/+/, '');
+        if (!rest) {
+          if (req.method === 'GET') return httpUtils.sendJson(res, { runs: await noteQuestStore.listRuns(requestUser.username) });
+          if (req.method === 'POST') {
+            if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '缺乏同源验证。');
+            const raw = await httpUtils.readRawBody(req, noteQuestStore.MAX_BODY_BYTES);
+            if (raw === null) return httpUtils.sendAuthError(res, 413, '存档过大或请求体不合法。');
+            let body = null;
+            try { body = JSON.parse(raw); } catch { body = null; }
+            if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '缺乏请求体。');
+            return httpUtils.sendJson(res, { run: await noteQuestStore.createRun(requestUser.username, body) }, 201);
+          }
+          return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+        }
+
+        const runId = rest.split('/')[0];
+        if (req.method === 'GET') {
+          const run = await noteQuestStore.getRun(requestUser.username, runId);
+          return run ? httpUtils.sendJson(res, { run }) : httpUtils.sendAuthError(res, 404, '存档不存在。');
+        }
+        if (req.method === 'PATCH') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '缺乏同源验证。');
+          const raw = await httpUtils.readRawBody(req, noteQuestStore.MAX_BODY_BYTES);
+          if (raw === null) return httpUtils.sendAuthError(res, 413, '存档过大或请求体不合法。');
+          let body = null;
+          try { body = JSON.parse(raw); } catch { body = null; }
+          if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '缺乏请求体。');
+          const run = await noteQuestStore.updateRun(requestUser.username, runId, body);
+          return run ? httpUtils.sendJson(res, { run }) : httpUtils.sendAuthError(res, 404, '存档不存在。');
+        }
+        if (req.method === 'DELETE') {
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '缺乏同源验证。');
+          if (!(await noteQuestStore.deleteRun(requestUser.username, runId))) return httpUtils.sendAuthError(res, 404, '存档不存在。');
+          return httpUtils.sendJson(res, { success: true });
+        }
+        return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+      } catch (error) {
+        if (error instanceof noteQuestStore.NoteQuestError) return httpUtils.sendAuthError(res, error.statusCode, error.message);
+        throw error;
+      }
+    }
+
     if (pathname === '/api/scratch/profile' || pathname.startsWith('/api/scratch/')) {
       const rest = pathname.slice('/api/scratch/'.length).replace(/^\/+/, '');
       try {

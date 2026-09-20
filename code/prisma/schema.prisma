@@ -38,6 +38,8 @@ model User {
   scratchTickets ScratchTicket[]
   scratchLedger  ScratchLedger[]
   initiativeReservePool InitiativeReservePool?
+  noteQuestRuns  NoteQuestRun[]
+  noteQuestGraves NoteQuestGrave[]
 }
 
 model HoldemBalance {
@@ -460,4 +462,58 @@ model ScratchLedger {
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([ownerId, createdAt])
+}
+
+// NoteQuest 单人地牢探索：一局 = 一条 NoteQuestRun（含完整状态快照 stateJson），
+// 摘要列（角色/地牢/层数/金币）让存档列表不必解析整包 JSON。
+model NoteQuestRun {
+  id            String    @id @default(cuid())
+  ownerId       String
+  title         String
+  heroName      String    @default("")
+  raceName      String    @default("")
+  className     String    @default("")
+  dungeonName   String    @default("")
+  dungeonTypeId String    @default("palace")
+  depth         Int       @default(1)
+  status        String    @default("active")   // active | dead | cleared
+  turns         Int       @default(0)
+  kills         Int       @default(0)
+  treasures     Int       @default(0)
+  coins         Int       @default(0)
+  torches       Int       @default(0)
+  hp            Int       @default(0)
+  maxHp         Int       @default(0)
+  outcomeText   String    @default("")
+  stateJson     String
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  graves        NoteQuestGrave[]
+
+  @@index([ownerId, updatedAt])
+  @@index([ownerId, status, updatedAt])
+}
+
+// 墓地：死亡/放弃的角色留一条记录（原书第 24 页那张表）。
+model NoteQuestGrave {
+  id            String   @id @default(cuid())
+  ownerId       String
+  runId         String?
+  characterName String
+  raceName      String   @default("")
+  className     String   @default("")
+  dungeonName   String   @default("")
+  dungeonTypeId String   @default("")
+  depth         Int      @default(1)
+  cause         String
+  kills         Int      @default(0)
+  treasures     Int      @default(0)
+  diedAt        DateTime @default(now())
+  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  run           NoteQuestRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, diedAt])
 }

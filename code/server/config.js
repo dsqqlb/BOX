@@ -130,6 +130,7 @@ const TOOL_SLUGS = [
   'static-sites',
   'edh-life',
   'scratch-cards',
+  'notequest',
 ];
 const TOOL_SLUG_SET = new Set(TOOL_SLUGS);
 

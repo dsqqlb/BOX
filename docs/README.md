@@ -32,6 +32,7 @@
 | CSS 层叠解释器 | `/tools/css-cascade` | [css-cascade.md](./css-cascade.md) |
 | 万智牌 EDH 记血器 | `/tools/edh-life` | [edh-life.md](./edh-life.md) |
 | 刮刮乐小店 | `/tools/scratch-cards` | [scratch-cards.md](./scratch-cards.md) |
+| NoteQuest 地牢笔记 | `/tools/notequest` | [notequest.md](./notequest.md) |
 
 ## 文档维护约定
 

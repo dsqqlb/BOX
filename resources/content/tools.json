@@ -199,5 +199,15 @@
     "icon": "🎰",
     "featured": true,
     "createdAt": "2026-09-18"
+  },
+  {
+    "slug": "notequest",
+    "title": "NoteQuest 地牢笔记",
+    "description": "单人地牢探索桌游：掷骰决定种族职业，靠开门一步步拼出地牢地图，火把与黑暗、陷阱与 Boss 全都按规则书表格走；3D 骰子回放、存档与墓地写入 SQLite",
+    "category": "game",
+    "tags": ["notequest", "pnp", "solo", "dungeon", "dice", "tabletop"],
+    "icon": "🎲",
+    "featured": true,
+    "createdAt": "2026-09-21"
   }
 ]
