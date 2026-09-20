@@ -100,13 +100,22 @@ function normalizeConfig(value, fallbackTitle) {
   };
 }
 
+/**
+ * 读取站点配置。
+ * 注意：Windows 编辑器保存的 site.json 常带 UTF-8 BOM，而 JSON.parse 不接受 BOM——
+ * 不剥掉就会解析失败并整体回落成默认配置（visibility 变回 public，私有站点被公开）。
+ * 解析失败时也在服务端日志留一条警告，避免「以为设了仅登录可见、其实没有」。
+ */
 async function readConfig(name) {
   const site = normalizeSiteName(name);
   try {
     const raw = await fsp.readFile(path.join(siteDir(site), SITE_CONFIG_FILE), 'utf8');
-    return normalizeConfig(JSON.parse(raw), site);
-  } catch {
-    // 缺失或损坏的 site.json 一律回落到默认配置，不影响站点访问。
+    return normalizeConfig(JSON.parse(raw.replace(/^\uFEFF/, '')), site);
+  } catch (error) {
+    // 文件不存在是常态（站点从没改过配置），只有「存在却读不了/解析不了」才值得警告。
+    if (error && error.code !== 'ENOENT') {
+      console.warn(`⚠️  站点 ${site} 的 ${SITE_CONFIG_FILE} 无法解析，已回落为默认配置（公开访问）：${error.message}`);
+    }
     return normalizeConfig(null, site);
   }
 }

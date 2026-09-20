@@ -180,6 +180,15 @@ async function main() {
     console.log(`   资源目录:   ${config.RESOURCES_DIR}`);
     console.log(`   图片目录:   ${config.IMAGE_DIR}`);
     console.log(`   数据目录:   ${config.DATA_DIR}`);
+    if (config.PRIMARY_HOST) console.log(`   主站域名:   ${config.PRIMARY_HOST}`);
+    // 静态站点挂载：同一个进程按 Host 请求头分流。站点域名一旦等于主站域名，
+    // 该域名上的页面和接口就全被站点托管接管（主站直接 404），所以在启动日志里直接标出来。
+    if (config.SITES_HOSTS.length) {
+      console.log(`   站点域名:   ${config.SITES_HOSTS.join(', ')}（静态站点挂载）`);
+      const conflictingHosts = config.SITES_HOSTS.filter((host) => host === config.PRIMARY_HOST);
+      if (conflictingHosts.length) console.log(`   ⚠️  站点域名与主站域名相同（${conflictingHosts.join(', ')}）：该域名会被静态站点接管，请改用不同域名`);
+      else if (!config.PRIMARY_HOST) console.log('   ⚠️  未设置 BOX_PRIMARY_HOST：「仅登录可见」的站点无法完成授权，只能访问公开站点');
+    }
     if (!config.DEV) console.log(`   静态产物:   ${config.STATIC_DIR}`);
     console.log('');
   });

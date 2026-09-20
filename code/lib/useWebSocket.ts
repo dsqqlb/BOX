@@ -12,7 +12,7 @@ interface WebSocketMessage {
 // 所以浏览器访问什么地址，WebSocket就连什么地址：
 //   本地开发   http://localhost:9999        -> ws://localhost:9999/ws
 //   局域网     http://192.168.1.50:9999     -> ws://192.168.1.50:9999/ws
-//   公网域名   https://box.dsqqlb.top       -> wss://box.dsqqlb.top/ws
+//   公网域名   https://www.dsqqlb.top       -> wss://www.dsqqlb.top/ws
 // window.location.host 自带端口（有端口时），https自动切wss，所以三种场景都不用额外配置。
 export function getWsUrl(path = '/ws'): string {
   // SSR/静态导出预渲染阶段没有window，返回占位值；真正连接发生在客户端useEffect里

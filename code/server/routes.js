@@ -22,6 +22,8 @@ const chatStore = require('./chat-store');
 const edhLife = require('./edh-life');
 // 刮刮乐：同样是纯 SQLite 读写、不持有连接状态；「金钱」借用 holdem-store 的筹码账户。
 const scratchStore = require('./scratch-store');
+// 先攻追踪器遥控器的备选角色池：纯 SQLite 读写，按账户一人一行。
+const initiativePool = require('./initiative-pool');
 
 function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, kardsRoomServer, chatServer, holdemRoomServer, config, adminTracking }) {
   function isAuthorizedForRequest(req, user, pathname) {
@@ -538,7 +540,27 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
       } catch (error) { if (error instanceof sceneMedia.SceneMediaError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
     }
 
-    // 家庭药箱：库存供具有 medicine-inventory 权限的家庭账户共享；图片只通过本受保护端点读取。
+    // 先攻追踪器遥控器的备选角色池：按账户存 SQLite，换浏览器/清缓存/换设备都还在。
+    if (pathname === '/api/initiative/pool') {
+      if (req.method === 'GET') {
+        try { return httpUtils.sendJson(res, await initiativePool.getPool(requestUser.username)); }
+        catch (error) { if (error instanceof initiativePool.InitiativePoolError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+      }
+      if (req.method === 'PUT') {
+        if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+        // 角色池比通用 API 的 64 KB 请求体上限大（200 个角色 + 状态），这里单独放宽。
+        const raw = await httpUtils.readRawBody(req, initiativePool.MAX_POOL_BYTES);
+        if (raw === null) return httpUtils.sendAuthError(res, 413, '角色池数据过大。');
+        let body = null;
+        try { body = JSON.parse(raw); } catch { body = null; }
+        if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+        try { return httpUtils.sendJson(res, await initiativePool.savePool(requestUser.username, body.pool)); }
+        catch (error) { if (error instanceof initiativePool.InitiativePoolError) return httpUtils.sendAuthError(res, error.statusCode, error.message); throw error; }
+      }
+      return httpUtils.sendAuthError(res, 405, '只支持 GET 与 PUT。');
+    }
+
+// 家庭药箱：库存供具有 medicine-inventory 权限的家庭账户共享；图片只通过本受保护端点读取。
     if (pathname === '/api/medicine/products') {
       try {
         if (req.method === 'GET') return httpUtils.sendJson(res, await medicineStore.listProducts({ q: requestUrl.searchParams.get('q') || '', category: requestUrl.searchParams.get('category') || '', filter: requestUrl.searchParams.get('filter') || '', days: requestUrl.searchParams.get('days') || '' }));

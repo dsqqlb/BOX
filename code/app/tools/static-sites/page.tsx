@@ -107,6 +107,9 @@ export default function StaticSitesPage() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [replaceMode, setReplaceMode] = useState(true);
+  // 当前 BOX 页面自己的主机名（只能在客户端取到），用于发现「站点域名写成了主站域名」这类配置错误。
+  const [currentHost, setCurrentHost] = useState('');
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const [newName, setNewName] = useState('');
   const [newTitle, setNewTitle] = useState('');
@@ -117,6 +120,9 @@ export default function StaticSitesPage() {
   const zipInputRef = useRef<HTMLInputElement | null>(null);
 
   const sitesHost = data?.sitesHosts?.[0] || '';
+  // 站点域名与 BOX 主站域名相同时，同一个进程会把整个域名交给站点托管，主站的页面和接口全部变成 404。
+  // 这个错配最难自己发现（配完只是「网站打不开了」），所以在管理页顶部直接标红。
+  const sitesHostConflictsWithBox = Boolean(currentHost) && (data?.sitesHosts || []).some((host) => host.toLowerCase() === currentHost);
   const selectedSite = useMemo(() => data?.sites.find((site) => site.name === selected) || null, [data, selected]);
 
   const refresh = useCallback(async (keepSelection = true) => {
@@ -133,6 +139,7 @@ export default function StaticSitesPage() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { setCurrentHost(window.location.host.toLowerCase()); }, []);
 
   useEffect(() => {
     if (!selected) { setFiles([]); setDraft(null); return; }
@@ -144,6 +151,16 @@ export default function StaticSitesPage() {
   }, [selected, selectedSite]);
 
   const siteUrl = (name: string) => (sitesHost ? `${window.location.protocol}//${sitesHost}/${name}/` : '');
+
+  const copySiteUrl = async (name: string) => {
+    try {
+      await navigator.clipboard.writeText(siteUrl(name));
+      setCopiedUrl(true);
+      window.setTimeout(() => setCopiedUrl(false), 1500);
+    } catch {
+      // 少数浏览器禁用剪贴板 API；地址本来就显示在旁边，可以手动复制。
+    }
+  };
 
   const createSite = async () => {
     setError(''); setNotice('');
@@ -290,9 +307,16 @@ export default function StaticSitesPage() {
           </p>
           <div className="mt-4 rounded-xl bg-black/20 p-3 text-xs backdrop-blur">
             {sitesHost ? (
-              <span>站点域名：<code className="font-mono font-bold text-cyan-100">{sitesHost}</code>，访问地址形如 <code className="font-mono">{`${sitesHost}/站点名/`}</code></span>
+              <span>站点域名：<code className="font-mono font-bold text-cyan-100">{data?.sitesHosts.join(' · ')}</code>，访问地址形如 <code className="font-mono">{`${sitesHost}/站点名/`}</code></span>
             ) : (
-              <span className="text-amber-200">尚未配置站点域名。请在 <code className="font-mono">resources/.env.local</code> 设置 <code className="font-mono">BOX_SITES_HOST</code>（例如 <code className="font-mono">pages.example.com</code>）后重启服务，站点才能对外访问。</span>
+              <span className="text-amber-200">尚未配置站点域名。请在 <code className="font-mono">resources/.env.local</code> 设置 <code className="font-mono">BOX_SITES_HOST</code>（例如 <code className="font-mono">box.example.com</code>）后重启服务，站点才能对外访问。</span>
+            )}
+            {sitesHostConflictsWithBox && (
+              <p className="mt-2 font-bold text-rose-200">
+                ⚠️ 站点域名和当前 BOX 地址（{currentHost}）是同一个域名：这个域名上的请求会全部交给静态站点托管，
+                BOX 主站的页面与接口都会变成 404。请让 BOX_SITES_HOST 与 BOX_PRIMARY_HOST 使用不同的域名
+                （例如主站 www.example.com、站点 box.example.com），改完重启服务。
+              </p>
             )}
           </div>
         </section>
@@ -372,10 +396,16 @@ export default function StaticSitesPage() {
                     <div className="min-w-0">
                       <h2 className="text-xl font-black">{selectedSite.config.title || selectedSite.name}</h2>
                       {sitesHost ? (
-                        <a href={siteUrl(selectedSite.name)} target="_blank" rel="noreferrer"
-                          className="mt-1 block truncate font-mono text-xs text-sky-600 hover:underline dark:text-sky-400">
-                          {siteUrl(selectedSite.name)}
-                        </a>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <a href={siteUrl(selectedSite.name)} target="_blank" rel="noreferrer"
+                            className="truncate font-mono text-xs text-sky-600 hover:underline dark:text-sky-400">
+                            {siteUrl(selectedSite.name)}
+                          </a>
+                          <button onClick={() => void copySiteUrl(selectedSite.name)}
+                            className="shrink-0 rounded-lg bg-zinc-100 px-2 py-0.5 text-[11px] font-bold text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300">
+                            {copiedUrl ? '已复制 ✓' : '复制链接'}
+                          </button>
+                        </div>
                       ) : (
                         <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">配置 BOX_SITES_HOST 后才能对外访问</p>
                       )}

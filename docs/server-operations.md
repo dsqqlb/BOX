@@ -24,6 +24,18 @@
 
 **换服务器后的最小原则**：保留 SSH 别名 `box-prod`，只更新本机 `~/.ssh/config` 中的 `HostName`、`User` 和需要时的 `Port`。后文所有 `ssh box-prod ...` 命令都继续可用。
 
+### 1.1 域名与静态站点挂载（备案已完成）
+
+| 用途 | 域名 | 服务器 `resources/.env.local` 里的变量 |
+| --- | --- | --- |
+| BOX 主站（登录、工具、WebSocket） | `www.dsqqlb.top` | `BOX_PRIMARY_HOST=www.dsqqlb.top` |
+| 静态站点挂载（HTML/CSS/JS 网页） | `box.dsqqlb.top` | `BOX_SITES_HOST=box.dsqqlb.top` |
+
+- 两个域名的 A 记录都指向服务器公网 IP，nginx 反代到 `127.0.0.1:9999` 并保留原始 `Host`；同一个进程按 `Host` 分流；
+- `box.dsqqlb.top` 是**站点域名**，只提供 `http://box.dsqqlb.top/<站点名>/`，根路径固定 404，不再是 BOX 入口；两个变量绝不能填成同一个域名；
+- 改完这两个变量要重启服务：`sudo systemctl restart box`。启动日志会打印 `主站域名` 与 `站点域名`，写重了会直接给 ⚠️ 警告；
+- nginx 配置、验证命令与 HTTPS 步骤见[部署指南](./deployment.md)第 10.1 节。
+
 `resources/` 是唯一的资源类目录：`resources/content/`（工具定义、内置卡牌与页面资料）随代码进入 Git 和发布包；`resources/public/`（含 `image/`）是对外静态资源；`resources/.env.local` 与 `resources/data/`（SQLite、账户文件、上传、缓存、备份和用户站点）是私密数据，整体不进入 Git。
 
 ---

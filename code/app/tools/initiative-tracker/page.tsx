@@ -146,6 +146,29 @@ const DEFAULT_DICE_HISTORY_SCALE = 1;
 // 当前选中的骰子外观预设ID，存本地
 const DICE_APPEARANCE_KEY = 'dnd-dice-appearance-preset';
 
+// 备选角色池的历史 localStorage 键：只在「服务端还没有角色池」时读一次做迁移，之后不再使用。
+const LEGACY_RESERVE_POOL_KEY = 'dnd-initiative-reserve-pool';
+
+/** 读取旧版本留在浏览器里的备选角色池（迁移用；坏数据一律当空池）。 */
+function readLegacyReservePool(): Character[] {
+  try {
+    const raw = window.localStorage.getItem(LEGACY_RESERVE_POOL_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is Character => Boolean(item) && typeof item === 'object')
+      .map((item) => ({ ...item, inCombat: false }));
+  } catch {
+    return [];
+  }
+}
+
+/** 迁移成功后删掉旧键，避免以后角色池被清空时又把这个陈旧副本读回来。 */
+function clearLegacyReservePool(): void {
+  try { window.localStorage.removeItem(LEGACY_RESERVE_POOL_KEY); } catch { /* 隐私模式下不可用，忽略 */ }
+}
+
 // 预设 token
 const TOKEN_PRESETS = {
   player: ['🧙‍♂️', '⚔️', '🛡️', '🏹', '🗡️', '🔮', '⚡', '🌟'],
@@ -677,26 +700,45 @@ export default function InitiativeTrackerPage() {
   const [editingAppearanceTextures, setEditingAppearanceTextures] = useState<ShapeTextureMap>({});
 
   const combatZoneRef = useRef<HTMLDivElement>(null);
-  // 保存effect的首次执行必须跳过：挂载时"加载"和"保存"两个effect会在同一轮依次触发，
-  // 加载effect里的 setCharacters 只是排队更新、不会立刻生效，如果保存effect紧接着用
-  // 挂载时的旧值(空数组)写入localStorage，会把刚读出来的备选池覆盖掉。用这个ref跳过第一次写入，
-  // 从第二次(characters真正变化后)开始才允许保存，从根上避免这个竞态覆盖问题。
-  const isFirstSaveRef = useRef(true);
+  // 备选角色池按账户存在服务端（SQLite 的 InitiativeReservePool），不再只存在浏览器 localStorage。
+  // 挂载时拉一次，之后每次变化防抖回写；换浏览器、清缓存、换设备都能拿到同一份角色池。
+  // poolLoadedRef 挡住「服务端还没读完，就用初始空数组把已有角色池覆盖掉」这个竞态。
+  const poolLoadedRef = useRef(false);
+  // 最近一次「服务端已确认」的角色池序列化结果：相同就不重复写库，也不会在加载后立刻回写干扰别的设备。
+  const lastSavedPoolRef = useRef('');
+  // 界面上最新一份备选池（离开页面时用它做最后一次补写）。
+  const reservePoolRef = useRef<Character[]>([]);
+  const poolSaveTimerRef = useRef<number | null>(null);
 
-  // 从 localStorage 加载本地备选池（初始化时，只执行一次）
+  // 从服务端加载账户的备选角色池（初始化时，只执行一次）
   useEffect(() => {
-    const saved = localStorage.getItem('dnd-initiative-reserve-pool');
-    if (saved) {
+    let cancelled = false;
+    void (async () => {
+      let serverPool: Character[] = [];
       try {
-        const reservePool = JSON.parse(saved).map((c: Character) => ({ 
-          ...c, 
-          inCombat: false, 
-        }));
-        setCharacters(reservePool);
-      } catch (e) {
-        console.error('Failed to load reserve pool:', e);
+        const response = await fetch('/api/initiative/pool', { credentials: 'same-origin' });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        serverPool = Array.isArray(payload.pool) ? payload.pool.map((c: Character) => ({ ...c, inCombat: false })) : [];
+      } catch (error) {
+        console.error('加载备选角色池失败：', error);
       }
-    }
+
+      // 一次性迁移：旧版本把角色池存在 localStorage。只有服务端为空时才接管它，回写成功后
+      // 会删掉本地旧键；服务端已经有角色池就说明旧键作废，立刻清掉（否则以后角色池清空时会被读回来）。
+      const legacyPool = readLegacyReservePool();
+      if (serverPool.length && legacyPool.length) clearLegacyReservePool();
+      const pool = serverPool.length ? serverPool : legacyPool;
+
+      if (cancelled) return;
+      lastSavedPoolRef.current = JSON.stringify(serverPool);
+      reservePoolRef.current = pool;
+      // 只替换备选池这一侧：房间里的战斗角色可能已经先到了（不要覆盖），
+      // 以及在加载完成前用户刚加进来的角色（不在服务端池子里，直接保留，随后会被回写）。
+      setCharacters(prev => [...pool, ...prev.filter(c => c.inCombat || !pool.some((saved) => saved.id === c.id))]);
+      poolLoadedRef.current = true;
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // 从 localStorage 加载"压暗强度"滑块的记忆值（初始化时，只执行一次）
@@ -755,7 +797,7 @@ export default function InitiativeTrackerPage() {
         
         // 接收房间战斗角色，与本地备选池合并
         setCharacters(prev => {
-          // 保留本地备选池（从localStorage）
+          // 保留界面上的备选池（真身在服务端的账户角色池）
           const myReserve = prev.filter(c => !c.inCombat);
           
           // 房间里所有战斗角色
@@ -1252,16 +1294,46 @@ export default function InitiativeTrackerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsConnected, isConnected, roomId]);
 
-  // 保存备选池到 localStorage（只保存非战斗角色）
-  // 跳过首次执行，避免用挂载时的旧值把刚从localStorage读出来的备选池覆盖掉（见上方isFirstSaveRef注释）
-  useEffect(() => {
-    if (isFirstSaveRef.current) {
-      isFirstSaveRef.current = false;
-      return;
+  // 把界面上的备选池写回服务端（只提交非战斗角色：战斗区角色属于房间，由 WebSocket 同步）
+  const saveReservePoolToServer = useCallback(async () => {
+    const pool = reservePoolRef.current;
+    const serialized = JSON.stringify(pool);
+    if (serialized === lastSavedPoolRef.current) return;
+    try {
+      const response = await fetch('/api/initiative/pool', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pool }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      lastSavedPoolRef.current = serialized;
+      clearLegacyReservePool();
+    } catch (error) {
+      console.error('保存备选角色池失败：', error);
     }
-    const reservePool = characters.filter(c => !c.inCombat);
-    localStorage.setItem('dnd-initiative-reserve-pool', JSON.stringify(reservePool));
-  }, [characters]);
+  }, []);
+
+  // 备选池变化后防抖回写：连续加角色、拖动调整时不会每一下都打一次接口
+  useEffect(() => {
+    if (!poolLoadedRef.current) return;
+    reservePoolRef.current = characters.filter(c => !c.inCombat);
+    if (poolSaveTimerRef.current !== null) window.clearTimeout(poolSaveTimerRef.current);
+    poolSaveTimerRef.current = window.setTimeout(() => {
+      poolSaveTimerRef.current = null;
+      void saveReservePoolToServer();
+    }, 600);
+  }, [characters, saveReservePoolToServer]);
+
+  // 离开页面时把还没写出去的改动补一次：切页面/关标签恰好落在防抖窗口里也不会丢。
+  useEffect(() => () => {
+    if (poolSaveTimerRef.current !== null) {
+      window.clearTimeout(poolSaveTimerRef.current);
+      poolSaveTimerRef.current = null;
+    }
+    if (poolLoadedRef.current) void saveReservePoolToServer();
+  }, [saveReservePoolToServer]);
 
   // 添加角色
   const handleAddCharacter = useCallback(() => {

@@ -578,7 +578,51 @@ BOX_SITES_HOST=pages.example.com
 BOX_PRIMARY_HOST=box.example.com
 ```
 
-把 `pages.example.com` 的 DNS 指到同一台服务器即可，同一个进程会按 `Host` 请求头分流。
+把 `pages.example.com` 的 DNS 指向同一台服务器即可，同一个进程会按 `Host` 请求头分流。
+
+**本项目当前分配（`dsqqlb.top`，备案已完成）**：
+
+| 用途 | 域名 | `resources/.env.local` |
+| --- | --- | --- |
+| BOX 主站（登录、工具、WebSocket） | `www.dsqqlb.top` | `BOX_PRIMARY_HOST=www.dsqqlb.top` |
+| 静态站点挂载 | `box.dsqqlb.top` | `BOX_SITES_HOST=box.dsqqlb.top` |
+
+两个域名的 A 记录都指向同一台服务器，nginx 把两个域名一起反代到 `127.0.0.1:9999` 并保留原始 `Host`：
+
+```nginx
+server {
+    listen 80;
+    server_name www.dsqqlb.top box.dsqqlb.top;
+
+    # 聊天附件默认上限 1 GiB，静态站点 zip 200 MiB
+    client_max_body_size 1g;
+
+    location / {
+        proxy_pass http://127.0.0.1:9999;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+改完在服务器上重启 `box` 服务，启动日志会打印 `主站域名` 与 `站点域名`。验证（站点存在时）：
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://www.dsqqlb.top/api/health   # 期望 401（主站）
+curl -s -o /dev/null -w '%{http_code}\n' http://box.dsqqlb.top/             # 期望 404（站点域名不提供索引）
+curl -s -o /dev/null -w '%{http_code}\n' http://box.dsqqlb.top/<站点名>/     # 期望 200
+```
+
+- `BOX_PRIMARY_HOST` 与 `BOX_SITES_HOST` 写成同一个域名时，那个域名会被静态站点接管，BOX 主站全部 404；
+  启动日志会直接打出 ⚠️ 警告，管理页顶部也会标红，看到就改回去。
+
+> 目前只开了 80 端口。上 HTTPS 时给两个域名一起签一张证书：
+> `sudo certbot --nginx -d www.dsqqlb.top -d box.dsqqlb.top`，然后把 `BOX_COOKIE_SECURE` 设为 `true`（见第 11 节）。
 
 ---
 

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useWebSocket, getWsUrl } from '@/lib/useWebSocket';
+import { publicOrigin } from '@/lib/publicOrigin';
 // 状态效果（buff/debuff/濒死）：主屏幕只做只读展示，复用和遥控器同一份类型/常量/动效映射
 import { CharacterStatusInstance, STATUS_LIBRARY, getAllCardEffects } from '@/lib/statusEffects';
 // 状态环绕动效：每种buff/debuff一个专属的粒子/光效组件，围绕在卡片周围渲染
@@ -472,9 +473,11 @@ function InitiativeDisplayPageInner() {
     });
   }, [roomId]);
 
-  // 二维码固定使用正式遥控器地址；二维码中的 room 参数会让遥控器页面自动加入当前房间。
+  // 二维码里的遥控器地址必须是「手机直接能打开」的地址：主屏开在公网域名上时用当前地址
+  // （http/https 与域名自动跟当前页面一致），开在本机/局域网地址时回落到正式域名（见 lib/publicOrigin.ts）。
+  // 二维码中的 room 参数会让遥控器页面自动加入当前房间。
   const remoteJoinUrl = roomId
-    ? `https://box.dsqqlb.top/tools/initiative-tracker?room=${encodeURIComponent(roomId)}`
+    ? `${publicOrigin()}/tools/initiative-tracker?room=${encodeURIComponent(roomId)}`
     : '';
   const roomQrCodeUrl = remoteJoinUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=0&data=${encodeURIComponent(remoteJoinUrl)}`

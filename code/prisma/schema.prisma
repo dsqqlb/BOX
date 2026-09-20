@@ -37,6 +37,7 @@ model User {
   scratchProfile ScratchProfile?
   scratchTickets ScratchTicket[]
   scratchLedger  ScratchLedger[]
+  initiativeReservePool InitiativeReservePool?
 }
 
 model HoldemBalance {
@@ -229,6 +230,15 @@ model DndSceneMedia {
 
   @@index([kind, createdAt])
   @@index([uploaderId, createdAt])
+}
+
+// 先攻追踪器遥控器的「备选角色池」：一人一行，跨浏览器/跨设备都跟着账户走。
+// 只存备选池里的角色（inCombat = false）；战斗区角色属于房间，由 WebSocket 实时同步。
+model InitiativeReservePool {
+  ownerId   String   @id
+  poolJson  String   @default("[]")
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 }
 
 model UserPermission {
