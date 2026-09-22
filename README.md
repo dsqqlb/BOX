@@ -200,6 +200,7 @@ npm start
 | 卡卡颂计分台 | `/tools/carcassonne` | 双人卡卡颂计分、物品结算与 SQLite 存档 | [查看](./docs/carcassonne.md) |
 | 康威生命游戏 | `/tools/conways-game-of-life` | 可绘制、演化、保存快照的赛博元胞自动机实验室 | [查看](./docs/conways-game-of-life.md) |
 | 目标大屏 | `/tools/target-text` | 将一句关键文字以全屏、滚动、闪烁或倒计时形式投屏展示 | [查看](./docs/target-text.md) |
+| 局域网大厅 | `/tools/lan-chat` | 局域网公共聊天与文件互发：历史消息、图片视频预览、回复、@ 提及与实时在线状态 | [查看](./docs/lan-chat.md) |
 | DND 人物卡 | `/tools/dnd-character` | 按账户保存角色、装备、法术与日志快照 | [查看](./docs/dnd-character.md) |
 | DND 先攻追踪器（遥控器） | `/tools/initiative-tracker` | 管理角色、回合、状态与骰子 | [查看](./docs/initiative-tracker-room.md) |
 | DND 先攻追踪器（主屏） | `/tools/initiative-tracker/display` | 创建/接管房间并在大屏展示战斗 | [查看](./docs/initiative-tracker-room.md) |
@@ -208,8 +209,10 @@ npm start
 | EDH 指挥官组卡台 | `/tools/edh-builder` | 中文优先高级检索、拖放组牌与账户隔离的牌组 | [查看](./docs/edh-builder.md) |
 | 塔罗牌占卜 | `/tools/tarot-reading` | 78 张牌与多种牌阵的互动抽牌 | [查看](./docs/tarot-reading.md) |
 | 省钱网页 | `/tools/savings-tracker` | 按账户隔离的省钱记录和统计 | [查看](./docs/savings-tracker.md) |
+| 家庭药箱 | `/tools/medicine-inventory` | 共享记录家庭药品库存、批次效期、用药流水与药品图片，及时发现临期和低库存药品 | [查看](./docs/medicine-inventory.md) |
 | CSS 层叠解释器 | `/tools/css-cascade` | 解析并可视化 CSS 规则、特异性与上下文 | [查看](./docs/css-cascade.md) |
 | 万智牌 EDH 记血器 | `/tools/edh-life` | 2~4 人指挥官记血、六种计数器、3D 骰子与硬币、对局与时长存 SQLite | [查看](./docs/edh-life.md) |
+| 德州扑克 | `/tools/texas-holdem` | 房间号联机对战、可加机器人陪玩、筹码与账户绑定，服务端权威发牌与边池结算 | [查看](./docs/texas-holdem.md) |
 | 刮刮乐小店 | `/tools/scratch-cards` | 商店买票、桌上随手摆、刮开涂层玩四种奖、兑奖机换钱与碎纸机换纸屑 | [查看](./docs/scratch-cards.md) |
 | NoteQuest 地牢笔记 | `/tools/notequest` | 单人地牢探索桌游：掷骰建角色、开门拼地图、火把与黑暗、14 种怪物词缀、3D 骰子回放，存档与墓地写入 SQLite | [查看](./docs/notequest.md) |
 | 静态站点挂载 | `/tools/static-sites` | 上传 HTML/CSS/JS 文件夹或 zip 即上线，通过独立站点域名对外访问 | [查看](./docs/static-sites.md) |
@@ -244,7 +247,7 @@ resources/     资源类：所有会被搬来搬去的数据和素材
   .env.local   私密配置（含会话密钥），不提交、不打包
 docs/          文档类：项目、认证和每个工具的说明
 ops/           命令行类：scripts/（数据库与维护脚本）、release/（打包部署脚本）、
-               checks/、logs/、RUN.bat（本地启动）
+               checks/、logs/、RUN.bat（本地启动脚本，含本机路径，不入库）
 package.json   根命令转发：在这里执行 npm run dev / build / db:* 即可
 ```
 

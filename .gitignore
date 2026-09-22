@@ -95,6 +95,9 @@ $null
 /resources/public/image/
 /resources/public/icons/
 
+# 资源类：本地参考素材（规则书 PDF 等），仅供自己查阅，不随代码入库
+/参考文件/
+
 # 命令行类：本地验证脚本产物
 /ops/checks/shots/
 
