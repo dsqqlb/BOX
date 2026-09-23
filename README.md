@@ -101,7 +101,7 @@ BOX_COOKIE_SECURE=true
 }
 ```
 
-当前可用权限为：`carcassonne`、`claude-code-guide`、`dnd-translator`、`edh-builder`、`edh-life`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`dnd-character`、`kards`、`conways-game-of-life`、`lan-chat`、`medicine-inventory`、`texas-holdem`、`static-sites`、`target-text`、`scratch-cards`、`notequest`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
+当前可用权限为：`carcassonne`、`claude-code-guide`、`dnd-translator`、`edh-builder`、`edh-life`、`initiative-tracker`、`initiative-tracker/display`、`json-visualizer`、`tarot-reading`、`savings-tracker`、`css-cascade`、`dnd-character`、`kards`、`conways-game-of-life`、`lan-chat`、`medicine-inventory`、`texas-holdem`、`static-sites`、`target-text`、`scratch-cards`。授予 `initiative-tracker` 会同时授予其 `/display` 主屏；单独授予 `initiative-tracker/display` 则只可访问主屏。
 
 ### 5. 为每个账户生成密码哈希
 
@@ -214,7 +214,6 @@ npm start
 | 万智牌 EDH 记血器 | `/tools/edh-life` | 2~4 人指挥官记血、六种计数器、3D 骰子与硬币、对局与时长存 SQLite | [查看](./docs/edh-life.md) |
 | 德州扑克 | `/tools/texas-holdem` | 房间号联机对战、可加机器人陪玩、筹码与账户绑定，服务端权威发牌与边池结算 | [查看](./docs/texas-holdem.md) |
 | 刮刮乐小店 | `/tools/scratch-cards` | 商店买票、桌上随手摆、刮开涂层玩四种奖、兑奖机换钱与碎纸机换纸屑 | [查看](./docs/scratch-cards.md) |
-| NoteQuest 地牢笔记 | `/tools/notequest` | 单人地牢探索桌游：人物池（掷骰或自定义建角）、格子手绘地图、永久地牢与遗体掉落、城镇商店、四块 HUD 与 3D 骰子回放 | [查看](./docs/notequest.md) |
 | 静态站点挂载 | `/tools/static-sites` | 上传 HTML/CSS/JS 文件夹或 zip 即上线，通过独立站点域名对外访问 | [查看](./docs/static-sites.md) |
 
 ## 常用命令

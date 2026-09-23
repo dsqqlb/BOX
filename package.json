@@ -19,9 +19,6 @@
     "db:migrate-dnd-save": "npm --prefix code run db:migrate-dnd-save",
     "db:setup": "npm --prefix code run db:setup",
     "smoke:dnd-merge": "npm --prefix code run smoke:dnd-merge",
-    "smoke:dnd-sync": "npm --prefix code run smoke:dnd-sync",
-    "smoke:notequest": "node ops/scripts/smoke-notequest.mjs",
-    "verify:notequest": "node ops/scripts/verify-notequest.mjs",
-    "simulate:notequest": "node ops/scripts/simulate-notequest.mjs"
+    "smoke:dnd-sync": "npm --prefix code run smoke:dnd-sync"
   }
 }

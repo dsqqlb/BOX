@@ -23,7 +23,6 @@
  *   static-files.js  静态文件托管（MIME、gzip、目录穿越防护、缓存策略）
  *   rooms.js         WebSocket 房间协议
  *   scratch-store.js 刮刮乐的 SQLite 读写（票面结果、纸屑、流水；「金钱」复用 HoldemBalance）
- *   notequest-store.js NoteQuest 单人地牢探索的存档与墓地记录
  *   routes.js        HTTP 请求管线与业务 API 路由
  *
  * 用法：
