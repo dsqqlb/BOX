@@ -47,7 +47,7 @@
 | `GET /api/holdem/ledger` | 最近 50 条筹码流水 |
 | `GET /api/holdem/rooms` | 大厅房间列表，只含公共信息，不含任何手牌 |
 
-牌局本身走 WebSocket `/ws?holdem=1`（与先攻追踪器、Kards 复用同一个 `/ws` 路径，便于反向代理只转发一个路径）。升级请求会校验同源、登录状态和 `texas-holdem` 权限，并在每条消息上重新校验权限，因此权限被移除后已建立的连接会立即失效。
+牌局本身走 WebSocket `/ws?holdem=1`（与先攻追踪器复用同一个 `/ws` 路径，便于反向代理只转发一个路径）。升级请求会校验同源、登录状态和 `texas-holdem` 权限，并在每条消息上重新校验权限，因此权限被移除后已建立的连接会立即失效。
 
 客户端消息：`PING`、`CREATE_ROOM`、`JOIN_ROOM`、`ADD_BOT`、`REMOVE_BOT`、`START_GAME`、`ACTION`、`REBUY`、`LEAVE_ROOM`、`DELETE_ROOM`。
 服务端消息：`ROOM_STATE`（按座位裁剪）、`ROOM_CLOSED`、`ERROR`、`PONG`。

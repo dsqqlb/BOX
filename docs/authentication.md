@@ -64,7 +64,6 @@ BOX 默认拒绝未登录访问。除 `/login` 与登录接口外，页面、业
 - `css-cascade`
 - `edh-builder`
 - `dnd-character`
-- `kards`
 - `conways-game-of-life`
 - `lan-chat`（局域网大厅是所有有效登录账户的公共工作区；该 slug 会显示在允许工具列表中，但不需要逐账户授予）
 - `medicine-inventory`（共享家庭药箱；仅获得此权限的账户可以读写其库存、用药流水和私有照片）

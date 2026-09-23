@@ -57,7 +57,6 @@ const IMAGE_DIR = path.resolve(process.env.IMAGE_DIR || path.join(PUBLIC_DIR, 'i
 const ENEMY_DIR = path.join(IMAGE_DIR, 'enemies');
 const PLAYER_DIR = path.join(IMAGE_DIR, 'player');
 const EDH_CARDS_FILE = path.join(DATA_DIR, 'edh', 'cards.json');
-const KARDS_CARDS_FILE = path.join(CONTENT_DIR, 'kards', 'cards.json');
 // 刮刮乐票种与奖池表：服务端与客户端读同一份 JSON，规则不会两头不一致。
 const SCRATCH_TICKETS_FILE = path.join(CONTENT_DIR, 'scratch', 'tickets.json');
 // 刮刮乐升级树：同样两端共用（服务端算总效果，客户端只显示）。
@@ -121,7 +120,6 @@ const TOOL_SLUGS = [
   'css-cascade',
   'edh-builder',
   'dnd-character',
-  'kards',
   'conways-game-of-life',
   'target-text',
   'lan-chat',
@@ -150,7 +148,6 @@ module.exports = {
   ENEMY_DIR,
   PLAYER_DIR,
   EDH_CARDS_FILE,
-  KARDS_CARDS_FILE,
   SCRATCH_TICKETS_FILE,
   SCRATCH_UPGRADES_FILE,
   CHAT_DIR,

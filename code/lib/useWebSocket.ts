@@ -6,7 +6,7 @@ interface WebSocketMessage {
 }
 
 // WebSocket地址：默认连"当前页面同源的 /ws"（先攻追踪器），
-// 也可传入自定义路径（如 /ws/kards）。不需要任何环境变量、也不需要推断端口号。
+// 也可传入自定义路径（如 /ws/chat）。不需要任何环境变量、也不需要推断端口号。
 //
 // 因为页面和WebSocket由同一个Node进程、同一个端口提供服务（见 server/index.js），
 // 所以浏览器访问什么地址，WebSocket就连什么地址：

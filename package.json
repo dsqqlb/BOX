@@ -11,7 +11,6 @@
     "start": "npm --prefix code run start",
     "lint": "npm --prefix code run lint",
     "sync:edh-cards": "npm --prefix code run sync:edh-cards",
-    "build:kards": "npm --prefix code run build:kards",
     "db:generate": "npm --prefix code run db:generate",
     "db:migrate": "npm --prefix code run db:migrate",
     "db:import-json": "npm --prefix code run db:import-json",

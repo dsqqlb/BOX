@@ -13,7 +13,7 @@
 | 页面 | 生产环境托管 `next build` 导出的静态产物 `code/out/`；开发环境挂 Next.js dev server |
 | 认证 | 除 `/login` 外，所有页面、API、WebSocket 都要求登录 |
 | 业务 API | 账户、工具数据、文件上传等 |
-| WebSocket | `/ws`（先攻追踪器）、`/ws?kards=1`、`/ws?holdem=1`、`/ws/chat` |
+| WebSocket | `/ws`（先攻追踪器）、`/ws?holdem=1`、`/ws/chat` |
 | 静态站点挂载 | 按 `Host` 请求头分流到独立域名（可选功能） |
 
 > **不要只把 `code/out/` 丢到静态托管**（Vercel / Netlify / GitHub Pages / 纯 Nginx）。登录、权限、WebSocket、数据库读写全都在 `code/server/index.js` 里，缺了它一半功能不可用。
@@ -554,7 +554,6 @@ pm2 startup        # 按它输出的命令再执行一次，实现开机自启
 | 内容 | 命令 | 说明 |
 | --- | --- | --- |
 | EDH 卡牌库 | `npm run sync:edh-cards` | 从 Scryfall 下载，约 100 MB，需联网。不同步时 EDH 组卡台的搜索会返回 503 |
-| Kards 卡牌目录 | `npm run build:kards` | 仓库已带 `resources/content/kards/cards.json`，只有自己新增卡图时才需要重跑 |
 | DND 图片 | — | `resources/public/image/` 已被 `.gitignore` 排除，但历史已跟踪的约 200 个 PNG 会随克隆带下来。要加新图就直接放进 `resources/public/image/enemies/` 或 `resources/public/image/player/<种族>/`，刷新页面即可生效——图片不参与构建，不需要重新 `npm run build` |
 
 ## 10.1 可选：静态站点挂载的域名

@@ -121,16 +121,6 @@
     "createdAt": "2026-09-06"
   },
   {
-    "slug": "kards",
-    "title": "Kards 二战卡牌",
-    "description": "Kards 二战卡牌：1600+ 全卡图组卡器 + 双人房间号联机对战桌，像桌游模拟器一样自由操作，规则由玩家掌握",
-    "category": "game",
-    "tags": ["kards", "card", "ww2", "deck", "multiplayer", "tabletop"],
-    "icon": "🎖️",
-    "featured": true,
-    "createdAt": "2026-08-29"
-  },
-  {
     "slug": "lan-chat",
     "title": "局域网大厅",
     "description": "局域网公共聊天与文件互发：历史消息、图片视频预览、回复、@ 提及与实时在线状态",

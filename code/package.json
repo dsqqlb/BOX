@@ -9,7 +9,6 @@
     "start": "node server/index.js",
     "lint": "next lint",
     "sync:edh-cards": "node ../ops/scripts/sync-edh-cards.mjs",
-    "build:kards": "node ../ops/scripts/build-kards-catalog.mjs",
     "db:generate": "node ../ops/scripts/prisma-cli.mjs generate",
     "db:migrate": "node ../ops/scripts/prisma-cli.mjs migrate deploy",
     "db:import-json": "node ../ops/scripts/migrate-json-to-sqlite.mjs",

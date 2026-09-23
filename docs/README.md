@@ -22,7 +22,6 @@
 | 目标大屏 | `/tools/target-text` | [target-text.md](./target-text.md) |
 | DND 人物卡 | `/tools/dnd-character` | [dnd-character.md](./dnd-character.md) |
 | DND 先攻追踪器（遥控器/主屏） | `/tools/initiative-tracker`、`/tools/initiative-tracker/display` | [initiative-tracker-room.md](./initiative-tracker-room.md) |
-| Kards 二战卡牌 | `/tools/kards` | [kards.md](./kards.md) |
 | JSON 星系 | `/tools/json-visualizer` | [json-visualizer.md](./json-visualizer.md) |
 | EDH 指挥官组卡台 | `/tools/edh-builder` | [edh-builder.md](./edh-builder.md) |
 | 德州扑克 | `/tools/texas-holdem` | [texas-holdem.md](./texas-holdem.md) |
