@@ -51,10 +51,12 @@ const PATHS: Record<string, string> = {
   bag: 'M5 8h14l1 13H4zM9 8V6a3 3 0 016 0v2',
 };
 
-export default function Icon({ name, className = 'h-4 w-4', title }: { name: string; className?: string; title?: string }) {
+export default function Icon({ name, className = 'h-4 w-4', title, size }: { name: string; className?: string; title?: string; size?: number }) {
   const path = PATHS[name] ?? PATHS.dungeon;
   return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.6}
+    // size 是可选的显式尺寸：把图标嵌在别的 <svg> 里时（例如地牢地图），
+    // 只靠 CSS 类定尺寸不够稳（内嵌 svg 会按百分比铺满父视口），所以这里直接写 width/height 属性。
+    <svg viewBox="0 0 24 24" className={className} width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.6}
       strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : true} role={title ? 'img' : undefined}>
       {title ? <title>{title}</title> : null}
       <path d={path} />

@@ -18,9 +18,9 @@ import {
   diceDetail, pickByRoll, randomPick, rollD6, rollDice, rollAdvantage,
   type DiceResult, type Rng,
 } from './dice';
-import { occupiedCells, placeForNewDepth, placeNode } from './map';
+import { DIR_ORDER, OPPOSITE, assignDoorDirs, footprintOf, placeBehindDoor, placeForNewDepth, relayoutNodes } from './map';
 import type {
-  CombatState, DoorState, DungeonNode, DungeonType, GrantDef, Hero, Item, LogEntry, Monster,
+  CombatState, DoorDir, DoorState, DungeonNode, DungeonType, GrantDef, Hero, Item, LogEntry, Monster,
   RollRecord, RunState, SpawnDef, WeaponSpec,
 } from './types';
 
@@ -42,6 +42,8 @@ export type GameAction =
   | { type: 'use-item'; itemUid: string; targetUid?: string }
   | { type: 'allocate-damage'; target: 'hp' | 'armor'; armorUid?: string }
   | { type: 'devour'; nodeId?: string }
+  /** 搬走前一位冒险者遗体上的东西：不给 itemUid 就是「能拿的都拿」 */
+  | { type: 'loot-grave'; nodeId?: string; itemUid?: string }
   | { type: 'to-town' }
   | { type: 'town-rest' }
   | { type: 'town-repair'; itemUid: string }
@@ -67,6 +69,17 @@ export interface CreateOptions {
   classId?: string;
   dungeonTypeId?: string;
   rng?: Rng;
+  /** 人物池里的角色快照：给了就不掷种族/职业，直接用这份状态开局 */
+  hero?: Hero;
+  /** 人物池里的角色 id（存档记下来，配合战绩回写） */
+  characterId?: string;
+  /** 复用永久地牢：这张地图（含遗体与掉落）就是这一局的舞台 */
+  dungeon?: { id: string; typeId: string; name: string; nodes: DungeonNode[] };
+  /** 自定义建角时指定的开局咒语（不填就按种族/职业能力掷） */
+  spellIds?: string[];
+  /** 自定义建角时的开局火把与金币（不填就用规则默认值） */
+  torches?: number;
+  coins?: number;
 }
 
 /* ── 通用工具 ── */
@@ -95,6 +108,8 @@ function pushRoll(rolls: RollRecord[], label: string, result: DiceResult): RollR
     label,
     total: result.total,
     detail: diceDetail(result.values, result.modifier),
+    // 原始点数：3D 骰子遮罩用它强制摆面，保证「看到的骰子 = 引擎算出的结果」
+    values: result.values.slice(),
   };
   rolls.push(record);
   return record;
@@ -367,10 +382,44 @@ export function treasureToItems(type: DungeonType, rng: Rng, rolls: RollRecord[]
 
 /* ── 死亡与结局 ── */
 
+/**
+ * 死亡结算：角色与身上的东西留在原地，变成**永久的遗体**。
+ * 后来进入这座地牢的角色可以搬走遗体上的物品与金币（原书没有这条，属于本作的家规）。
+ */
+function depositHeroGrave(state: RunState, cause: string): void {
+  if (state.town.inTown) return;
+  const hero = state.hero;
+  const node = state.dungeon.nodes.find((item) => item.id === state.dungeon.currentId) ?? state.dungeon.nodes[0];
+  if (!node) return;
+  const items = clone(hero.items);
+  node.heroGrave = {
+    name: hero.name,
+    raceName: hero.raceName,
+    className: hero.className,
+    cause,
+    diedAt: Date.now(),
+    items,
+    armors: clone(hero.armors),
+    weapon: clone(hero.weapon),
+    coins: hero.coins,
+    treasure: hero.treasure,
+    keys: hero.keys,
+    looted: false,
+  };
+  const carried = items.length + hero.armors.length;
+  hero.items = [];
+  hero.armors = [];
+  hero.coins = 0;
+  hero.treasure = 0;
+  hero.keys = 0;
+  pushLog(state, 'death', `遗体留在「${state.dungeon.name}」第 ${node.depth} 层：${carried} 件装备与 ${node.heroGrave.coins} 金币还留在原地，别的冒险者可以来取。`);
+}
+
 function finishRun(state: RunState, kind: 'death' | 'cleared', text: string, logText: string): void {
   state.status = kind === 'cleared' ? 'cleared' : 'dead';
   state.combat = null;
   state.outcome = { kind, text, at: Date.now() };
+  if (kind === 'death') depositHeroGrave(state, text);
   pushLog(state, kind === 'cleared' ? 'loot' : 'death', logText);
 }
 
@@ -389,7 +438,8 @@ function makeDoor(id: string): DoorState {
 
 export function makeEntranceNode(type: DungeonType, depth = 1): DungeonNode {
   const doorCount = Math.max(1, (type as DungeonType & { startDoors?: number }).startDoors ?? 1);
-  return {
+  const size = { w: 2, h: 2 };
+  const node: DungeonNode = {
     id: uid('node'),
     kind: 'entrance',
     depth,
@@ -400,7 +450,12 @@ export function makeEntranceNode(type: DungeonType, depth = 1): DungeonNode {
     visited: true,
     x: 0,
     y: 0,
+    w: size.w,
+    h: size.h,
   };
+  // 门一生成就定好它在哪面墙上（一面墙最多一个），地图据此把门画在墙上
+  assignDoorDirs(node);
+  return node;
 }
 
 /* ── 创建一局（掷种族、职业、咒语、地牢名） ── */
@@ -426,17 +481,26 @@ function abilitySpells(ability: { kind: string; spell?: string; count?: number }
   return list;
 }
 
-export function createRun(options: CreateOptions = {}): ActionOutcome {
+/**
+ * 组装一个角色（「新建人物」界面与「新的一局」共用）：
+ *   - 没给 raceId / classId 就掷 2d6 决定（掷骰模式）；
+ *   - 没给 spellIds 就按种族/职业能力决定（可能再掷几次骰子）；
+ *   - 全给齐就是「自定义」建角，一次骰子都不掷。
+ */
+export function buildHero(options: CreateOptions = {}): { hero: Hero; rolls: RollRecord[] } {
   const rng = options.rng ?? Math.random;
   const rolls: RollRecord[] = [];
 
-  // 1. 种族与职业（都可以指定；不指定就掷 2d6）
-  const raceRoll = pushRoll(rolls, '种族 2d6', rollDice('2d6', rng));
-  const classRoll = pushRoll(rolls, '职业 2d6', rollDice('2d6', rng));
-  const race = (options.raceId ? CORE.races.find((item) => item.id === options.raceId) : pickByRoll(CORE.races, raceRoll.total)) ?? CORE.races[0];
-  const klass = (options.classId ? CORE.classes.find((item) => item.id === options.classId) : pickByRoll(CORE.classes, classRoll.total)) ?? CORE.classes[0];
+  const raceRoll = options.raceId ? null : pushRoll(rolls, '种族 2d6', rollDice('2d6', rng));
+  const classRoll = options.classId ? null : pushRoll(rolls, '职业 2d6', rollDice('2d6', rng));
+  const race = (options.raceId ? CORE.races.find((item) => item.id === options.raceId) : pickByRoll(CORE.races, raceRoll?.total ?? 0)) ?? CORE.races[0];
+  const klass = (options.classId ? CORE.classes.find((item) => item.id === options.classId) : pickByRoll(CORE.classes, classRoll?.total ?? 0)) ?? CORE.classes[0];
 
   const baseHp = Math.max(1, race.hp + klass.hpBonus);
+  const chosen = (options.spellIds ?? [])
+    .map((id) => spellById(id))
+    .filter((spell): spell is NonNullable<typeof spell> => Boolean(spell))
+    .map((spell) => ({ spellId: spell.id, name: spell.name, effect: spell.effect, spent: false }));
   const hero: Hero = {
     name: options.name?.trim() || `${race.name}${klass.name}`,
     raceId: race.id,
@@ -450,9 +514,9 @@ export function createRun(options: CreateOptions = {}): ActionOutcome {
     weapon: { ...klass.weapon },
     spareWeapons: [],
     armors: [],
-    spells: [...abilitySpells(race.ability, rng, rolls), ...abilitySpells(klass.ability, rng, rolls)],
-    torches: RULES.startingTorches,
-    coins: RULES.startingCoins,
+    spells: chosen.length ? chosen : [...abilitySpells(race.ability, rng, rolls), ...abilitySpells(klass.ability, rng, rolls)],
+    torches: clamp(options.torches ?? RULES.startingTorches, 0, RULES.maxTorches),
+    coins: Math.max(0, options.coins ?? RULES.startingCoins),
     treasure: 0,
     keys: 0,
     items: [],
@@ -462,52 +526,93 @@ export function createRun(options: CreateOptions = {}): ActionOutcome {
     devoured: false,
     trapShield: 0,
   };
+  return { hero, rolls };
+}
 
-  // 2. 地牢名与类型（3d6 拼名，第三部分决定类型）
-  const prefixRoll = pushRoll(rolls, '地牢名·第一部分 1d6', rollDice('1d6', rng));
-  const middleRoll = pushRoll(rolls, '地牢名·第二部分 1d6', rollDice('1d6', rng));
-  const suffixRoll = pushRoll(rolls, '地牢名·第三部分 1d6', rollDice('1d6', rng));
-  const prefix = pickByRoll(CORE.dungeonName.prefix, prefixRoll.total)?.text ?? '';
-  const middle = pickByRoll(CORE.dungeonName.middle, middleRoll.total)?.text ?? '';
-  const suffixEntry = pickByRoll(CORE.dungeonName.suffix, suffixRoll.total) ?? CORE.dungeonName.suffix[0];
-  const forcedType = options.dungeonTypeId ? getDungeonType(options.dungeonTypeId) : null;
-  const type = forcedType ?? getDungeonType(suffixEntry.typeId);
-  const suffix = forcedType
-    ? (CORE.dungeonName.suffix.find((item) => item.typeId === forcedType.id)?.text ?? suffixEntry.text)
-    : suffixEntry.text;
-  const dungeonName = `${prefix}${middle}${suffix}`;
-  const entrance = makeEntranceNode(type, 1);
+export function createRun(options: CreateOptions = {}): ActionOutcome {
+  const rng = options.rng ?? Math.random;
+  const rolls: RollRecord[] = [];
+
+  // 1. 角色：人物池带进来的快照直接用；否则现场掷骰或按指定的种族/职业组装
+  let hero: Hero;
+  if (options.hero) {
+    hero = clone(options.hero);
+  } else {
+    const draft = buildHero(options);
+    hero = draft.hero;
+    rolls.push(...draft.rolls);
+  }
+  const race = CORE.races.find((item) => item.id === hero.raceId) ?? CORE.races[0];
+  const klass = CORE.classes.find((item) => item.id === hero.classId) ?? CORE.classes[0];
+  const baseHp = hero.baseHp;
+  const fromPool = Boolean(options.hero);
+
+  // 2. 地牢：账号里已有这座永久地牢就用它的地图（含遗体与掉落），否则掷 3d6 拼名建一座新的
+  let type: DungeonType;
+  let dungeonName: string;
+  let nodes: DungeonNode[];
+  let currentId: string;
+  let depth: number;
+  if (options.dungeon && options.dungeon.nodes.length) {
+    type = getDungeonType(options.dungeon.typeId);
+    dungeonName = options.dungeon.name;
+    nodes = clone(options.dungeon.nodes);
+    const entrance = nodes.find((node) => node.kind === 'entrance') ?? nodes[0];
+    currentId = entrance.id;
+    depth = entrance.depth ?? 1;
+  } else {
+    const prefixRoll = pushRoll(rolls, '地牢名·第一部分 1d6', rollDice('1d6', rng));
+    const middleRoll = pushRoll(rolls, '地牢名·第二部分 1d6', rollDice('1d6', rng));
+    const suffixRoll = pushRoll(rolls, '地牢名·第三部分 1d6', rollDice('1d6', rng));
+    const prefix = pickByRoll(CORE.dungeonName.prefix, prefixRoll.total)?.text ?? '';
+    const middle = pickByRoll(CORE.dungeonName.middle, middleRoll.total)?.text ?? '';
+    const suffixEntry = pickByRoll(CORE.dungeonName.suffix, suffixRoll.total) ?? CORE.dungeonName.suffix[0];
+    const forcedType = options.dungeonTypeId ? getDungeonType(options.dungeonTypeId) : null;
+    type = forcedType ?? getDungeonType(suffixEntry.typeId);
+    const suffix = forcedType
+      ? (CORE.dungeonName.suffix.find((item) => item.typeId === forcedType.id)?.text ?? suffixEntry.text)
+      : suffixEntry.text;
+    dungeonName = `${prefix}${middle}${suffix}`;
+    const entrance = makeEntranceNode(type, 1);
+    nodes = [entrance];
+    currentId = entrance.id;
+    depth = 1;
+  }
 
   const state: RunState = {
-    version: 1,
+    version: 2,
     id: uid('run'),
     createdAt: Date.now(),
     updatedAt: Date.now(),
     status: 'active',
     title: `${hero.name} · ${dungeonName}`,
+    characterId: options.characterId,
+    dungeonId: options.dungeon?.id,
     dungeon: {
       typeId: type.id,
       name: dungeonName,
       intro: type.intro,
-      depth: 1,
+      depth,
       entered: false,
-      nodes: [entrance],
-      currentId: entrance.id,
+      nodes,
+      currentId,
       entries: 0,
     },
     hero,
     combat: null,
     town: { inTown: true, needsMonsterReroll: false },
     log: [],
-    stats: { kills: 0, treasures: 0, coinsFound: 0, deepestDepth: 1, turns: 0, trapsTriggered: 0, chestsOpened: 0 },
+    stats: { kills: 0, treasures: 0, coinsFound: 0, deepestDepth: depth, turns: 0, trapsTriggered: 0, chestsOpened: 0 },
     outcome: null,
   };
 
   pushLog(state, 'info', `你在酒馆听说了「${dungeonName}」的传闻。`);
-  pushLog(state, 'info', `角色：${hero.name}（${race.name}·${klass.name}，${baseHp} HP，武器：${klass.weapon.name} ${klass.weapon.damage}）`);
-  if (hero.spells.length) pushLog(state, 'info', `起始咒语：${hero.spells.map((spell) => spell.name).join('、')}（各 1 次）`);
-  pushLog(state, 'info', `带上 ${RULES.startingTorches} 个火把和 ${RULES.startingCoins} 金币，你在城镇里准备出发。`);
-  pushLog(state, 'town', '先在城镇准备：点「返回地牢」再出发（火把上限 10 个，买一个 1 金币）。');
+  pushLog(state, 'info', `角色：${hero.name}（${race.name}·${klass.name}，${baseHp} HP，武器：${hero.weapon.name} ${hero.weapon.damage}）`);
+  if (hero.spells.length) pushLog(state, 'info', `${fromPool ? '学会的咒语' : '起始咒语'}：${hero.spells.map((spell) => spell.name).join('、')}（各 1 次，回城镇休息可恢复）`);
+  pushLog(state, 'info', fromPool
+    ? `你带着「${hero.name}」出发：${hero.torches} 个火把、${hero.coins} 金币${options.dungeon ? `，回到「${dungeonName}」那张已经画过的地图上。` : '。'}`
+    : `带上 ${hero.torches} 个火把和 ${hero.coins} 金币，你在城镇里准备出发。`);
+  pushLog(state, 'town', '先在城镇准备：点「出发」进入地牢（火把上限 10 个，一个 1 金币）。');
   return { state, rolls };
 }
 
@@ -553,7 +658,18 @@ function spawnBehindDoor(state: RunState, from: DungeonNode, door: DoorState, rn
   if (!entry) return null;
   pushLog(state, 'table', entry.text);
 
-  const position = placeNode(from, occupiedCells(state.dungeon.nodes));
+  // 门朝向：一个片段上的第 n 扇门优先开向右→下→左→上，实际能不能贴上由 map.ts 判断；
+  // 已经占用那些墙的门（不管开没开）都让位：一面墙最多一个门
+  const usedDirs = from.doors
+    .filter((item) => item.id !== door.id && item.dir)
+    .map((item) => item.dir) as DoorDir[];
+  const doorIndex = Math.max(0, from.doors.findIndex((item) => item.id === door.id));
+  const preferDir = door.dir ?? DIR_ORDER[doorIndex % DIR_ORDER.length];
+  const size = footprintOf({ kind: entry.kind, size: entry.size });
+  // 先只用「还没被别的门占住的墙」找位置（一面墙最多一个门）；实在不行才退让，并把没连通的门挪开
+  const spot = placeBehindDoor(from, size, state.dungeon.nodes, preferDir, usedDirs, true)
+    ?? placeBehindDoor(from, size, state.dungeon.nodes, preferDir, usedDirs)
+    ?? { x: from.x, y: from.y, dir: preferDir, detached: true };
   const node: DungeonNode = {
     id: uid('node'),
     kind: entry.kind,
@@ -564,12 +680,20 @@ function spawnBehindDoor(state: RunState, from: DungeonNode, door: DoorState, rn
     trapsActive: false,
     cleared: entry.kind !== 'room',
     visited: false,
-    x: position.x,
-    y: position.y,
+    x: spot.x,
+    y: spot.y,
+    w: size.w,
+    h: size.h,
   };
+  // 新房间在共享的那面墙上也有一扇自己的门（和父房间的门重叠），所以两边都能画门、都能走回去
+  node.doors.unshift({ id: uid('door'), status: 'open', to: from.id, dir: OPPOSITE[spot.dir] });
+  assignDoorDirs(node);
   state.dungeon.nodes.push(node);
   door.to = node.id;
   door.status = 'open';
+  door.dir = spot.dir;
+  // 万一这面墙本来有别的门：把「还没连通」的那些挪到空墙上去，保证一面墙最多一个门
+  assignDoorDirs(from);
   return node;
 }
 
@@ -969,7 +1093,8 @@ function openChest(state: RunState, node: DungeonNode, rng: Rng, rolls: RollReco
 
 /** 制造一个新片段（楼梯 / 最终房间），坐标交给 map.ts 排版。 */
 function makeNode(kind: string, depth: number, doors: number): DungeonNode {
-  return {
+  const size = footprintOf({ kind });
+  const node: DungeonNode = {
     id: uid('node'),
     kind,
     depth,
@@ -980,7 +1105,11 @@ function makeNode(kind: string, depth: number, doors: number): DungeonNode {
     visited: true,
     x: 0,
     y: 0,
+    w: size.w,
+    h: size.h,
   };
+  assignDoorDirs(node);
+  return node;
 }
 
 /** 下楼：第 3 层就是最终房间（Boss 房）。 */
@@ -990,7 +1119,7 @@ function travelDeeper(state: RunState, rng: Rng, rolls: RollRecord[], fromSecret
   state.stats.deepestDepth = Math.max(state.stats.deepestDepth, nextDepth);
   const type = dungeonType(state);
   const stairs = makeNode('stairs', nextDepth, 1);
-  Object.assign(stairs, placeForNewDepth(state.dungeon.nodes, nextDepth));
+  Object.assign(stairs, placeForNewDepth(state.dungeon.nodes, { w: stairs.w ?? 2, h: stairs.h ?? 2 }));
   state.dungeon.nodes.push(stairs);
   state.dungeon.currentId = stairs.id;
   pushLog(state, 'info', fromSecretPassage ? '密门后是一段向下的楼梯。' : `你走下楼梯，来到第 ${nextDepth} 层。`);
@@ -1001,7 +1130,18 @@ function travelDeeper(state: RunState, rng: Rng, rolls: RollRecord[], fromSecret
     const entry = pickByRoll(type.boss, roll);
     if (!entry) return;
     const bossNode = makeNode('boss', nextDepth, 0);
-    Object.assign(bossNode, placeForNewDepth(state.dungeon.nodes, nextDepth));
+    // 最终房间也紧贴着楼梯生成：两边各一扇门，画在同一格上
+    const bossSize = { w: bossNode.w ?? 4, h: bossNode.h ?? 4 };
+    const spot = placeBehindDoor(stairs, bossSize, state.dungeon.nodes, stairs.doors[0]?.dir ?? 'e')
+      ?? { x: stairs.x, y: (stairs.y ?? 0) + (stairs.h ?? 2) + 1, dir: stairs.doors[0]?.dir ?? 'e', detached: true };
+    Object.assign(bossNode, { x: spot.x, y: spot.y, w: bossSize.w, h: bossSize.h });
+    const stairDoor = stairs.doors[0] ?? makeDoor(uid('door'));
+    stairs.doors = [stairDoor];
+    stairDoor.to = bossNode.id;
+    stairDoor.status = 'open';
+    stairDoor.dir = spot.dir;
+    bossNode.doors = [{ id: uid('door'), status: 'open', to: stairs.id, dir: OPPOSITE[spot.dir] }];
+    assignDoorDirs(bossNode);
     bossNode.monsters = monstersFromEntry(entry, entry.name, rng, true);
     bossNode.cleared = false;
     state.dungeon.nodes.push(bossNode);
@@ -1286,6 +1426,83 @@ function devour(state: RunState, node: DungeonNode): string | undefined {
   return undefined;
 }
 
+/** 把一件装备或武器包成背包物品（遗体上的穿戴物也要能装进背包）。 */
+function weaponAsItem(weapon: WeaponSpec & { magic?: boolean; damageBonus?: number; note?: string }): Item {
+  return {
+    uid: uid('item'),
+    name: weapon.name,
+    kind: 'weapon',
+    text: weapon.note ?? `${weapon.damage} 伤害${weapon.twoHanded ? '；双手' : ''}`,
+    value: RULES.itemSellPrice,
+    magic: Boolean(weapon.magic),
+    damage: weapon.damage,
+    twoHanded: weapon.twoHanded,
+    damageBonus: weapon.damageBonus ?? 0,
+  };
+}
+
+/**
+ * 搜刮前一位冒险者的遗体：给了 itemUid 就只拿那件，否则把背包还装得下的全拿走。
+ * 装不下的东西留在遗体上（looted 仍为 false），下次再来还能拿。
+ */
+function lootGrave(state: RunState, node: DungeonNode, itemUid: string | undefined): string | undefined {
+  const grave = node.heroGrave;
+  if (!grave) return '这里没有遗体。';
+  if (grave.looted) return `${grave.name} 的遗体已经被搬空了。`;
+  const hero = state.hero;
+  const taken: string[] = [];
+  const blocked: string[] = [];
+
+  if (itemUid) {
+    const candidates = [...grave.items, ...grave.armors];
+    const item = candidates.find((entry) => entry.uid === itemUid);
+    if (!item) return '遗体上没有这件物品。';
+    if (!addItem(state, item)) return `背包满了：${item.name} 带不走。`;
+    grave.items = grave.items.filter((entry) => entry.uid !== item.uid);
+    grave.armors = grave.armors.filter((entry) => entry.uid !== item.uid);
+    taken.push(item.name);
+  } else {
+    for (const item of [...grave.items, ...grave.armors]) {
+      if (addItem(state, item)) {
+        taken.push(item.name);
+        grave.items = grave.items.filter((entry) => entry.uid !== item.uid);
+        grave.armors = grave.armors.filter((entry) => entry.uid !== item.uid);
+      } else blocked.push(item.name);
+    }
+    if (grave.weapon) {
+      const weaponItem = weaponAsItem(grave.weapon);
+      if (addItem(state, weaponItem)) {
+        taken.push(weaponItem.name);
+        grave.weapon = undefined;
+      } else blocked.push(weaponItem.name);
+    }
+    if (grave.coins > 0) {
+      hero.coins += grave.coins;
+      state.stats.coinsFound += grave.coins;
+      taken.push(`${grave.coins} 金币`);
+      grave.coins = 0;
+    }
+    if (grave.treasure > 0) {
+      hero.treasure += grave.treasure;
+      state.stats.treasures += grave.treasure;
+      taken.push(`${grave.treasure} 个财宝`);
+      grave.treasure = 0;
+    }
+    if (grave.keys > 0) {
+      hero.keys += grave.keys;
+      taken.push(`${grave.keys} 把钥匙`);
+      grave.keys = 0;
+    }
+  }
+
+  if (taken.length) pushLog(state, 'loot', `你从 ${grave.name} 的遗体上取走了：${taken.join('、')}。`);
+  if (blocked.length) pushLog(state, 'warn', `${blocked.join('、')} 还留在遗体上：背包最多 ${RULES.maxItems} 件，先腾地方。`);
+  if (!taken.length && !blocked.length) pushLog(state, 'info', `${grave.name} 的遗体上已经什么都没有了。`);
+  grave.looted = !grave.items.length && !grave.armors.length && !grave.weapon && grave.coins <= 0 && grave.treasure <= 0 && grave.keys <= 0;
+  if (grave.looted) pushLog(state, 'info', '遗体被搬空了：愿他安息。');
+  return undefined;
+}
+
 function equipArmor(state: RunState, itemUid: string): string | undefined {
   const hero = state.hero;
   const item = hero.items.find((entry) => entry.uid === itemUid && entry.kind === 'armor');
@@ -1516,7 +1733,8 @@ function ensureFinalRoom(state: RunState, rng: Rng, rolls: RollRecord[]): void {
   const entry = pickByRoll(type.boss, roll);
   if (!entry) return;
   target.kind = 'boss';
-  target.doors = [];
+  // 最终房间不再有「没开的门」，但已经连通的门留着：探索过的房间随时能回来
+  target.doors = target.doors.filter((door) => door.to);
   target.chest = undefined;
   target.hasSecretPassage = false;
   target.sneaked = false;
@@ -1623,6 +1841,12 @@ export function applyAction(prev: RunState, action: GameAction, rng: Rng = Math.
       break;
     }
 
+    case 'loot-grave': {
+      const node = activeNodeOrNotice(state, action.nodeId);
+      notice = typeof node === 'string' ? node : (requireReady(state, node) ?? lootGrave(state, node, action.itemUid));
+      break;
+    }
+
     case 'open-door': {
       const node = activeNodeOrNotice(state, action.nodeId);
       notice = typeof node === 'string' ? node : (requireReady(state, node) ?? openDoor(state, node, action.doorId, rng, rolls));
@@ -1721,6 +1945,55 @@ export function graveFromRun(state: RunState): { characterName: string; cause: s
     characterName: state.hero.name,
     cause: state.outcome?.text ?? '未知原因',
     depth: state.dungeon.depth,
+  };
+}
+
+/**
+ * 读档升级：v1 的老地图是「一格一个片段」，v2 改成格子占地（小房间 2×2 起）。
+ * 版本落后时按门的关系重排一次并补上 w/h，读进来不会一间压一间。
+ */
+export function migrateRun(state: RunState): RunState {
+  const next = clone(state);
+  if ((next.version ?? 1) < 2) {
+    relayoutNodes(next.dungeon.nodes);
+    next.version = 2;
+  }
+  return next;
+}
+
+/**
+ * 永久地牢视图：这一局的地图（含遗体与掉落）就是要写回地牢档案的内容。
+ * 同一账号同一类型的地牢共用一张图，换角色进来看到的还是这张画过的地图。
+ */
+export function summarizeDungeon(state: RunState): {
+  typeId: string; name: string; depth: number; nodes: DungeonNode[]; rooms: number; corpses: number;
+} {
+  const nodes = clone(state.dungeon.nodes);
+  return {
+    typeId: state.dungeon.typeId,
+    name: state.dungeon.name,
+    depth: state.dungeon.depth,
+    nodes,
+    rooms: nodes.filter((node) => node.kind === 'room' || node.kind === 'boss').length,
+    corpses: nodes.filter((node) => node.heroGrave && !node.heroGrave.looted).length,
+  };
+}
+
+/** 人物池回写：把这一局结束后的角色整理成池子记录需要的字段。 */
+export function summarizeHeroForPool(state: RunState): {
+  name: string; raceId: string; raceName: string; classId: string; className: string;
+  maxHp: number; status: 'active' | 'dead'; hero: Hero; lastOutcome: string;
+} {
+  return {
+    name: state.hero.name,
+    raceId: state.hero.raceId,
+    raceName: state.hero.raceName,
+    classId: state.hero.classId,
+    className: state.hero.className,
+    maxHp: state.hero.maxHp,
+    status: state.status === 'dead' ? 'dead' : 'active',
+    hero: clone(state.hero),
+    lastOutcome: state.outcome?.text ?? '',
   };
 }
 

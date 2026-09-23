@@ -104,8 +104,13 @@ async function login() {
   return { name, value };
 }
 
-async function api(pathname, cookie) {
-  const response = await fetch(`${BASE}${pathname}`, { headers: cookie ? { Cookie: `${cookie.name}=${cookie.value}` } : {} });
+async function api(pathname, cookie, method = 'GET') {
+  const headers = cookie ? { Cookie: `${cookie.name}=${cookie.value}` } : {};
+  if (method !== 'GET') {
+    headers.Origin = BASE;
+    headers['Content-Type'] = 'application/json';
+  }
+  const response = await fetch(`${BASE}${pathname}`, { method, headers, body: method === 'GET' ? undefined : '{}' });
   return { status: response.status, body: await response.json().catch(() => null) };
 }
 
@@ -186,6 +191,11 @@ async function settleDice(page, maxMs = 180000) {
   return rounds;
 }
 
+/** 在页面里按按钮文字点一下（返回一段可交给 evaluate 的表达式）。 */
+function clickByText(text) {
+  return `(() => { const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes(${JSON.stringify(text)})); if (button) button.click(); return Boolean(button); })()`;
+}
+
 async function screenshot(page, name) {
   const result = await page.send('Page.captureScreenshot', { format: 'png' });
   fs.mkdirSync(SHOTS_DIR, { recursive: true });
@@ -233,46 +243,111 @@ async function main() {
     }
     const title = await evaluate(page, `document.querySelector('.nq-title')?.textContent ?? ''`);
     check('页面渲染出 NoteQuest 标题', String(title).includes('NoteQuest'), String(title));
-    check('开场引导可见（还没开局）', await evaluate(page, `Boolean(document.querySelector('.nq-intro'))`));
+    check('人物池界面可见（还没开局）', await evaluate(page, `Boolean(document.querySelector('.nq-start'))`));
 
-    console.log('\n▶ 点「新的一局」并放完建角色的骰子');
-    await evaluate(page, `(() => { const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('掷骰开始新的一局')); if (button) button.click(); return Boolean(button); })()`);
+    console.log('\n▶ 存档栏位：一个账号三个，且互相隔离');
+    const slotUi = await evaluate(page, `({
+      cards: document.querySelectorAll('.nq-slot-card').length,
+      switch: Boolean(document.querySelector('.nq-slot-switch')),
+      label: document.querySelector('.nq-slot-card.is-on .nq-hero-name')?.textContent ?? '',
+    })`);
+    check('首页出现三个存档栏位', slotUi.cards === 3, JSON.stringify(slotUi));
+    check('顶栏有栏位切换按钮', slotUi.switch, JSON.stringify(slotUi));
+    check('当前栏位标出来了', String(slotUi.label).includes('存档'), slotUi.label);
+
+    console.log('\n▶ 掷骰建角 → 存进人物池（栏位 1）');
+    await evaluate(page, clickByText('掷骰建角'));
     await sleep(1500);
-    check('3D 骰子遮罩出现（建角色掷骰）', await evaluate(page, `Boolean(document.querySelector('.nq-dice-overlay'))`));
+    check('建角界面出现', await evaluate(page, `Boolean(document.querySelector('.nq-creator'))`));
+    check('3D 骰子遮罩出现（建角掷骰，画面上写着为什么掷）',
+      await evaluate(page, `Boolean(document.querySelector('.nq-dice-overlay')) && Boolean(document.querySelector('.nq-dice-label'))`));
     const rounds = await settleDice(page);
     check(`骰子放完（共点了 ${rounds} 次）`, rounds > 0, `rounds=${rounds}`);
+    await evaluate(page, clickByText('保存到人物池'));
+    await sleep(2000);
+    const pool = await evaluate(page, `({ cards: document.querySelectorAll('.nq-hero-card').length })`);
+    check('人物池里出现了新角色', pool.cards >= 1, JSON.stringify(pool));
+
+    console.log('\n▶ 自定义建角：改已有角色');
+    await evaluate(page, `(() => {
+      const card = document.querySelector('.nq-hero-card');
+      const button = card ? [...card.querySelectorAll('button')].find((item) => item.textContent.trim() === '自定义') : null;
+      if (button) button.click();
+      return Boolean(button);
+    })()`);
+    await sleep(1200);
+    const custom = await evaluate(page, `({
+      open: Boolean(document.querySelector('.nq-creator')),
+      field: Boolean(document.querySelector('.nq-creator .nq-field input:not([type="number"])')),
+      name: document.querySelector('.nq-creator .nq-field input:not([type="number"])')?.value ?? '',
+    })`);
+    check('自定义建角打开并预填了当前角色', custom.open && custom.field && custom.name.length > 0, JSON.stringify(custom));
+    await evaluate(page, clickByText('返回'));
+    await sleep(800);
+
+    console.log('\n▶ 切换到栏位 2：人物池应当整套换掉');
+    await evaluate(page, `(() => { const dots = document.querySelectorAll('.nq-slot-switch .nq-slot-dot'); if (dots[1]) dots[1].click(); return dots.length; })()`);
+    await sleep(2500);
+    const slot2 = await evaluate(page, `({
+      cards: document.querySelectorAll('.nq-hero-card').length,
+      label: document.querySelector('.nq-slot-card.is-on .nq-hero-name')?.textContent ?? '',
+    })`);
+    check('栏位 2 是空的（栏位之间完全隔离）', slot2.cards === 0, JSON.stringify(slot2));
+    check('当前栏位切到了存档 2', String(slot2.label).includes('2'), slot2.label);
+    await evaluate(page, `(() => { const dots = document.querySelectorAll('.nq-slot-switch .nq-slot-dot'); if (dots[0]) dots[0].click(); return dots.length; })()`);
+    await sleep(2500);
+    const back = await evaluate(page, `document.querySelectorAll('.nq-hero-card').length`);
+    check('切回栏位 1 后角色还在', back >= 1, `cards=${back}`);
+
+    console.log('\n▶ 出发 → 城镇 → 进入地牢');
+    await evaluate(page, clickByText('出发'));
+    await sleep(2500);
+    await settleDice(page);
+    check('城镇画面出现', await evaluate(page, `Boolean(document.querySelector('.nq-town'))`));
+    await evaluate(page, clickByText('进入「'));
+    await sleep(2500);
+    await settleDice(page);
     const afterCreate = await evaluate(page, `({
       hasMap: Boolean(document.querySelector('.nq-map-svg')),
+      canvas: Boolean(document.querySelector('.nq-map-canvas')),
+      zoom: document.querySelector('.nq-map-zoom')?.textContent ?? '',
       nodes: document.querySelectorAll('.nq-map-node').length,
+      doors: document.querySelectorAll('.nq-door').length,
       hp: document.querySelector('.nq-hp-text')?.textContent ?? '',
       log: [...document.querySelectorAll('.nq-log-line')].slice(0, 3).map((item) => item.textContent),
     })`);
-    check('地图出现', afterCreate.hasMap, JSON.stringify(afterCreate));
+    check('地牢 HUD 里出现地图', afterCreate.hasMap, JSON.stringify(afterCreate));
+    check('地图支持拖拽平移与滚轮缩放（有画布与缩放比例）', afterCreate.canvas && String(afterCreate.zoom).includes('%'), JSON.stringify(afterCreate));
     check('地图上有片段（入口）', afterCreate.nodes >= 1, `nodes=${afterCreate.nodes}`);
-    check('角色面板显示了 HP', String(afterCreate.hp).includes('/'), afterCreate.hp);
+    check('地图上每个片段都画出了门（墙上的加粗门框）', afterCreate.doors >= 1, `doors=${afterCreate.doors}`);
+    check('人物状态显示了 HP', String(afterCreate.hp).includes('/'), afterCreate.hp);
     check('日志里出现开局记录', afterCreate.log.length > 0, JSON.stringify(afterCreate.log));
+    check('画面上有掷骰记录（开局那几次掷骰的目的与结果）',
+      (await evaluate(page, `document.querySelectorAll('.nq-roll-row').length`)) > 0);
 
-    console.log('\n▶ 先「返回地牢」，再点地图上的门');
-    await evaluate(page, `(() => { const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('返回地牢')); if (button) button.click(); return Boolean(button); })()`);
-    await sleep(1200);
-    await settleDice(page);
-    const inDungeon = await evaluate(page, `({
-      townbar: Boolean(document.querySelector('.nq-townbar')),
-      log: [...document.querySelectorAll('.nq-log-line')].slice(0, 4).map((item) => item.textContent),
-    })`);
-    check('进入地牢后城镇提示条消失', !inDungeon.townbar, JSON.stringify(inDungeon));
-
+    console.log('\n▶ 点地图上的门掷开门表');
     const before = afterCreate.nodes;
-    await evaluate(page, `(() => { const door = document.querySelector('.nq-map-door'); if (door) door.dispatchEvent(new MouseEvent('click', { bubbles: true })); return Boolean(door); })()`);
+    const doorClick = await evaluate(page, `(() => {
+      const door = document.querySelector('.nq-door.is-clickable') || document.querySelector('.nq-door');
+      if (door) door.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return Boolean(door);
+    })()`);
+    check('地图上的门可以点击（不是飘在房间外的圆点标记）', doorClick);
     await sleep(1200);
     await settleDice(page);
     const afterDoor = await evaluate(page, `({
       nodes: document.querySelectorAll('.nq-map-node').length,
+      linked: document.querySelectorAll('.nq-door.is-linked').length,
+      rolls: document.querySelectorAll('.nq-roll-row').length,
       log: [...document.querySelectorAll('.nq-log-line')].slice(0, 8).map((item) => item.textContent),
     })`);
     check('开门动作有结果（片段变多，或拿到锁门/陷阱反馈）',
       afterDoor.nodes > before || afterDoor.log.some((line) => line.includes('开门') || line.includes('陷阱') || line.includes('锁') || line.includes('走廊') || line.includes('房间')),
       JSON.stringify(afterDoor));
+    check('开门掷骰也进了掷骰记录', afterDoor.rolls >= 1, `rolls=${afterDoor.rolls}`);
+    if (afterDoor.nodes > before) {
+      check('相邻两间房的门重叠着画（共享那一格上有两扇门）', afterDoor.linked >= 2, `linked=${afterDoor.linked}`);
+    }
 
     const shot = await screenshot(page, 'notequest.png');
     console.log(`   截图：${shot}`);
@@ -284,6 +359,28 @@ async function main() {
     check('摘要里有角色与地牢名', Boolean(summary?.heroName) && Boolean(summary?.dungeonName), JSON.stringify(summary));
     const detail = await api(`/api/notequest/runs/${summary?.id}`, cookie);
     check('快照里有地图节点', Array.isArray(detail.body?.run?.state?.dungeon?.nodes) && detail.body.run.state.dungeon.nodes.length >= 1);
+
+    console.log('\n▶ 存档栏位在服务端也互相隔离');
+    const slotsApi = await api('/api/notequest/slots', cookie);
+    check('栏位接口返回三个栏位', slotsApi.status === 200 && (slotsApi.body?.slots?.length ?? 0) === 3, JSON.stringify(slotsApi.body));
+    const slot0Runs = await api('/api/notequest/runs?slot=0', cookie);
+    check('栏位 0 里就是刚才这一局', (slot0Runs.body?.runs?.length ?? 0) >= 1, JSON.stringify(slot0Runs.body));
+    const slot2Runs = await api('/api/notequest/runs?slot=2', cookie);
+    check('栏位 2 里没有任何存档', (slot2Runs.body?.runs?.length ?? 0) === 0, JSON.stringify(slot2Runs.body));
+    const slot0Chars = await api('/api/notequest/characters?slot=0', cookie);
+    const slot2Chars = await api('/api/notequest/characters?slot=2', cookie);
+    check('人物池也按栏位隔离', (slot0Chars.body?.characters?.length ?? 0) >= 1 && (slot2Chars.body?.characters?.length ?? 0) === 0,
+      JSON.stringify({ s0: slot0Chars.body?.characters?.length, s2: slot2Chars.body?.characters?.length }));
+    const slot0Dungeons = await api('/api/notequest/dungeons?slot=0', cookie);
+    const slot2Dungeons = await api('/api/notequest/dungeons?slot=2', cookie);
+    check('永久地牢图也按栏位隔离', (slot0Dungeons.body?.dungeons?.length ?? 0) >= 1 && (slot2Dungeons.body?.dungeons?.length ?? 0) === 0,
+      JSON.stringify({ s0: slot0Dungeons.body?.dungeons?.length, s2: slot2Dungeons.body?.dungeons?.length }));
+    check('地图是按「类型 + 栏位」取的',
+      (await api('/api/notequest/dungeons?slot=0&typeId=' + encodeURIComponent(summary?.dungeonTypeId ?? 'palace'), cookie)).body?.dungeon !== null);
+    const cleared = await api('/api/notequest/slots/2', cookie, 'DELETE');
+    check('清空栏位 2 成功（它本来就是空的）', cleared.status === 200, JSON.stringify(cleared.body));
+    const reruns = await api('/api/notequest/runs?slot=0', cookie);
+    check('清空别的栏位不会影响当前栏位', (reruns.body?.runs?.length ?? 0) >= 1, JSON.stringify(reruns.body));
   } finally {
     page?.close();
     browser?.kill();

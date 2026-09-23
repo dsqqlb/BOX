@@ -138,30 +138,7 @@
   cursor: pointer;
 }
 
-.nq-locked {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid rgba(248, 113, 113, 0.4);
-  border-radius: 13px;
-  background: rgba(248, 113, 113, 0.1);
-}
-.nq-locked-title { margin: 0; font-weight: 700; color: #fecaca; }
-
-.nq-townbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid rgba(56, 189, 248, 0.42);
-  border-radius: 12px;
-  background: rgba(56, 189, 248, 0.12);
-  color: #e0f2fe;
-  font-size: 13px;
-}
+/* ── 三栏布局（旧版单页布局，仅桌面对照用） ── */
 
 /* ── 三栏布局 ── */
 
@@ -503,115 +480,142 @@
 .nq-log-death { color: #fff1f2; background: rgba(190, 18, 60, 0.35); font-weight: 700; }
 .nq-log-warn { color: #fed7aa; background: rgba(249, 115, 22, 0.12); }
 
-/* ── 开场引导 ── */
+/* ── 开场引导（旧版一次性引导块，现已由人物池开始界面取代） ── */
 
-.nq-intro {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: 900px;
-  margin: 10px auto 0;
-  padding: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.035);
-}
-.nq-intro h2 { margin: 0; font-size: 22px; font-weight: 900; }
-.nq-intro p { margin: 0; font-size: 13px; line-height: 1.7; color: #cbd5e1; }
+/* 保留 .nq-intro 的空占位说明：新版开始界面用 .nq-start / .nq-hero-card / .nq-depart-grid。 */
 
-.nq-intro-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.nq-intro-list li {
-  display: flex;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.03);
-}
-.nq-intro-list svg { flex: 0 0 auto; color: #fcd34d; }
-
-/* ── 地图 ── */
+/* ── 地图：画在格子上的平面图 ── */
 
 .nq-map {
-  overflow: auto;
-  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 地图工具条：缩放与提示 */
+.nq-map-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nq-map-zoom {
+  min-width: 46px;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fde68a;
+}
+.nq-map-hint { margin-left: auto; font-size: 11px; color: #64748b; }
+
+/* 画布：超出部分裁掉，内部的 nq-map-zoomable 负责平移与缩放 */
+.nq-map-canvas {
+  position: relative;
+  height: 58vh;
+  min-height: 260px;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 16px;
-  background-color: rgba(8, 12, 18, 0.6);
-  background-image:
-    linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
-  background-size: 26px 26px;
+  border-radius: 14px;
+  background: rgba(6, 9, 14, 0.72);
+  cursor: grab;
+  touch-action: none;
+}
+.nq-map-canvas:active { cursor: grabbing; }
+
+.nq-map-zoomable {
+  transform-origin: 0 0;
+  will-change: transform;
+  padding: 6px;
 }
 
 .nq-map-svg {
   display: block;
   width: 100%;
   height: auto;
-  min-height: 320px;
-  max-height: 60vh;
+  min-height: 200px;
 }
 
-.nq-map-link { stroke: rgba(251, 191, 36, 0.5); stroke-width: 3; }
-.nq-map-link.is-broken { stroke: rgba(248, 113, 113, 0.65); stroke-dasharray: 7 6; }
+/* 方格纸底纹：虚线网格，房间墙角都对齐到它 */
+.nq-map-grid line {
+  stroke: rgba(148, 163, 184, 0.15);
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+}
 
-.nq-map-shape {
-  fill: rgba(148, 163, 184, 0.12);
-  stroke: rgba(203, 213, 225, 0.5);
+.nq-map-floor { fill: rgba(148, 163, 184, 0.1); stroke: none; }
+.nq-kind-corridor { fill: rgba(148, 163, 184, 0.08); }
+.nq-kind-stairs { fill: rgba(56, 189, 248, 0.14); }
+.nq-kind-entrance { fill: rgba(251, 191, 36, 0.12); }
+.nq-kind-boss { fill: rgba(239, 68, 68, 0.17); }
+.nq-size-wide, .nq-size-large { fill: rgba(148, 163, 184, 0.13); }
+.nq-map-floor.is-unknown {
+  fill: rgba(148, 163, 184, 0.05);
+  stroke: rgba(148, 163, 184, 0.4);
   stroke-width: 2;
+  stroke-dasharray: 6 5;
 }
-.nq-kind-corridor { fill: rgba(148, 163, 184, 0.1); }
-.nq-kind-stairs { fill: rgba(56, 189, 248, 0.12); stroke: rgba(56, 189, 248, 0.55); }
-.nq-kind-entrance { fill: rgba(251, 191, 36, 0.1); stroke: rgba(251, 191, 36, 0.55); stroke-dasharray: 6 5; }
-.nq-kind-boss { fill: rgba(239, 68, 68, 0.16); stroke: rgba(248, 113, 113, 0.75); stroke-width: 3; }
 
-.nq-map-node.is-current .nq-map-shape {
-  stroke: #fbbf24;
-  stroke-width: 3.5;
-  filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.5));
+.nq-map-wall { stroke: #cbd5e1; opacity: 0.88; }
+.nq-map-node.is-current .nq-map-wall { stroke: #fbbf24; }
+
+.nq-map-current-ring {
+  fill: none;
+  stroke: rgba(251, 191, 36, 0.85);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.45));
 }
-.nq-map-node.is-unknown { opacity: 0.6; }
-.nq-map-node.is-unknown .nq-map-shape { stroke-dasharray: 5 4; }
 
-.nq-map-glyph { cursor: pointer; }
-.nq-map-icon { width: 26px; height: 26px; color: #fcd34d; }
-.nq-map-node.is-unknown .nq-map-icon { color: #94a3b8; }
+/* ── 门：墙上加粗的一格门框（关闭/打开/锁住/砸开各有贴图） ── */
 
-.nq-map-caption {
-  fill: #94a3b8;
-  font-size: 11px;
-  text-anchor: middle;
+.nq-door-hit { fill: rgba(0, 0, 0, 0.001); }
+.nq-door.is-clickable { cursor: pointer; }
+.nq-door.is-clickable .nq-door-hit:hover { fill: rgba(251, 191, 36, 0.2); }
+
+/* 关闭的木门板 */
+.nq-door-plank {
+  fill: #6b4a2f;
+  stroke: rgba(8, 12, 18, 0.85);
+  stroke-width: 1;
 }
+/* 打开：门框 + 门槛 + 开着的门扇 */
+.nq-door-threshold { fill: rgba(251, 191, 36, 0.22); }
+.nq-door-post { fill: #8a6a45; }
+.nq-door.is-linked .nq-door-post { fill: #fbbf24; }
+.nq-door-leaf { fill: #c9a227; stroke: rgba(8, 12, 18, 0.55); stroke-width: 0.6; }
+/* 锁住：暗红门板 + 锁扣 */
+.nq-door-locked .nq-door-plank { fill: #7f3b3b; }
+.nq-door-band { fill: rgba(248, 113, 113, 0.75); }
+.nq-door-lock { fill: #fecaca; stroke: rgba(8, 12, 18, 0.8); stroke-width: 1; }
+/* 砸开：碎裂的门板 */
+.nq-door-broken .nq-door-plank { fill: rgba(107, 74, 47, 0.5); stroke-dasharray: 4 3; }
+.nq-door-splinter { fill: rgba(140, 100, 64, 0.9); stroke: rgba(8, 12, 18, 0.6); stroke-width: 0.6; }
+
+/* 房间的点击热区：几乎透明，但整间屋子都能点 */
+.nq-map-hit { fill: rgba(0, 0, 0, 0.001); cursor: pointer; }
+.nq-map-hit:hover { fill: rgba(251, 191, 36, 0.12); }
+
+.nq-map-glyph { pointer-events: none; }
+.nq-map-icon { width: 22px; height: 22px; color: #fcd34d; }
+
+.nq-map-caption { fill: #94a3b8; font-size: 11px; text-anchor: middle; }
+/* 房间名画在房间里侧：加一点描边，保证压在地板/网格上也读得清 */
+.nq-map-caption-in { fill: #cbd5e1; opacity: 0.9; paint-order: stroke; stroke: rgba(6, 9, 14, 0.75); stroke-width: 3px; }
+.nq-map-flag { fill: #7dd3fc; font-size: 10px; text-anchor: middle; }
 
 .nq-map-badge { stroke: rgba(8, 12, 18, 0.9); stroke-width: 2; }
 .nq-badge-monster { fill: rgba(239, 68, 68, 0.9); }
 .nq-badge-chest { fill: rgba(251, 191, 36, 0.9); }
 .nq-badge-secret { fill: rgba(56, 189, 248, 0.9); }
-.nq-map-badge-text {
-  fill: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  text-anchor: middle;
-}
+.nq-badge-grave { fill: rgba(168, 85, 247, 0.92); }
+.nq-map-badge-text { fill: #fff; font-size: 10px; font-weight: 800; text-anchor: middle; }
 
-.nq-map-door { cursor: pointer; }
-.nq-map-door-bg {
-  fill: rgba(10, 14, 22, 0.92);
-  stroke: rgba(251, 191, 36, 0.55);
-  stroke-width: 1.6;
+/* 当前所在房间的小人棋子 */
+.nq-map-token > circle:first-child {
+  fill: rgba(251, 191, 36, 0.95);
+  stroke: rgba(8, 12, 18, 0.9);
+  stroke-width: 2;
 }
-.nq-map-door:hover .nq-map-door-bg { stroke: #fbbf24; stroke-width: 2.4; }
-.nq-door-locked .nq-map-door-bg { stroke: rgba(248, 113, 113, 0.85); }
-.nq-door-broken .nq-map-door-bg { stroke: rgba(148, 163, 184, 0.7); }
-.nq-map-door-icon { width: 16px; height: 16px; color: #fcd34d; }
-.nq-door-locked .nq-map-door-icon { color: #fca5a5; }
+.nq-map-token-head, .nq-map-token-body { fill: #1f1300; }
 
 /* ── 模态（表格速查 / 存档墓地） ── */
 
@@ -769,7 +773,14 @@
 }
 .nq-dice-card.is-settled { border-color: rgba(251, 191, 36, 0.7); }
 
-.nq-dice-label { margin: 0; font-size: 13px; font-weight: 700; color: #fcd34d; }
+.nq-dice-goal {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: #fbbf24;
+  text-transform: uppercase;
+}
+.nq-dice-label { margin: 2px 0 0; font-size: 13px; font-weight: 700; color: #fcd34d; }
 .nq-dice-notation { margin: 4px 0 0; font-size: 12px; color: #94a3b8; }
 .nq-dice-total {
   display: flex;
@@ -787,8 +798,265 @@
 .nq-dice-hint { margin: 10px 0 0; font-size: 11px; color: #64748b; }
 
 /* 触屏：日志与地图不要抢走整屏滚动 */
+/* ── 地牢 HUD：地图 / 人物状态 / 背包 / 房间详情 四块 ── */
+
+.nq-hud-grid {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+  grid-template-columns: minmax(340px, 1.2fr) minmax(280px, 0.9fr) minmax(340px, 1.15fr);
+  grid-template-areas:
+    "map status room"
+    "map bag    room";
+}
+
+.nq-hud { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.nq-hud-map { grid-area: map; }
+.nq-hud-status { grid-area: status; }
+.nq-hud-bag { grid-area: bag; }
+.nq-hud-room { grid-area: room; max-height: calc(100vh - 150px); overflow-y: auto; }
+
+/* 人物状态：HP 条 + 四格数据 + 装备与咒语 */
+.nq-hud-status .nq-section { margin-top: 2px; }
+
+/* ── 背包面板 ── */
+
+.nq-bag-grid { display: grid; gap: 6px; }
+
+.nq-bag-item {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.nq-bag-armor { border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.07); }
+.nq-bag-weapon { border-color: rgba(248, 113, 113, 0.32); background: rgba(248, 113, 113, 0.07); }
+.nq-bag-treasure { border-color: rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.07); }
+.nq-bag-potion, .nq-bag-scroll { border-color: rgba(168, 85, 247, 0.32); background: rgba(168, 85, 247, 0.07); }
+
+.nq-bag-icon { display: grid; place-items: center; color: #fcd34d; }
+.nq-bag-main { min-width: 0; }
+.nq-bag-name { margin: 0; font-size: 12.5px; font-weight: 700; }
+.nq-bag-text { margin: 2px 0 0; font-size: 11px; line-height: 1.45; color: #94a3b8; }
+.nq-bag-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+
+/* ── 房间面板 ── */
+
+.nq-room-text {
+  margin: 0;
+  padding: 9px 11px;
+  border-left: 3px solid rgba(251, 191, 36, 0.6);
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.09);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ── 开始界面（人物池 / 出发 / 墓地） ── */
+
+.nq-start { display: flex; flex-direction: column; gap: 12px; }
+
+.nq-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.nq-hero-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.nq-hero-card header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nq-hero-card.is-selected {
+  border-color: rgba(251, 191, 36, 0.7);
+  background: rgba(251, 191, 36, 0.1);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.25) inset;
+}
+.nq-hero-card.is-down { opacity: 0.62; }
+.nq-hero-name { margin: 0; font-size: 14px; font-weight: 800; }
+
+.nq-depart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+/* ── 城镇画面 ── */
+
+.nq-town { display: flex; flex-direction: column; gap: 12px; }
+
+.nq-town-scene {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+}
+.nq-town-scene svg { display: block; width: 100%; height: 200px; }
+.nq-town-moon { fill: #fef3c7; opacity: 0.85; }
+.nq-town-hill { fill: #141b28; }
+.nq-town-houses path { fill: #1d2534; stroke: rgba(148, 163, 184, 0.35); stroke-width: 1.2; }
+.nq-town-tower path { fill: #232c3d; stroke: rgba(251, 191, 36, 0.5); stroke-width: 1.4; }
+.nq-town-ground { fill: #10161f; }
+.nq-town-caption {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px;
+  background: linear-gradient(0deg, rgba(6, 9, 14, 0.9), transparent);
+}
+.nq-town-title { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 16px; font-weight: 800; }
+
+.nq-town-grid {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+  grid-template-columns: minmax(320px, 1.25fr) minmax(300px, 1fr);
+}
+.nq-town-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.nq-shop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+
+/* ── 建角器 ── */
+
+.nq-creator-grid {
+  display: grid;
+  gap: 14px;
+  align-items: start;
+  grid-template-columns: minmax(320px, 1.3fr) minmax(260px, 0.9fr);
+}
+.nq-creator-preview {
+  padding: 12px;
+  border: 1px dashed rgba(251, 191, 36, 0.45);
+  border-radius: 14px;
+  background: rgba(251, 191, 36, 0.06);
+}
+.nq-preview-name { margin: 0 0 4px; font-size: 16px; font-weight: 900; color: #fde68a; }
+
+.nq-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; font-size: 12px; color: #cbd5e1; }
+.nq-field span { color: #94a3b8; }
+.nq-field input,
+.nq-field select {
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f1f5f9;
+  font-size: 13px;
+  outline: none;
+}
+.nq-field input:focus, .nq-field select:focus { border-color: rgba(251, 191, 36, 0.55); }
+.nq-field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+
+/* ── 窄屏：四块竖着排 ── */
+@media (max-width: 1100px) {
+  .nq-hud-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "map" "status" "room" "bag";
+  }
+  .nq-hud-room { max-height: none; }
+  .nq-town-grid, .nq-creator-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 手机横屏/窄窗口：地图与日志都矮一点，数据格两列 */
 @media (max-width: 780px) {
   .nq-map-svg { min-height: 260px; max-height: 46vh; }
   .nq-log-list { max-height: 240px; }
   .nq-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── 存档栏位（首页三张卡 + 顶栏切换） ── */
+
+.nq-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+.nq-slot-card {
+  padding: 12px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(12, 17, 26, 0.66);
+}
+.nq-slot-card.is-on {
+  border-color: rgba(251, 191, 36, 0.6);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.25), 0 10px 26px rgba(0, 0, 0, 0.35);
+}
+.nq-slot-card header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nq-slot-card .nq-muted { margin: 6px 0 8px; font-size: 12px; line-height: 1.6; }
+
+.nq-slot-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: #cbd5e1;
+}
+.nq-slot-dot {
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.nq-slot-dot.is-on {
+  border-color: rgba(251, 191, 36, 0.8);
+  background: rgba(251, 191, 36, 0.18);
+  color: #fde68a;
+}
+.nq-slot-dot:disabled { cursor: default; opacity: 0.75; }
+
+/* ── 掷骰记录：目的 + 每颗骰子 + 合计 ── */
+
+.nq-roll-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nq-roll-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 1.1fr) minmax(72px, 0.8fr) 1.6fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 8px;
+  border-left: 2px solid rgba(251, 191, 36, 0.45);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.55);
+  font-size: 12px;
+}
+.nq-roll-goal { color: #fcd34d; font-weight: 700; }
+.nq-roll-notation {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(251, 191, 36, 0.12);
+  color: #fcd34d;
+  font-size: 11px;
+}
+.nq-roll-dice { color: #e2e8f0; font-variant-numeric: tabular-nums; }
+.nq-roll-dice em { margin-left: 4px; color: #fff; font-style: normal; font-weight: 700; }
+.nq-roll-detail { color: #94a3b8; }
+.nq-section-title button { margin-left: 8px; }
+
+@media (max-width: 700px) {
+  .nq-roll-row { grid-template-columns: 1fr; gap: 2px; }
 }

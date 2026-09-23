@@ -20,11 +20,23 @@ const ROLL_WATCHDOG_MS = 12000;
 /** 结果卡停留时间。 */
 const HOLD_MS = 2000;
 
-/** 把引擎的展示用 notation（比如「2d6取高」）收敛成 3D 引擎认识的纯 NdS 表达式。 */
-function engineNotation(notation: string): string {
-  const match = notation.match(/(\d*)d(\d+)(\s*[+-]\s*\d+)?/i);
-  if (!match) return '1d6';
-  return `${match[1] || '1'}d${match[2]}${(match[3] || '').replace(/\s+/g, '')}`;
+/**
+ * 把引擎的展示用 notation（比如「2d6取高」）收敛成 3D 引擎认识的纯 NdS 表达式，
+ * 并用 `@点数` 把**引擎已经算好的结果钉在骰面上**。
+ *
+ * 这一步是「骰子显示和结果不符」的修复关键：以前只把表达式交给 3D 引擎，
+ * 它自己物理滚出随机点数，于是屏幕上看到的骰子和卡片上的结果两张皮。
+ * DiceNotation 支持 `2d6@3,5` 这种强制结果（引擎内部会 swapDiceFace），
+ * 所以现在看到的每一颗骰子都等于引擎真正用的那一次掷骰。
+ */
+function engineNotation(roll: RollRecord): string {
+  const match = roll.notation.match(/(\d*)d(\d+)/i);
+  const count = match?.[1] ? Number(match[1]) : 1;
+  const sides = match?.[2] ? Number(match[2]) : 6;
+  const faces = (roll.values ?? []).filter((value) => Number.isFinite(value) && value > 0);
+  const base = `${Math.max(1, count)}d${sides}`;
+  if (!faces.length) return base;
+  return `${base}@${faces.join(',')}`;
 }
 
 interface DiceStageProps {
@@ -66,7 +78,7 @@ export default function DiceStage({ rolls, onDone, diceScale = 1 }: DiceStagePro
       return;
     }
     setSettled(false);
-    setRequest({ id: `${current.id}-${index}`, notation: engineNotation(current.notation) });
+    setRequest({ id: `${current.id}-${index}`, notation: engineNotation(current) });
     watchdogRef.current = window.setTimeout(() => { setSettled(true); holdRef.current = window.setTimeout(() => advance(), HOLD_MS); }, ROLL_WATCHDOG_MS);
     return clearTimers;
   }, [current, index, advance, clearTimers]);
@@ -87,6 +99,7 @@ export default function DiceStage({ rolls, onDone, diceScale = 1 }: DiceStagePro
         <DiceRoller rollRequest={request} diceScale={diceScale} onRollComplete={() => handleComplete()} />
       </div>
       <div className={`nq-dice-card${settled ? ' is-settled' : ''}`}>
+        <p className="nq-dice-goal">为了</p>
         <p className="nq-dice-label">{current.label}</p>
         <p className="nq-dice-notation">{current.notation}</p>
         {settled ? (

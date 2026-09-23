@@ -316,6 +316,9 @@ export interface Monster {
   isBoss: boolean;
 }
 
+/** 门朝向（相对它所在片段）：n 上 / e 右 / s 下 / w 左。地图按它在墙上开洞。 */
+export type DoorDir = 'n' | 'e' | 's' | 'w';
+
 export interface DoorState {
   id: string;
   /** closed（还没掷骰）| locked | open（已打开，门后已确定）| broken */
@@ -328,11 +331,32 @@ export interface DoorState {
   forced?: boolean;
   /** 门后节点的房间内容还没结算过 */
   sealed?: boolean;
+  /** 门在片段哪面墙上（打开时确定，地图据此开洞） */
+  dir?: DoorDir;
 }
 
 export interface ChestState {
   opened: boolean;
   big?: boolean;
+}
+
+/** 前一位冒险者留在这里的遗体：装备、背包与金币都留在原地，后来者可以搬走。 */
+export interface HeroGrave {
+  name: string;
+  raceName: string;
+  className: string;
+  cause: string;
+  diedAt: number;
+  /** 死者身上还带着的东西（背包 + 备用武器 + 穿戴中的护甲与武器） */
+  items: Item[];
+  armors: Item[];
+  weapon?: WeaponSpec & { magic?: boolean; damageBonus?: number; note?: string };
+  coins: number;
+  /** 没来得及兑换的财宝与钥匙 */
+  treasure: number;
+  keys: number;
+  /** 已经被后来者搬空 */
+  looted: boolean;
 }
 
 export interface DungeonNode {
@@ -359,12 +383,16 @@ export interface DungeonNode {
   sneaked?: boolean;
   /** 战斗后留下的尸体（史莱姆人可以吞噬尸体回满 HP） */
   corpse?: { name: string; devoured: boolean };
+  /** 死在这里的冒险者留下的遗体（永久的：后来的角色可以搬走装备与金币） */
+  heroGrave?: HeroGrave;
   visited: boolean;
   /** 需要重新掷怪物表（返回地牢后重进空房间） */
   needsMonsterReroll?: boolean;
-  /** 布局坐标（由 map.ts 计算，存档里也留着，便于读档立刻画图） */
+  /** 布局：左上角格子坐标 + 占地格数（由 map.ts 计算，存档里也留着，读档立刻能画） */
   x: number;
   y: number;
+  w?: number;
+  h?: number;
 }
 
 export interface LogEntry {
@@ -381,6 +409,8 @@ export interface RollRecord {
   label: string;
   total: number;
   detail: string;
+  /** 每颗骰子的原始点数（3D 骰子按这份点数强制摆面，保证「看到的 = 算出来的」） */
+  values: number[];
 }
 
 export interface Hero {
@@ -452,6 +482,7 @@ export interface RunStats {
 }
 
 export interface RunState {
+  /** 快照结构版本：1 = 单格坐标的老地图；2 = 格子占地（2×2 起步）+ 人物池 + 永久地牢 */
   version: number;
   id: string;
   createdAt: number;
@@ -459,6 +490,10 @@ export interface RunState {
   /** active | dead | cleared */
   status: 'active' | 'dead' | 'cleared';
   title: string;
+  /** 这一局用的是人物池里的哪个角色（走后门进来的老存档可能没有） */
+  characterId?: string;
+  /** 这一局探索的是哪座永久地牢（同一个账号同一类型共用一张图） */
+  dungeonId?: string;
   dungeon: {
     typeId: string;
     name: string;
@@ -482,6 +517,8 @@ export interface RunState {
 /** 服务器返回的存档摘要（列表用，不含整包状态） */
 export interface RunSummary {
   id: string;
+  /** 存档栏位（0/1/2） */
+  slot?: number;
   title: string;
   heroName: string;
   raceName: string;
@@ -505,6 +542,7 @@ export interface RunSummary {
 
 export interface GraveSummary {
   id: string;
+  slot?: number;
   runId: string | null;
   characterName: string;
   raceName: string;
@@ -516,4 +554,59 @@ export interface GraveSummary {
   kills: number;
   treasures: number;
   diedAt: string;
+}
+
+/* ── 人物池与永久地牢（服务端保存，跨局共享） ── */
+
+/** active：还能下地牢；dead：已经死了（遗体留在某座地牢里）；retired：主动退役 */
+export type CharacterStatus = 'active' | 'dead' | 'retired';
+
+/** 人物池里的一条角色：掷骰或自定义创建，之后随时可以带进任何一局。 */
+export interface HeroRecord {
+  id: string;
+  slot?: number;
+  name: string;
+  raceId: string;
+  raceName: string;
+  classId: string;
+  className: string;
+  status: CharacterStatus;
+  maxHp: number;
+  /** 角色快照（HP、装备、咒语、金币、背包），进地牢时原样带进去 */
+  hero: Hero;
+  runs: number;
+  deaths: number;
+  lastOutcome: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 永久地牢列表项：一座地牢 = 一张永久地图（含遗体与掉落）。 */
+export interface DungeonRecordSummary {
+  id: string;
+  slot?: number;
+  typeId: string;
+  name: string;
+  depth: number;
+  rooms: number;
+  corpses: number;
+  updatedAt: string;
+}
+
+export interface DungeonRecordDetail extends DungeonRecordSummary {
+  nodes: DungeonNode[];
+}
+
+/** 存档栏位概览：首页用它渲染三张存档卡，栏位之间完全隔离。 */
+export interface SlotSummary {
+  slot: number;
+  /** 这个栏位里正在进行的那一局（没有就是 null） */
+  activeRun: RunSummary | null;
+  /** 最近更新的一局（含已结束的） */
+  latestRun: RunSummary | null;
+  runs: number;
+  characters: number;
+  dungeons: number;
+  graves: number;
+  updatedAt: string | null;
 }

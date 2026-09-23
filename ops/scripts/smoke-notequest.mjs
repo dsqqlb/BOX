@@ -196,6 +196,39 @@ async function runHttpTests(cookies) {
   const crossDelete = await api(`/api/notequest/runs/${runId}`, { method: 'DELETE', cookie: cookies.c });
   check('别人删不掉你的存档（404）', crossDelete.status === 404, `实际 ${crossDelete.status}`);
 
+  console.log('\n▶ 人物池与永久地牢');
+  const character = await api('/api/notequest/characters', { method: 'POST', cookie: cookies.a, body: { hero: makeState().hero } });
+  check('创建角色返回 201', character.status === 201, `实际 ${character.status} ${JSON.stringify(character.body)}`);
+  const characterId = character.body?.character?.id;
+  check('角色摘要来自快照', character.body?.character?.name === '测试勇者' && character.body?.character?.maxHp === 24, JSON.stringify(character.body?.character));
+  const characters = await api('/api/notequest/characters', { cookie: cookies.a });
+  check('人物池列表里有刚建的角色', characters.body?.characters?.length === 1, JSON.stringify(characters.body?.characters?.length));
+  const bumped = await api(`/api/notequest/characters/${characterId}`, { method: 'PATCH', cookie: cookies.a, body: { incrementRuns: true, status: 'dead', lastOutcome: '被测试怪物打死' } });
+  check('人物池回写战绩与状态', bumped.body?.character?.runs === 1 && bumped.body?.character?.status === 'dead', JSON.stringify(bumped.body?.character));
+  const characterForbidden = await api('/api/notequest/characters', { cookie: cookies.b });
+  check('人物池同样受权限保护', characterForbidden.status === 403, `实际 ${characterForbidden.status}`);
+
+  const dungeon = await api('/api/notequest/dungeons', {
+    method: 'PUT', cookie: cookies.a,
+    body: { typeId: 'palace', name: '秘密恐惧之宫殿', depth: 2, rooms: 3, corpses: 1, nodes: makeState().dungeon.nodes },
+  });
+  check('保存地牢返回完整地图', dungeon.status === 200 && Array.isArray(dungeon.body?.dungeon?.nodes) && dungeon.body.dungeon.rooms === 3, JSON.stringify(dungeon.body?.dungeon));
+  const dungeonId = dungeon.body?.dungeon?.id;
+  const sameType = await api('/api/notequest/dungeons?typeId=palace', { cookie: cookies.a });
+  check('按类型能把同一张图取回来', sameType.body?.dungeon?.id === dungeonId, JSON.stringify(sameType.body?.dungeon?.id));
+  const dungeonList = await api('/api/notequest/dungeons', { cookie: cookies.a });
+  check('地牢列表按账号返回', dungeonList.body?.dungeons?.length === 1, JSON.stringify(dungeonList.body?.dungeons?.length));
+
+  const linked = await api('/api/notequest/runs', { method: 'POST', cookie: cookies.a, body: { title: '带人物与地图的一局', state: makeState(), characterId, dungeonId } });
+  check('存档记下了人物与地牢的关联', linked.body?.run?.characterId === characterId && linked.body?.run?.dungeonId === dungeonId, JSON.stringify({ characterId: linked.body?.run?.characterId, dungeonId: linked.body?.run?.dungeonId }));
+  const foreignLink = await api('/api/notequest/runs', { method: 'POST', cookie: cookies.c, body: { title: '别人的角色', state: makeState(), characterId, dungeonId } });
+  check('别人的角色/地牢 id 不会被写进存档', foreignLink.body?.run?.characterId === null && foreignLink.body?.run?.dungeonId === null, JSON.stringify({ characterId: foreignLink.body?.run?.characterId, dungeonId: foreignLink.body?.run?.dungeonId }));
+  await api(`/api/notequest/runs/${foreignLink.body?.run?.id}`, { method: 'DELETE', cookie: cookies.c });
+  await api(`/api/notequest/runs/${linked.body?.run?.id}`, { method: 'DELETE', cookie: cookies.a });
+  const deletedCharacter = await api(`/api/notequest/characters/${characterId}`, { method: 'DELETE', cookie: cookies.a });
+  const deletedDungeon = await api(`/api/notequest/dungeons/${dungeonId}`, { method: 'DELETE', cookie: cookies.a });
+  check('角色与地牢都能删除', deletedCharacter.status === 200 && deletedDungeon.status === 200, JSON.stringify({ character: deletedCharacter.status, dungeon: deletedDungeon.status }));
+
   console.log('\n▶ 删除存档');
   const removed = await api(`/api/notequest/runs/${runId}`, { method: 'DELETE', cookie: cookies.a });
   check('删除返回 200', removed.status === 200, `实际 ${removed.status}`);
@@ -203,6 +236,41 @@ async function runHttpTests(cookies) {
   check('删除后读取返回 404', gone.status === 404, `实际 ${gone.status}`);
   const gravesAfterDelete = await api('/api/notequest/graves', { cookie: cookies.a });
   check('墓地记录保留（角色已经死了）', gravesAfterDelete.body?.graves?.length === 1, JSON.stringify(gravesAfterDelete.body?.graves?.length));
+console.log('\n▶ 存档栏位：一个账号三个，互相隔离');
+  const slots = await api('/api/notequest/slots', { cookie: cookies.a });
+  check('栏位接口返回三个栏位', slots.status === 200 && Array.isArray(slots.body?.slots) && slots.body.slots.length === 3, JSON.stringify(slots.body));
+  check('栏位 0 的墓地统计保留着（清空别的栏位不影响它）', slots.body?.slots?.[0]?.graves === 1, JSON.stringify(slots.body?.slots?.[0]));
+  const slot1Owner = await api('/api/notequest/runs?slot=1', { cookie: cookies.a });
+  check('栏位 1 里没有任何存档', (slot1Owner.body?.runs?.length ?? 0) === 0, JSON.stringify(slot1Owner.body?.runs?.length));
+  const slot1Run = await api('/api/notequest/runs', { method: 'POST', cookie: cookies.a, body: { title: '栏位 2 的一局', state: makeState(), slot: 1 } });
+  check('带着 slot=1 创建存档会落到栏位 1', slot1Run.body?.run?.slot === 1, JSON.stringify(slot1Run.body?.run?.slot));
+  const slot0After = await api('/api/notequest/runs?slot=0', { cookie: cookies.a });
+  const slot1After = await api('/api/notequest/runs?slot=1', { cookie: cookies.a });
+  check('栏位 0 不会被栏位 1 的存档污染', (slot0After.body?.runs?.length ?? 0) === 0 && (slot1After.body?.runs?.length ?? 0) === 1,
+    JSON.stringify({ s0: slot0After.body?.runs?.length, s1: slot1After.body?.runs?.length }));
+  const slot1Character = await api('/api/notequest/characters', { method: 'POST', cookie: cookies.a, body: { hero: makeState().hero, slot: 1 } });
+  const slot1Dungeon = await api('/api/notequest/dungeons', {
+    method: 'PUT',
+    cookie: cookies.a,
+    body: { typeId: 'palace', name: '栏位 2 的地牢', depth: 3, rooms: 9, corpses: 1, nodes: [{ id: 'n1' }], slot: 1 },
+  });
+  const slot0Chars = await api('/api/notequest/characters?slot=0', { cookie: cookies.a });
+  const slot1Chars = await api('/api/notequest/characters?slot=1', { cookie: cookies.a });
+  check('人物池按栏位隔离', (slot0Chars.body?.characters?.length ?? 0) === 0 && (slot1Chars.body?.characters?.length ?? 0) === 1,
+    JSON.stringify({ s0: slot0Chars.body?.characters?.length, s1: slot1Chars.body?.characters?.length }));
+  check('地牢图按「栏位 + 类型」唯一', slot1Dungeon.body?.dungeon?.slot === 1 && slot1Dungeon.body?.dungeon?.typeId === 'palace', JSON.stringify(slot1Dungeon.body?.dungeon));
+  const sameTypeSlot0 = await api('/api/notequest/dungeons?slot=0&typeId=palace', { cookie: cookies.a });
+  check('同一类型在不同栏位里是两张独立的图', sameTypeSlot0.body?.dungeon === null && Boolean(slot1Character.body?.character?.id), JSON.stringify(sameTypeSlot0.body));
+  const cleared = await api('/api/notequest/slots/1', { method: 'DELETE', cookie: cookies.a });
+  check('清空栏位 1 会把它的存档/人物/地牢一起删掉',
+    cleared.status === 200 && cleared.body?.cleared?.runs === 1 && cleared.body?.cleared?.characters === 1 && cleared.body?.cleared?.dungeons === 1,
+    JSON.stringify(cleared.body));
+  const slot0AfterClear = await api('/api/notequest/runs?slot=0', { cookie: cookies.a });
+  const gravesAfterClear = await api('/api/notequest/graves?slot=0', { cookie: cookies.a });
+  check('清空栏位 1 不影响栏位 0 的墓地', (gravesAfterClear.body?.graves?.length ?? 0) === 1 && Array.isArray(slot0AfterClear.body?.runs),
+    JSON.stringify({ graves: gravesAfterClear.body?.graves?.length }));
+  const foreignSlot = await api('/api/notequest/runs?slot=1', { cookie: cookies.c });
+  check('别的账号的栏位 1 是空的（账号之间也隔离）', (foreignSlot.body?.runs?.length ?? 0) === 0, JSON.stringify(foreignSlot.body?.runs?.length));
 }
 
 async function main() {

@@ -1,33 +1,47 @@
 'use client';
 
 /**
- * NoteQuest 单人地牢探索（/tools/notequest）
+ * NoteQuest 单人地牢探索（/tools/notequest）——容器。
  *
  * 三层结构：
  *   1. 引擎（lib/notequest/engine.ts）：纯函数状态机，一次动作立刻算完，返回新状态 + 刚才的掷骰；
- *   2. 这个容器：把引擎结果放进 React state、用 RunSync 防抖写进 SQLite、把掷骰交给 3D 骰子回放；
- *   3. 面板组件：地图 / 行动 / 角色 / 日志 / 表格速查 / 存档墓地，全部不含规则逻辑。
+ *   2. 这个容器：三屏切换（人物池 → 城镇 → 地牢）、防抖保存（存档 + 永久地牢 + 人物池）、掷骰回放；
+ *   3. 面板组件：StartScreen / CharacterCreator / TownView / MapBoard / StatusPanel / BackpackPanel / RoomPanel。
  *
- * 存档：一局 = 一条 NoteQuestRun（含完整快照）。刷新、换设备都能接着玩；
- * 角色死亡时服务端会自动补一条墓地记录（原书第 24 页那张表）。
+ * 持久化三件套（都按账户隔离）：
+ *   NoteQuestRun        一局 = 一条存档（完整快照，刷新/换设备接着玩）
+ *   NoteQuestDungeon    一座永久地牢 = 一张永久地图（含遗体与掉落，换角色进来还是这张图）
+ *   NoteQuestCharacter  人物池 = 每个角色一份快照（装备、咒语、金币随身带）
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import ActionPanel from './ActionPanel';
-import CharacterPanel from './CharacterPanel';
+import BackpackPanel from './BackpackPanel';
+import CharacterCreator from './CharacterCreator';
 import DiceStage from './DiceStage';
 import Icon from './Icon';
-import LogPanel from './LogPanel';
 import MapBoard from './MapBoard';
+import RoomPanel from './RoomPanel';
 import RunManager from './RunManager';
+import StartScreen from './StartScreen';
+import StatusPanel from './StatusPanel';
 import TableViewer from './TableViewer';
-import { applyAction, createRun, type GameAction } from '@/lib/notequest/engine';
-import { listDungeonTypes } from '@/lib/notequest/data';
-import { RunSync, deleteRunServer, fetchGraves, fetchRun, fetchRuns, type SyncStatus } from '@/lib/notequest/api';
-import type { DoorState, DungeonNode, GraveSummary, RollRecord, RunState, RunSummary } from '@/lib/notequest/types';
+import TownView from './TownView';
+import { applyAction, createRun, migrateRun, summarizeDungeon, type GameAction } from '@/lib/notequest/engine';
+import {
+  RunSync, clearSlotServer, createCharacterServer, deleteCharacterServer, deleteDungeonServer, deleteRunServer,
+  fetchCharacters, fetchDungeon, fetchDungeonByType, fetchDungeons, fetchGraves, fetchRun, fetchRuns, fetchSlots,
+  saveDungeonServer, updateCharacterServer, type SyncStatus,
+} from '@/lib/notequest/api';
+import type {
+  DungeonNode, DungeonRecordSummary, DoorState, GraveSummary, Hero, HeroRecord, RollRecord, RunState, RunSummary,
+  SlotSummary,
+} from '@/lib/notequest/types';
 
 const DICE_SCALE_KEY = 'notequest-dice-scale';
+const SLOT_KEY = 'notequest-slot';
+/** 掷骰记录留多少条（画面上的「掷骰记录」面板 + 3D 回放共用同一份数据结构）。 */
+const MAX_ROLL_HISTORY = 40;
 
 const SYNC_LABELS: Record<SyncStatus, string> = {
   idle: '已同步',
@@ -36,11 +50,21 @@ const SYNC_LABELS: Record<SyncStatus, string> = {
   offline: '离线（改动还在浏览器里）',
 };
 
+type Screen = 'start' | 'creator' | 'town' | 'dungeon';
+
 export default function NoteQuestApp() {
+  const [slot, setSlot] = useState(0);
+  const [slots, setSlots] = useState<SlotSummary[]>([]);
   const [run, setRun] = useState<RunState | null>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [graves, setGraves] = useState<GraveSummary[]>([]);
+  const [characters, setCharacters] = useState<HeroRecord[]>([]);
+  const [dungeons, setDungeons] = useState<DungeonRecordSummary[]>([]);
   const [rolls, setRolls] = useState<RollRecord[]>([]);
+  /** 掷骰记录（目的 + 结果）：一直留在画面上，随时能翻刚才掷了什么。 */
+  const [rollHistory, setRollHistory] = useState<RollRecord[]>([]);
+  const [editing, setEditing] = useState<HeroRecord | null>(null);
+  const [creatorMode, setCreatorMode] = useState<'roll' | 'custom'>('roll');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -49,43 +73,66 @@ export default function NoteQuestApp() {
   const [managerTab, setManagerTab] = useState<'runs' | 'graves'>('runs');
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [diceScale, setDiceScale] = useState(1);
-  const [lockedDoor, setLockedDoor] = useState<{ node: DungeonNode; door: DoorState } | null>(null);
+  const [screen, setScreen] = useState<Screen>('start');
 
   const syncRef = useRef<RunSync | null>(null);
   const runRef = useRef<RunState | null>(null);
+  const slotRef = useRef(0);
+  const worldTimerRef = useRef<number | null>(null);
+  const worldPendingRef = useRef<RunState | null>(null);
   if (!syncRef.current) syncRef.current = new RunSync(setSyncStatus);
+  slotRef.current = slot;
 
   const playing = rolls.length > 0;
   const blocked = busy || playing;
 
-  const refreshLists = useCallback(async () => {
+  /** 三屏切换：没存档就在人物池；人在城镇就是城镇屏；其余是地牢 HUD。 */
+  const activeScreen: Screen = !run ? screen : (run.status === 'active' && run.town.inTown && screen !== 'dungeon' ? 'town' : 'dungeon');
+
+  const refreshLists = useCallback(async (target = slotRef.current) => {
     try {
-      const [runList, graveList] = await Promise.all([fetchRuns(), fetchGraves()]);
+      const [runList, graveList, characterList, dungeonList, slotList] = await Promise.all([
+        fetchRuns(target), fetchGraves(target), fetchCharacters(target), fetchDungeons(target), fetchSlots(),
+      ]);
       setRuns(runList);
       setGraves(graveList);
+      setCharacters(characterList);
+      setDungeons(dungeonList);
+      setSlots(slotList.slots);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '读取存档失败。');
+      setNotice(error instanceof Error ? error.message : '读取数据失败。');
     }
   }, []);
 
-  /* ── 首次进入：恢复最近一局进行中的存档 ── */
+  /* ── 首次进入：先读存档栏位，再恢复该栏位里进行中的那一局 ── */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
+        const storedSlot = Number(window.localStorage.getItem(SLOT_KEY));
+        const initialSlot = Number.isInteger(storedSlot) && storedSlot >= 0 && storedSlot < 3 ? storedSlot : 0;
         const scale = Number(window.localStorage.getItem(DICE_SCALE_KEY));
         if (Number.isFinite(scale) && scale > 0) setDiceScale(Math.min(1.6, Math.max(0.5, scale)));
-        const runList = await fetchRuns();
+        setSlot(initialSlot);
+        slotRef.current = initialSlot;
+        syncRef.current?.setSlot(initialSlot);
+        const [runList, graveList, characterList, dungeonList, slotList] = await Promise.all([
+          fetchRuns(initialSlot), fetchGraves(initialSlot), fetchCharacters(initialSlot), fetchDungeons(initialSlot), fetchSlots(),
+        ]);
         if (cancelled) return;
         setRuns(runList);
-        setGraves(await fetchGraves());
-        const target = runList.find((item) => item.status === 'active') ?? runList[0];
+        setGraves(graveList);
+        setCharacters(characterList);
+        setDungeons(dungeonList);
+        setSlots(slotList.slots);
+        const target = runList.find((item) => item.status === 'active');
         if (target) {
           const detail = await fetchRun(target.id);
           if (!cancelled && detail.state) {
-            runRef.current = detail.state;
+            const state = migrateRun(detail.state);
+            runRef.current = state;
             syncRef.current?.markCreated(true);
-            setRun(detail.state);
+            setRun(state);
           }
         }
       } catch (error) {
@@ -97,6 +144,69 @@ export default function NoteQuestApp() {
     return () => { cancelled = true; };
   }, []);
 
+  /** 切换存档栏位：先把当前改动落库，再整套换掉（栏位之间完全隔离）。 */
+  const switchSlot = useCallback(async (next: number) => {
+    if (next === slotRef.current) return;
+    setBusy(true);
+    try {
+      await syncRef.current?.flush();
+      await flushWorld();
+      setSlot(next);
+      slotRef.current = next;
+      syncRef.current?.setSlot(next);
+      try { window.localStorage.setItem(SLOT_KEY, String(next)); } catch { /* 忽略 */ }
+      runRef.current = null;
+      setRun(null);
+      setRolls([]);
+      setRollHistory([]);
+      setScreen('start');
+      await refreshLists(next);
+      setNotice(`已切换到存档栏位 ${next + 1}：这个栏位里的一切都是独立的。`);
+    } finally {
+      setBusy(false);
+    }
+  }, [refreshLists]);
+  /* ── 世界同步：永久地牢（含遗体与掉落）+ 人物池快照 ── */
+  const flushWorld = useCallback(async () => {
+    const pending = worldPendingRef.current;
+    worldPendingRef.current = null;
+    if (!pending) return;
+    try {
+      const summary = summarizeDungeon(pending);
+      const saved = await saveDungeonServer({
+        id: pending.dungeonId,
+        typeId: summary.typeId,
+        name: summary.name,
+        depth: summary.depth,
+        rooms: summary.rooms,
+        corpses: summary.corpses,
+        nodes: summary.nodes,
+      }, slotRef.current);
+      if (saved.id !== pending.dungeonId) {
+        // 首次保存才拿到地牢 id：回填进存档，之后一直更新同一张图
+        const next = { ...runRef.current, dungeonId: saved.id } as RunState;
+        runRef.current = next;
+        setRun(next);
+        setDungeons((list) => [saved, ...list.filter((item) => item.id !== saved.id)]);
+      }
+      if (pending.characterId) {
+        await updateCharacterServer(pending.characterId, {
+          hero: pending.hero,
+          status: pending.status === 'dead' ? 'dead' : 'active',
+          lastOutcome: pending.outcome?.text ?? '',
+        });
+      }
+    } catch {
+      setSyncStatus('offline');
+    }
+  }, []);
+
+  const scheduleWorld = useCallback((state: RunState) => {
+    worldPendingRef.current = state;
+    if (worldTimerRef.current) window.clearTimeout(worldTimerRef.current);
+    worldTimerRef.current = window.setTimeout(() => { void flushWorld(); }, 800);
+  }, [flushWorld]);
+
   /* ── 动作分发：引擎算完 → 更新 UI → 排队保存 → 回放掷骰 ── */
   const dispatch = useCallback((action: GameAction) => {
     const current = runRef.current;
@@ -105,39 +215,122 @@ export default function NoteQuestApp() {
     runRef.current = outcome.state;
     setRun(outcome.state);
     setNotice(outcome.notice ?? '');
-    setLockedDoor(null);
-    if (outcome.rolls.length) setRolls(outcome.rolls);
+    if (outcome.rolls.length) {
+      setRolls(outcome.rolls);
+      // 每一颗骰子的「目的 + 结果」都留在画面上（掷骰记录面板）
+      setRollHistory((history) => [...outcome.rolls.slice().reverse(), ...history].slice(0, MAX_ROLL_HISTORY));
+    }
     syncRef.current?.queue(outcome.state);
-    if (current.status === 'active' && outcome.state.status !== 'active') void refreshLists();
-  }, [refreshLists]);
+    scheduleWorld(outcome.state);
+    // 城镇 ↔ 地牢的自动切屏
+    if (outcome.state.status === 'active') setScreen(outcome.state.town.inTown ? 'town' : 'dungeon');
+    if (current.status === 'active' && outcome.state.status !== 'active') {
+      void refreshLists();
+      if (outcome.state.status === 'dead' && outcome.state.characterId) {
+        void updateCharacterServer(outcome.state.characterId, {
+          hero: outcome.state.hero,
+          status: 'dead',
+          lastOutcome: outcome.state.outcome?.text ?? '',
+          incrementDeaths: true,
+        }).catch(() => undefined);
+      }
+    }
+  }, [refreshLists, scheduleWorld]);
 
-  /* ── 存档操作 ── */
-  const handleCreate = useCallback(() => {
+  /* ── 人物池：掷骰建角 / 自定义建角（可改已有角色） ── */
+  const handleSaveCharacter = useCallback(async (hero: Hero, editingId?: string) => {
     setBusy(true);
     try {
-      const outcome = createRun({});
-      runRef.current = outcome.state;
-      setRun(outcome.state);
-      setRolls(outcome.rolls);
-      setNotice('掷骰决定了你的种族、职业与这次要探索的地牢。');
-      setShowManager(false);
-      syncRef.current?.markCreated(false);
-      syncRef.current?.queue(outcome.state);
+      if (editingId) {
+        const saved = await updateCharacterServer(editingId, { hero });
+        setCharacters((list) => list.map((item) => (item.id === saved.id ? saved : item)));
+        setNotice(`「${saved.name}」的自定义改动已经保存。`);
+      } else {
+        const created = await createCharacterServer(hero, slotRef.current);
+        setCharacters((list) => [created, ...list]);
+        setNotice(`「${created.name}」已经进入人物池（存档栏位 ${slotRef.current + 1}）。`);
+      }
+      setEditing(null);
+      setScreen('start');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '保存角色失败。');
     } finally {
       setBusy(false);
     }
   }, []);
 
+  const handleDeleteCharacter = useCallback(async (id: string) => {
+    setBusy(true);
+    try {
+      await deleteCharacterServer(id);
+      setCharacters((list) => list.filter((item) => item.id !== id));
+      if (runRef.current?.characterId === id) setNotice('这个角色已从人物池删除，当前存档仍然可以继续玩。');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '删除角色失败。');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const handleDeleteDungeon = useCallback(async (id: string) => {
+    setBusy(true);
+    try {
+      await deleteDungeonServer(id);
+      setDungeons((list) => list.filter((item) => item.id !== id));
+      setNotice('这张地牢图已经丢弃：下次进入会重新生成一座新的。');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '删除地牢失败。');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  /* ── 出发：挑好角色与地牢 → 建局 → 直接进城镇准备 ── */
+  const handleStart = useCallback(async (options: { character: HeroRecord; dungeonTypeId: string; dungeonId?: string }) => {
+    setBusy(true);
+    try {
+      const existing = options.dungeonId
+        ? await fetchDungeon(options.dungeonId)
+        : await fetchDungeonByType(options.dungeonTypeId, slotRef.current);
+      const outcome = createRun({
+        hero: options.character.hero,
+        characterId: options.character.id,
+        name: options.character.name,
+        dungeonTypeId: existing?.typeId ?? options.dungeonTypeId,
+        dungeon: existing ? { id: existing.id, typeId: existing.typeId, name: existing.name, nodes: existing.nodes } : undefined,
+      });
+      const state = outcome.state;
+      runRef.current = state;
+      setRun(state);
+      setRolls(outcome.rolls);
+      if (outcome.rolls.length) setRollHistory((history) => [...outcome.rolls.slice().reverse(), ...history].slice(0, MAX_ROLL_HISTORY));
+      setNotice(existing
+        ? `「${state.dungeon.name}」还是上次那张图：${existing.rooms} 个房间、${existing.corpses} 具遗体在等你。`
+        : '新的地牢已经画好第一笔：先在城镇里买火把，然后出发。');
+      setScreen('town');
+      syncRef.current?.markCreated(false);
+      syncRef.current?.queue(state);
+      scheduleWorld(state);
+      await updateCharacterServer(options.character.id, { incrementRuns: true, hero: options.character.hero }).catch(() => undefined);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '创建存档失败。');
+    } finally {
+      setBusy(false);
+    }
+  }, [scheduleWorld]);
+  /* ── 存档操作 ── */
   const handleLoad = useCallback(async (id: string) => {
     setBusy(true);
     try {
       const detail = await fetchRun(id);
       if (detail.state) {
-        runRef.current = detail.state;
-        setRun(detail.state);
+        const state = migrateRun(detail.state);
+        runRef.current = state;
+        setRun(state);
         setRolls([]);
-        setNotice('');
+        setNotice(state.town.inTown ? '存档已读取：你人在城镇里。' : '存档已读取：你还在第 ' + state.dungeon.depth + ' 层。');
         setShowManager(false);
+        setScreen(state.town.inTown ? 'town' : 'dungeon');
         syncRef.current?.markCreated(true);
       } else {
         setNotice('这条存档里的快照读不出来。');
@@ -156,15 +349,47 @@ export default function NoteQuestApp() {
       if (runRef.current?.id === id) {
         runRef.current = null;
         setRun(null);
+        setScreen('start');
       }
       await refreshLists();
-      setNotice('存档已删除。');
+      setNotice('存档已删除（地牢地图与人物池不受影响）。');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '删除失败。');
     } finally {
       setBusy(false);
     }
   }, [refreshLists]);
+
+  /** 清空存档栏位：该栏位的存档、人物池、地牢图与墓地一起删掉。 */
+  const handleClearSlot = useCallback(async (target: number) => {
+    setBusy(true);
+    try {
+      await clearSlotServer(target);
+      if (target === slotRef.current) {
+        runRef.current = null;
+        setRun(null);
+        setRolls([]);
+        setRollHistory([]);
+        setScreen('start');
+      }
+      await refreshLists();
+      setNotice(`存档栏位 ${target + 1} 已清空（其它栏位不受影响）。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '清空栏位失败。');
+    } finally {
+      setBusy(false);
+    }
+  }, [refreshLists]);
+
+  /** 回人物池：把当前这一局交还给服务器，然后切换屏幕。 */
+  const handleBackToMenu = useCallback(async () => {
+    await syncRef.current?.flush();
+    await flushWorld();
+    setRolls([]);
+    setNotice('');
+    setScreen('start');
+    await refreshLists();
+  }, [flushWorld, refreshLists]);
 
   /* ── 地图交互 ── */
   const handleSelectNode = useCallback((node: DungeonNode) => {
@@ -175,13 +400,10 @@ export default function NoteQuestApp() {
 
   const handleDoor = useCallback((node: DungeonNode, door: DoorState) => {
     if (blocked) return;
-    if (door.status === 'locked') {
-      setLockedDoor({ node, door });
-      return;
-    }
+    // 锁着的门不弹窗：房间面板里已经排好了「开锁 / 砸开 / 用钥匙」三个按钮
     if (door.status === 'closed') dispatch({ type: 'open-door', nodeId: node.id, doorId: door.id });
+    else if (door.status === 'locked') dispatch({ type: 'lockpick', nodeId: node.id, doorId: door.id });
   }, [blocked, dispatch]);
-
   if (loading) {
     return (
       <main className="nq-app">
@@ -198,7 +420,23 @@ export default function NoteQuestApp() {
           <h1 className="nq-title"><Icon name="dungeon" className="h-5 w-5" /> NoteQuest 地牢笔记</h1>
           {run && <span className="nq-chip">{run.dungeon.name}</span>}
           {run && <span className="nq-chip nq-chip-soft">第 {run.dungeon.depth} 层</span>}
+          {run && <span className="nq-chip nq-chip-soft">{run.hero.name}</span>}
           {run && run.hero.hasLight && <span className="nq-chip nq-chip-soft">有光源</span>}
+          <span className="nq-slot-switch" title="存档栏位：一个账号三个，栏位之间完全隔离">
+            存档
+            {[0, 1, 2].map((index) => (
+              <button
+                key={index}
+                type="button"
+                className={`nq-slot-dot${index === slot ? ' is-on' : ''}`}
+                disabled={busy}
+                onClick={() => { void switchSlot(index); }}
+                title={slots[index]?.latestRun ? `栏位 ${index + 1}：${slots[index]?.latestRun?.heroName ?? ''}` : `栏位 ${index + 1}（空）`}
+              >
+                {index + 1}
+              </button>
+            ))}
+          </span>
         </div>
         <div className="nq-topbar-side">
           <span className={`nq-sync nq-sync-${syncStatus}`}>{SYNC_LABELS[syncStatus]}</span>
@@ -213,24 +451,17 @@ export default function NoteQuestApp() {
               }}
             />
           </label>
+          {run && run.status === 'active' && run.town.inTown && (
+            <button type="button" className="nq-mini" onClick={() => setScreen('dungeon')}>看地图</button>
+          )}
+          {run && run.status === 'active' && !run.town.inTown && (
+            <button type="button" className="nq-mini" disabled={busy} onClick={() => dispatch({ type: 'to-town' })}>回城镇</button>
+          )}
           <button type="button" className="nq-mini" onClick={() => setShowTables(true)}>表格速查</button>
           <button type="button" className="nq-mini" onClick={() => { setShowManager(true); void refreshLists(); }}>存档 / 墓地</button>
-          <button type="button" className="nq-mini nq-mini-strong" disabled={busy} onClick={handleCreate}>新的一局</button>
+          <button type="button" className="nq-mini nq-mini-strong" disabled={busy} onClick={() => { void handleBackToMenu(); }}>人物池</button>
         </div>
       </header>
-
-      {run && (
-        <div className="nq-titlebar">
-          <input
-            className="nq-title-input"
-            value={run.title}
-            maxLength={60}
-            onChange={(event) => dispatch({ type: 'rename', title: event.target.value })}
-            aria-label="存档标题"
-          />
-          <span className="nq-muted">种族 {run.hero.raceName} · 职业 {run.hero.className} · 回合 {run.stats.turns} · 击杀 {run.stats.kills}</span>
-        </div>
-      )}
 
       {notice && (
         <div className="nq-notice">
@@ -239,72 +470,62 @@ export default function NoteQuestApp() {
         </div>
       )}
 
-      {lockedDoor && (
-        <div className="nq-locked">
-          <p className="nq-locked-title">这扇门是锁着的，你想怎么办？</p>
-          <div className="nq-head-buttons">
-            <button type="button" className="nq-mini nq-mini-strong" disabled={blocked}
-              onClick={() => dispatch({ type: 'lockpick', nodeId: lockedDoor.node.id, doorId: lockedDoor.door.id })}>
-              开锁（1 火把）
-            </button>
-            <button type="button" className="nq-mini" disabled={blocked}
-              onClick={() => dispatch({ type: 'smash', nodeId: lockedDoor.node.id, doorId: lockedDoor.door.id })}>
-              砸开（怪物会先手）
-            </button>
-            <button type="button" className="nq-mini" disabled={blocked || !run?.hero.keys}
-              onClick={() => dispatch({ type: 'use-key', nodeId: lockedDoor.node.id, doorId: lockedDoor.door.id })}>
-              用钥匙（{run?.hero.keys ?? 0}）
-            </button>
-            <button type="button" className="nq-mini nq-mini-ghost" onClick={() => setLockedDoor(null)}>先不管</button>
-          </div>
-        </div>
+      {activeScreen === 'start' && (
+        <StartScreen
+          characters={characters}
+          dungeons={dungeons}
+          graves={graves}
+          slots={slots}
+          slot={slot}
+          busy={busy}
+          loading={loading}
+          onStart={handleStart}
+          onSelectSlot={(next) => { void switchSlot(next); }}
+          onClearSlot={(target) => { void handleClearSlot(target); }}
+          onNewCharacter={(mode) => { setEditing(null); setCreatorMode(mode); setScreen('creator'); }}
+          onEditCharacter={(character) => { setEditing(character); setCreatorMode('custom'); setScreen('creator'); }}
+          onDeleteCharacter={handleDeleteCharacter}
+          onDeleteDungeon={handleDeleteDungeon}
+          onOpenTables={() => setShowTables(true)}
+          onOpenRuns={() => { setManagerTab('runs'); setShowManager(true); void refreshLists(); }}
+        />
       )}
 
-      {run && run.status === 'active' && run.town.inTown && (
-        <div className="nq-townbar">
-          <span>你还在城镇里：买火把、休息、修护甲都在行动面板里。准备好了就出发——进入地牢会消耗 1 个火把。</span>
-          <button type="button" className="nq-mini nq-mini-strong" disabled={blocked} onClick={() => dispatch({ type: 'return-dungeon' })}>
-            返回地牢
-          </button>
-        </div>
+      {activeScreen === 'creator' && (
+        <CharacterCreator
+          busy={busy}
+          initial={editing ? editing.hero : null}
+          editingName={editing ? editing.name : ''}
+          initialMode={creatorMode}
+          onSave={(hero) => { void handleSaveCharacter(hero, editing ? editing.id : undefined); }}
+          onRoll={setRolls}
+          onClose={() => { setEditing(null); setScreen('start'); }}
+        />
       )}
 
-      {!run ? (
-        <section className="nq-intro">
-          <h2>掷骰进入地牢</h2>
-          <p>
-            单人地牢探索游戏：掷 2d6 决定种族与职业，进入一座随你开门而逐步出现的地牢，
-            用火把换时间、用运气换财宝。角色死亡会永久消失（只留下尸体和背包），
-            所以先去酒馆听个传闻、再决定要不要往下走。
-          </p>
-          <div className="nq-grid-2">
-            <button type="button" className="nq-button nq-button-primary" disabled={busy} onClick={handleCreate}>
-              掷骰开始新的一局<em>随机种族、职业、咒语与地牢名</em>
-            </button>
-            <button type="button" className="nq-button" onClick={() => { setShowManager(true); void refreshLists(); }}>
-              读取存档（{runs.length}）
-            </button>
-          </div>
-          <h3 className="nq-section-title">可能的六类地牢（由地牢名的第三部分决定）</h3>
-          <ul className="nq-intro-list">
-            {listDungeonTypes().map((type) => (
-              <li key={type.id}>
-                <Icon name={type.icon ?? 'dungeon'} className="h-5 w-5" />
-                <div>
-                  <p className="nq-row-main">{type.name} <em>原书第 {type.pageRef} 页</em></p>
-                  <p className="nq-muted">{type.intro}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <p className="nq-muted">
-            规则数据来自参考文件里的《NoteQuest 中文版核心规则书》；想加内容直接改
-            resources/content/notequest/*.json（同目录的 README.md 有扩展说明）。
-          </p>
-        </section>
-      ) : (
-        <div className="nq-grid">
-          <section className="nq-col nq-col-map">
+      {activeScreen === 'town' && run && (
+        <TownView
+          state={run}
+          busy={blocked}
+          onAction={dispatch}
+          onOpenTables={() => setShowTables(true)}
+          onOpenRuns={() => { setManagerTab('runs'); setShowManager(true); void refreshLists(); }}
+          onBackToMenu={() => { void handleBackToMenu(); }}
+        />
+      )}
+
+      {activeScreen === 'dungeon' && run && (
+        <div className="nq-hud-grid">
+          <section className="nq-panel nq-hud nq-hud-map">
+            <header className="nq-panel-head">
+              <div>
+                <p className="nq-panel-title"><Icon name="map" className="h-4 w-4" /> 地牢地图</p>
+                <p className="nq-panel-sub">
+                  {run.dungeon.nodes.filter((node) => node.visited).length} / {run.dungeon.nodes.length} 个片段已探索 ·
+                  遗体 {run.dungeon.nodes.filter((node) => node.heroGrave && !node.heroGrave.looted).length} 具
+                </p>
+              </div>
+            </header>
             <MapBoard
               nodes={run.dungeon.nodes}
               currentId={run.dungeon.currentId}
@@ -312,7 +533,8 @@ export default function NoteQuestApp() {
               onDoor={handleDoor}
             />
             <p className="nq-muted">
-              点门标记掷开门表（1 = 陷阱、2-3 = 锁住、4-6 = 没锁）；点已经探索过的片段可以走回去。
+              点房间走进去 · 点门标记掷开门表 · 每个房间都是格子上的占地（小 2×2、中 3×3、宽 4×3、大 4×4），
+              相邻房间用墙上的门直接紧贴相连，虚线格子就是原版让你手绘的那张方格纸。地图可以拖拽平移、滚轮缩放。
             </p>
             <details className="nq-details">
               <summary>地牢据说长这样</summary>
@@ -320,21 +542,17 @@ export default function NoteQuestApp() {
             </details>
           </section>
 
-          <section className="nq-col">
-            <ActionPanel
-              state={run}
-              busy={blocked}
-              onAction={dispatch}
-              onOpenTables={() => setShowTables(true)}
-              onOpenRuns={() => { setManagerTab('runs'); setShowManager(true); void refreshLists(); }}
-              onOpenGraves={() => { setManagerTab('graves'); setShowManager(true); void refreshLists(); }}
-            />
-          </section>
-
-          <section className="nq-col">
-            <CharacterPanel state={run} busy={blocked} onAction={dispatch} />
-            <LogPanel log={run.log} />
-          </section>
+          <StatusPanel state={run} busy={blocked} onAction={dispatch} />
+          <BackpackPanel state={run} busy={blocked} onAction={dispatch} />
+          <RoomPanel
+            state={run}
+            busy={blocked}
+            rolls={rollHistory}
+            onAction={dispatch}
+            onOpenTables={() => setShowTables(true)}
+            onOpenRuns={() => { setManagerTab('runs'); setShowManager(true); void refreshLists(); }}
+            onOpenGraves={() => { setManagerTab('graves'); setShowManager(true); void refreshLists(); }}
+          />
         </div>
       )}
 
@@ -350,7 +568,7 @@ export default function NoteQuestApp() {
           onClose={() => setShowManager(false)}
           onLoad={handleLoad}
           onDelete={handleDelete}
-          onCreate={handleCreate}
+          onCreate={() => { setShowManager(false); setScreen('start'); }}
           onRefresh={() => { void refreshLists(); }}
         />
       )}

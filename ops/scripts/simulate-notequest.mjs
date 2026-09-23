@@ -48,7 +48,22 @@ async function loadEngine() {
   return import(pathToFileURL(file).href);
 }
 
-/** 可复现的伪随机数（同一 seed 每次跑出同一局）。 */
+/** 把 lib/notequest/map.ts 也打包出来：几何校验要用 rectOf / doorOpening。 */
+async function loadMap() {
+  const bundled = await esbuild.build({
+    entryPoints: [path.join(codeRoot, 'lib', 'notequest', 'map.ts')],
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node18',
+    write: false,
+    loader: { '.json': 'json' },
+    alias: { '@content': path.join(projectRoot, 'resources', 'content') },
+  });
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'nq-map-')), 'map.mjs');
+  fs.writeFileSync(file, bundled.outputFiles[0].text, 'utf8');
+  return import(pathToFileURL(file).href);
+}
 function mulberry32(seed) {
   let value = seed >>> 0;
   return function next() {
@@ -59,9 +74,108 @@ function mulberry32(seed) {
   };
 }
 
+/** 失败清单 + 报告行（SIM_REPORT 指向文件时写出去，方便在终端编码不友好的环境里查看）。 */
 const failures = [];
-/** 报告行（SIM_REPORT 指向文件时写出去，方便在终端编码不友好的环境里查看） */
 const reportLines = [];
+
+/** 几何校验用的 map 模块（rectOf / doorOpening）：main() 里赋值，verify() 里用。 */
+let geometry = null;
+/** 地图几何出现问题的次数（每次只报一次，避免刷屏）。 */
+const geometryIssues = new Set();
+
+function rectOverlap(a, b) {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/** 两个矩形是否「墙贴墙」（共享至少一格的墙面，且不重叠）。 */
+function rectTouch(a, b) {
+  if (rectOverlap(a, b)) return false;
+  const sameColumns = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const sameRows = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  const vertical = (a.y + a.h === b.y || b.y + b.h === a.y) && sameColumns >= 1;
+  const horizontal = (a.x + a.w === b.x || b.x + b.w === a.x) && sameRows >= 1;
+  return vertical || horizontal;
+}
+
+/**
+ * 地图几何约束（第 1、6 条需求）：
+ *   - 同一层里：房间之间不重叠，而且每一间都必须与另一间紧贴（靠门相连，不能飘在空地上）；
+ *   - 一间房的同一面墙上最多一扇门；
+ *   - 连通的两个片段必须在同一层，两边的门互相指着对方、方向相反，而且确实开在共享的那段墙上。
+ *   （不同层是两片分开画的区域：下楼梯时新一层的片段会放在下方，层与层之间靠楼梯连接。）
+ */
+function verifyGeometry(state, where) {
+  const nodes = state.dungeon.nodes;
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const note = (key, text) => {
+    if (geometryIssues.has(key)) return;
+    geometryIssues.add(key);
+    failures.push(`${where}：${text}`);
+  };
+  const depths = [...new Set(nodes.map((node) => node.depth))];
+
+  for (const depth of depths) {
+    const level = nodes.filter((node) => node.depth === depth);
+    for (let i = 0; i < level.length; i += 1) {
+      for (let j = i + 1; j < level.length; j += 1) {
+        if (rectOverlap(geometry.rectOf(level[i]), geometry.rectOf(level[j]))) {
+          note(`overlap:${level[i].id}:${level[j].id}`, `第 ${depth} 层有片段重叠（${level[i].kind} 与 ${level[j].kind}）`);
+        }
+      }
+    }
+    for (const node of level) {
+      const rect = geometry.rectOf(node);
+      if (level.length > 1 && !level.some((other) => other.id !== node.id && rectTouch(rect, geometry.rectOf(other)))) {
+        note(`detached:${node.id}`, `第 ${depth} 层有片段没有和任何房间紧贴（${node.kind} @${rect.x},${rect.y} ${rect.w}×${rect.h}）`
+        + `\n     该层布局：${level.map((item) => {
+          const box = geometry.rectOf(item);
+          return `${item.kind}@${box.x},${box.y} ${box.w}x${box.h}[${item.doors.map((door) => `${door.dir ?? '?'}:${door.status}${door.to ? '→' : ''}`).join(' ')}]`;
+        }).join(' | ')}`);
+      }
+    }
+  }
+
+  for (const node of nodes) {
+    const dirs = node.doors.map((door) => door.dir).filter(Boolean);
+    if (new Set(dirs).size !== dirs.length) {
+      note(`wall:${node.id}`, `同一面墙上出现了多扇门（${node.kind} @${(geometry.rectOf(node)).x},${(geometry.rectOf(node)).y} ${(geometry.rectOf(node)).w}×${(geometry.rectOf(node)).h} → `
+        + node.doors.map((door) => {
+          const target = door.to ? byId.get(door.to) : null;
+          const box = target ? geometry.rectOf(target) : null;
+          const back = target ? target.doors.find((item) => item.to === node.id) : null;
+          return `${door.dir ?? '?'}:${door.status}`
+            + (box ? `(${target.kind}@${box.x},${box.y} ${box.w}x${box.h} 回门=${back?.dir ?? '无'})` : '');
+        }).join(',') + `）该层=${state.dungeon.depth}`);
+    }
+    for (const door of node.doors) {
+      if (!door.to) continue;
+      const target = byId.get(door.to);
+      if (!target) {
+        note(`dangling:${node.id}`, `门指向了不存在的片段（${door.to}）`);
+        continue;
+      }
+      if (target.depth !== node.depth) {
+        note(`crossdepth:${node.id}`, `门连到了别的层（${node.depth} → ${target.depth}）`);
+        continue;
+      }
+      const back = target.doors.find((item) => item.to === node.id);
+      if (!back) {
+        note(`oneway:${node.id}`, `门是单向的（${node.kind} → ${target.kind} 没有对门）`);
+        continue;
+      }
+      const opposite = { n: 's', s: 'n', e: 'w', w: 'e' };
+      if (door.dir && back.dir && opposite[door.dir] !== back.dir) {
+        note(`dir:${node.id}:${door.dir}`, `对门方向对不上（${door.dir} / ${back.dir}）`);
+      }
+      if (door.dir) {
+        const opening = geometry.doorOpening(node, target, door.dir);
+        const span = Math.abs(opening.to - opening.from);
+        if (!(span >= 1)) note(`seam:${node.id}`, `门开在没贴上的墙上（${node.kind} → ${target.kind} 共享段 ${span} 格）`);
+        if (!Number.isFinite(opening.at)) note(`seam2:${node.id}`, '门的位置算不出来');
+      }
+    }
+  }
+}
 
 function verify(state, step, runIndex) {
   const where = `第 ${runIndex} 局第 ${step} 步`;
@@ -80,6 +194,7 @@ function verify(state, step, runIndex) {
   }
   const bag = state.hero.items.filter((item) => item.kind !== 'treasure' && item.kind !== 'key').length;
   if (bag > 10) failures.push(`${where}：背包超过上限（${bag}）`);
+  if (geometry) verifyGeometry(state, where);
 }
 
 function currentNode(state) {
@@ -167,6 +282,7 @@ function chooseAction(state, rng, blocked = new Set(), memory = {}) {
 
 async function main() {
   const engine = await loadEngine();
+  geometry = await loadMap();
   const runs = Number(process.argv[2] ?? 30);
   const summary = { cleared: 0, dead: 0, stuck: 0, steps: 0, kills: 0, treasures: 0 };
   const causes = new Map();
