@@ -47,11 +47,11 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 // 静态产物目录（生产环境用）：next build + output:'export' 的产物
 const STATIC_DIR = path.resolve(process.env.STATIC_DIR || path.join(CODE_ROOT, 'out'));
-// 角色卡是一套独立的纯静态应用（HTML/CSS/JS/音效），按代码类管理，随 code/ 一起进 Git 与发布包。
+// 角色卡是一套独立的纯静态应用（HTML/CSS/JS/音效），随 code/ 一起进 Git 与部署目录。
 // 它不放进 Next 的 public 目录：开发模式会绕过本项目自身的鉴权，且资源统一由 resources/public 托管。
 const DND_APP_DIR = path.resolve(process.env.DND_APP_DIR || path.join(CODE_ROOT, 'dnd-app'));
 // 图片目录只有一个真实来源：resources/public/image。
-// 构建产物里不再复制一份（那会让每次发布包多出几百 MB），静态托管会回退到这里。
+// 构建产物里不再复制一份（那会让每次上传多出几百 MB），静态托管会回退到这里。
 // 如需使用其他目录，可通过 IMAGE_DIR 显式指定。
 const IMAGE_DIR = path.resolve(process.env.IMAGE_DIR || path.join(PUBLIC_DIR, 'image'));
 const ENEMY_DIR = path.join(IMAGE_DIR, 'enemies');

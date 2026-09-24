@@ -91,7 +91,7 @@ $null
 # 只存在于本地/服务器，绝不提交。
 /resources/data/
 
-# 资源类：本地图片资源（DND 怪物图等，约 700 MB），由本地维护、随共享目录单独上传
+# 资源类：本地图片资源（DND 怪物图等，约 65 MB），由本地维护，首次部署时单独同步到服务器
 /resources/public/image/
 /resources/public/icons/
 
@@ -104,8 +104,8 @@ $null
 # 命令行类：本地启动脚本
 /ops/RUN.bat
 
-# 命令行类：发布包暂存目录（由 ops/release/package-and-upload.ps1 生成）
-/ops/.release/
+# 命令行类：打包暂存目录（由 ops/release/upload-project.ps1 生成）
+/ops/.upload/
 
 # 命令行类：日志
 /ops/logs/*.log

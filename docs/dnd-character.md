@@ -8,7 +8,7 @@ DND 人物卡在浏览器中提供角色、装备、法术、状态和日志等�
 ## 代码位置
 
 人物卡本体是一套独立的纯静态应用（HTML + CSS + 原生 JS + 音效），放在
-`code/dnd-app/`，跟代码一起进 Git 和发布包；主站只用 `/tools/dnd-character`
+`code/dnd-app/`，跟代码一起进 Git 与部署目录；主站只用 `/tools/dnd-character`
 一个 iframe 嵌它，URL 是 `/dnd/index.html`。
 
 - 音效在 `code/dnd-app/audios/`，样式和脚本在 `code/dnd-app/css/`、`code/dnd-app/js/`

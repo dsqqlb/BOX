@@ -10,17 +10,22 @@
 
 每次换服务器，只记录和确认下面这些信息。尖括号表示要替换成新服务器实际值。
 
-| 项目 | 当前/默认值 | 换服务器时要确认 |
+| 项目 | 当前值 | 换服务器时要确认 |
 | --- | --- | --- |
 | SSH 别名 | `box-prod` | 可不变，推荐一直使用这个名字 |
-| 服务器地址 | `<SERVER_HOST>` | 新公网 IP 或域名，例如 `203.0.113.10` |
+| 服务器地址 | `43.142.93.246` | 新公网 IP 或域名 |
 | SSH 用户 | `ubuntu` | 新服务器的登录用户 |
 | SSH 端口 | `22` | 若服务器改了 SSH 端口则更新 |
+| SSH 私钥 | 本机 `~/.ssh/box-prod.pem`（仓库 `密钥/test.pem` 的副本） | 新服务器的密钥文件 |
 | 项目目录 | `/home/ubuntu/BOX` | 新服务器实际项目路径 |
-| BOX 服务 | `box.service` | `systemctl` 中的服务名称 |
-| BOX 本机端口 | `9999` | Node 应用监听端口 |
+| BOX 服务 | `box.service`（`WorkingDirectory=/home/ubuntu/BOX`） | `systemctl` 中的服务名称 |
+| BOX 本机端口 | `9999`，只监听 `127.0.0.1` | Node 应用监听端口 |
+| 反向代理 | nginx 反代 `127.0.0.1:9999`，证书由 certbot 自动续期 | 新服务器的代理与证书 |
+| 主站入口 | `https://www.dsqqlb.top` | 新域名 |
+| 静态站点域名 | `https://box.dsqqlb.top` | 新域名 |
 | 数据目录 | `/home/ubuntu/BOX/resources/data/` | SQLite 和用户上传数据所在路径 |
 | 私密配置 | `/home/ubuntu/BOX/resources/.env.local` | 会话密钥与运行配置所在路径 |
+| 部署方式 | 直接把项目目录复制到服务器，**没有**版本目录与共享软链 | 保持同一种部署方式最省事 |
 
 **换服务器后的最小原则**：保留 SSH 别名 `box-prod`，只更新本机 `~/.ssh/config` 中的 `HostName`、`User` 和需要时的 `Port`。后文所有 `ssh box-prod ...` 命令都继续可用。
 
@@ -36,7 +41,7 @@
 - 改完这两个变量要重启服务：`sudo systemctl restart box`。启动日志会打印 `主站域名` 与 `站点域名`，写重了会直接给 ⚠️ 警告；
 - nginx 配置、验证命令与 HTTPS 步骤见[部署指南](./deployment.md)第 10.1 节。
 
-`resources/` 是唯一的资源类目录：`resources/content/`（工具定义、内置卡牌与页面资料）随代码进入 Git 和发布包；`resources/public/`（含 `image/`）是对外静态资源；`resources/.env.local` 与 `resources/data/`（SQLite、账户文件、上传、缓存、备份和用户站点）是私密数据，整体不进入 Git。
+`resources/` 是唯一的资源类目录：`resources/content/`（工具定义、内置卡牌与页面资料）随代码进入 Git 与部署目录；`resources/public/`（含 `image/`）是对外静态资源；`resources/.env.local` 与 `resources/data/`（SQLite、账户文件、上传、缓存、备份和用户站点）是私密数据，整体不进入 Git。
 
 ---
 
@@ -232,7 +237,7 @@ ssh box-prod "systemctl status box --no-pager; curl -I http://127.0.0.1:9999/"
 
 ## 8. 部署新版本前必须知道的事
 
-无论项目代码来自 Git、压缩包还是手动上传，构建流程都是：
+日常升级用 `ops/release/` 下的两个脚本（见第 11 节），它们会依次完成下面这些步骤。手动把新代码放到服务器上时，构建流程是：
 
 ```powershell
 ssh box-prod "cd /home/ubuntu/BOX && npm run ci:code && npm run db:generate && npm run db:migrate && npm run build && sudo systemctl restart box && systemctl status box --no-pager"
@@ -285,121 +290,76 @@ ssh box-prod "ls -lh ~/box-backups/"
 
 ---
 
-## 11. 无 Git 网络时的版本发布
+## 11. 把项目复制到服务器（无版本目录）
 
-服务器不需要访问 GitHub 或其他 Git 平台。版本管理分为两层：
+服务器不需要访问 GitHub 或其他 Git 平台：本地 Git 是源码与提交历史的唯一来源，改动通过 SSH/SCP 以「整个项目目录」的形式复制过去，因此服务器完全不需要 Git 网络。
 
-- **开发电脑**：本地 Git 是源码和提交历史的唯一来源；
-- **服务器**：只保存多个带版本号的 release，并用 `current` 软链接决定运行哪一个版本。
+服务器上只有一个项目目录（当前是 `/home/ubuntu/BOX`），没有版本目录、没有共享软链：升级就是覆盖代码 + 重新构建 + 重启服务；`resources/.env.local`、`resources/data/`、`resources/public/image/` 与 `code/node_modules/` 不在压缩包里，因此永远不会被覆盖。
 
-发布包经 SSH/SCP 上传，因此服务器完全不需要 Git 网络。
+### 11.1 服务器目录结构
 
-### 11.1 最终服务器目录结构
-
-完成一次性初始化后，建议结构如下：
+完成初始化后，服务器上就是标准的单项目目录结构：
 
 ```text
 /home/ubuntu/
-├─ box-releases/
-│  ├─ 20260910-153000-a1b2c3d/
-│  │  ├─ code/           # 代码与构建产物（node_modules、.next、out 都在这里）
-│  │  ├─ resources/      # content 随包发布；.env.local、data/、public/image 是共享软链
-│  │  ├─ docs/
-│  │  ├─ ops/
-│  │  └─ package.json
-│  ├─ 20260912-211500-e4f5a6b/
-│  └─ current -> 20260912-211500-e4f5a6b/
-├─ box-shared/
-│  ├─ .env.local         # 软链到每个 release 的 resources/.env.local
-│  ├─ data/              # 软链到 resources/data
-│  └─ public-image/      # 软链到 resources/public/image
-├─ box-upload/                 # 上传的 tar.gz，之后可定期清理
-└─ box-ops/                    # 服务器上的发布/回滚脚本
+├─ BOX/                         # 唯一的项目目录，也是 systemd 的工作目录
+│  ├─ code/                     # 代码与构建产物（node_modules、.next、out 都在这里）
+│  ├─ resources/                # content/、public/（含 image/）；.env.local 与 data/ 是私密数据
+│  ├─ docs/  ops/  package.json
+│  └─ README.md
+├─ box-upload/                  # 上传的 tar.gz 与 deploy-project.sh，可定期清理
+└─ box-backups/                 # 每次部署前自动生成的 resources 数据备份
 ```
 
-- 每个 release 是一份独立、不可修改的代码和构建产物；
-- `box-releases/current` 指向当前运行版本；
-- `resources/.env.local`、`resources/data/`、`resources/public/image/` 三个共享资源放在 `box-shared/`，不随版本切换而覆盖；
-- systemd 的 `WorkingDirectory` 指向 `box-releases/current`，`ExecStart` 直接用绝对路径的 node 运行 `code/server/index.js`（不走 `npm start`，避免每次重启都触发构建）；
-- **本机与服务器之间需要反复上传下载的只有 `resources/`**：真实密钥、数据库与上传数据、图片都在这里；代码和文档按需整体打包即可。
+- 项目目录只有一份，没有 release 目录、没有 `current` 软链；
+- systemd 的 `WorkingDirectory` 是 `/home/ubuntu/BOX`，`ExecStart` 直接用 `/usr/bin/node code/server/index.js`（不走 `npm start`，避免每次重启都触发构建）；
+- nginx 反代 `127.0.0.1:9999`，证书由 certbot 自动续期（`certbot renew` 已由 systemd 定时器接管）；
+- 备份只包含 `resources/.env.local` 与 `resources/data/`；`code/`、`code/node_modules/` 与图片都能重新生成，不进备份。
 
-### 11.2 一次性初始化 release 目录
+### 11.2 全新服务器第一次部署
 
-> 这是线上结构迁移，会停止服务、移动 `resources/.env.local`、`resources/data/` 与 `resources/public/image/`。先做异地备份并选择维护窗口。不要在未确认脚本预检结果时执行 `--execute`。
+1. 按[部署指南](./deployment.md)第 1–3 节装好 Node.js 并放上项目目录（`git clone`、复制或解压都行）；
+2. 按第 4–6 节创建 `resources/.env.local`、`resources/data/auth-users.json`，并执行 `npm run db:setup` 初始化 SQLite；
+3. 按第 9.2 节写好 `box.service` 并 `systemctl enable --now box`；
+4. 图片按需同步：`.\ops\release\upload-project.ps1 -Server box-prod -IncludeImages`，或在服务器上把 `resources/public/image/` 单独 scp/解压到 `/home/ubuntu/BOX/resources/public/image/`；
+5. 按第 11 节配置 nginx 与 HTTPS。
 
-本地先将发布脚本上传一次：
+### 11.3 每次升级：本机打包上传，服务器就地覆盖
 
 ```powershell
-scp .\ops\release\bootstrap-releases.sh box-prod:~/box-ops/bootstrap-releases.sh
-ssh box-prod "chmod 700 ~/box-ops/bootstrap-releases.sh"
+# 本机：构建 + 打包整个项目 + 上传到 ~/box-upload/（不会动线上服务）
+.\ops\release\upload-project.ps1 -Server box-prod
 ```
-
-先运行**预检**，它不修改服务器：
 
 ```powershell
-ssh box-prod "~/box-ops/bootstrap-releases.sh"
+# 服务器：覆盖代码 → 备份数据 → 装依赖 → 构建 → 结构迁移 → 重启 → 健康检查
+ssh box-prod "~/box-upload/deploy-project.sh ~/box-upload/box-project-<脚本输出的文件名>"
 ```
 
-确认预检中 `source app`、`release root`、`shared secrets` 和服务名都正确，且你已备份后，才执行：
+常用选项：
 
-```powershell
-ssh box-prod "~/box-ops/bootstrap-releases.sh --execute"
-```
+| 选项 | 作用 |
+| --- | --- |
+| `--skip-install` | 跳过 `npm ci`（依赖没变时快很多） |
+| `--skip-build` | 跳过 `npm run build`（用压缩包里已有的 `code/out`） |
+| `--clean` | 覆盖前清空会被替换的目录（保留 `node_modules` 与 `resources/public/image`），不留旧版本残留文件 |
+| `--project=<目录>` | 指定项目目录，默认 `$HOME/BOX` |
+| `--no-backup` | 跳过部署前的数据备份（不建议） |
 
-初始化完成后验证：
+脚本会把 `resources/.env.local` 与 `resources/data/` 备份到 `~/box-backups/box-before-deploy-<时间戳>.tar.gz`；升级永远只做 `db:generate` + `db:migrate`（结构迁移），**不要**跑 `db:import-json` 或 `db:setup`。
 
-```powershell
-ssh box-prod "readlink -f ~/box-releases/current; systemctl status box --no-pager; curl -I http://127.0.0.1:9999/"
-```
+### 11.4 回滚
 
-### 11.3 每次发布：本机打包、上传、服务器部署
+没有版本目录，回滚靠「数据备份 + 在本机切回旧提交再复制一次」：
 
-在本机完成代码修改和 Git 提交后，PowerShell 执行：
-
-```powershell
-.\ops\release\package-and-upload.ps1 -Server box-prod
-```
-
-这个脚本会：
-
-1. 运行 `npm run build`；
-2. 使用 `时间-Git短提交号` 创建版本号；
-3. 打包 `code/`（含 `code/out/` 与 Prisma migrations）、`resources/content/`、`resources/public/`（图片本身除外）、`docs/`、`ops/` 和根 `package.json` 为跨平台 `.tar.gz`；
-4. **明确排除** `.git`、`code/node_modules/`、`code/.next/`、`resources/.env.local`、`resources/data/`、`resources/public/image/`；
-5. 上传 tar.gz 和三个服务器脚本到 `box-prod`；
-6. 输出下一条要执行的部署命令。
-
-上传本身不会停止、重启或修改网站。确认上传版本后，按脚本输出的版本执行：
-
-```powershell
-ssh box-prod "~/box-ops/deploy-release.sh ~/box-upload/box-<VERSION>.tar.gz"
-```
-
-部署脚本会先在新 release 中安装依赖、生成 Prisma Client、构建页面；只有构建成功后才会短暂停机、备份共享数据、应用迁移、切换 `current` 并启动服务。默认保留最新 5 个 release。
-
-### 11.4 查看与回滚版本
-
-查看 release：
-
-```powershell
-ssh box-prod "readlink -f ~/box-releases/current; ls -lah ~/box-releases/"
-```
-
-回滚到指定目录（例如 `20260910-153000-a1b2c3d`）：
-
-```powershell
-ssh -t box-prod "~/box-ops/rollback-release.sh 20260910-153000-a1b2c3d"
-```
-
-`-t` 用于让服务器显示确认输入。回滚只切换代码版本；**数据库 migration 是向前执行的，不会自动回退**。在迁移过数据库后回滚旧代码前，应先确认旧代码兼容当前数据库。
+1. 数据备份在 `~/box-backups/`：`sudo systemctl stop box` 后把备份里的 `resources/.env.local`、`resources/data` 解回 `/home/ubuntu/BOX/resources/`，再启动服务；
+2. 代码回退：在本机 `git checkout <旧提交>`，再执行 11.3 的两条命令。数据库 migration 是向前执行的，不会自动回退，回退代码前先确认旧代码兼容当前数据库结构。
 
 ### 11.5 发布脚本的位置
 
 | 文件 | 作用 |
 | --- | --- |
-| `ops/release/package-and-upload.ps1` | Windows：构建、打包、SCP 上传 |
-| `ops/release/bootstrap-releases.sh` | Ubuntu：一次性将旧目录转换为 release + shared 布局 |
-| `ops/release/deploy-release.sh` | Ubuntu：解压、构建、备份、迁移、切版本 |
-| `ops/release/rollback-release.sh` | Ubuntu：确认后切回旧 release |
+| `ops/release/upload-project.ps1` | Windows：本机构建、打包整个项目、SCP 上传压缩包与部署脚本 |
+| `ops/release/deploy-project.sh` | Ubuntu：就地覆盖代码、备份数据、`npm ci`、构建、`db:migrate`、重启与健康检查 |
 
-所有脚本均不会读取或上传私钥；发布包也不会包含真实 `resources/.env.local`、`resources/data/` 与 `resources/public/image/`。
+两个脚本都不会读取或上传私钥；压缩包里也不会出现 `resources/.env.local`、`resources/data/` 与 `resources/public/image/`（最后一项只有显式加 `-IncludeImages` 才上传）。

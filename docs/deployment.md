@@ -726,27 +726,30 @@ npm run build
 sudo systemctl start box
 ```
 
-**方式二：发布包 + 版本目录（推荐，服务器上只换代码，不动数据）**
+**方式二：打包整个项目目录复制到服务器（推荐，服务器上只覆盖代码，不动数据）**
 
-`ops/release/` 下的脚本会把代码和资源打成发布包，在服务器上解压成 `~/box-releases/<版本>`，再把 `resources/.env.local`、`resources/data`、`resources/public/image` 三个共享目录软链进去。切换版本只是改一个软链，旧版本留着可随时回滚：
+`ops/release/` 下只有两个脚本，服务器上不存在版本目录：项目目录始终只有一份（下面以 `/home/ubuntu/BOX` 为例），新代码就地覆盖旧代码，`resources/.env.local`、`resources/data/`、`resources/public/image/` 与 `code/node_modules/` 原样保留。
 
 ```powershell
-# 本机（Windows）：构建、打包、上传
-.\ops\release\package-and-upload.ps1 -Server box-prod
+# 本机（Windows）：构建 + 打包整个项目 + 上传（不会停止、重启或修改线上服务）
+.\ops\release\upload-project.ps1 -Server box-prod
+
+# 新服务器第一次部署要带上图片（本地约 65 MB）
+.\ops\release\upload-project.ps1 -Server box-prod -IncludeImages
 ```
 
 ```bash
-# 服务器：首次只做一次（干跑确认后加 --execute）
-~/box-ops/bootstrap-releases.sh
-~/box-ops/bootstrap-releases.sh --execute
+# 服务器：覆盖代码 → 备份数据 → 装依赖 → 构建 → 结构迁移 → 重启 → 健康检查
+~/box-upload/deploy-project.sh ~/box-upload/box-project-<时间戳>-<短提交号>.tar.gz
 
-# 每次发版
-~/box-ops/deploy-release.sh ~/box-upload/box-<版本>.tar.gz
+# 依赖与构建产物都没变时，只想覆盖代码并重启
+~/box-upload/deploy-project.sh ~/box-upload/box-project-<时间戳>-<短提交号>.tar.gz --skip-install --skip-build
 
-# 出问题时回滚到上一个版本目录
-ls -1 ~/box-releases
-~/box-ops/rollback-release.sh <上一个版本目录名>
+# 想让服务器目录与压缩包完全一致（删掉旧版本残留的文件）
+~/box-upload/deploy-project.sh ~/box-upload/box-project-<时间戳>-<短提交号>.tar.gz --clean
 ```
+
+`upload-project.ps1` 先在本机构建打包（排除 `.git`、`code/node_modules/`、`code/.next/`、`resources/.env.local`、`resources/data/`、`resources/public/image/`），再把压缩包与 `deploy-project.sh` 一起上传到 `~/box-upload/`。`deploy-project.sh` 会停服、把 `resources/.env.local` 与 `resources/data/` 备份到 `~/box-backups/`、就地解压覆盖、`npm ci`、`npm run build`、`npm run db:migrate`，最后启动服务并探测 `http://127.0.0.1:9999/login`；任一步失败都会把服务重新拉起来并打印备份路径。
 
 两条路线的共同点：**永不覆盖数据**。升级只做 `db:generate` + `db:migrate`（结构迁移），不要跑 `db:import-json`。完整说明见[服务器运维](./server-operations.md)。
 

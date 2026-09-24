@@ -1,6 +1,6 @@
 # 统一行尾：Windows 上 checkout 也不会把 shell 脚本变成 CRLF。
 #
-# 背景：scripts/release/*.sh 会被 scp 上传到 Linux 服务器直接执行，
+# 背景：ops/release/*.sh 会被 scp 上传到 Linux 服务器直接执行，
 # 一旦带上 CR 行尾，shebang 会变成 "#!/usr/bin/env bash\r"，
 # 服务器报 `env: 'bash\r': No such file or directory`，发布脚本直接跑不起来。
 # 这个坑真实发生过一次，所以在这里用 git 属性钉死。

@@ -241,15 +241,15 @@ code/          代码类：Next.js 页面（app/、components/、lib/）、服�
 resources/     资源类：所有会被搬来搬去的数据和素材
   content/     受版本控制的资源：工具定义、内置卡牌、页面资料与配置模板
   data/        Git 忽略的运行时数据：SQLite、账户文件、上传、缓存与用户站点
-  public/      字体与图片等静态资源（public/image 约 700 MB，单独上传）
+  public/      字体与图片等静态资源（image/ 约 65 MB，首次部署用 -IncludeImages 或在服务器上单独同步）
   .env.local   私密配置（含会话密钥），不提交、不打包
 docs/          文档类：项目、认证和每个工具的说明
-ops/           命令行类：scripts/（数据库与维护脚本）、release/（打包部署脚本）、
-               checks/、logs/、RUN.bat（本地启动脚本，含本机路径，不入库）
+ops/           命令行类：scripts/（数据库与维护脚本）、release/（把项目目录完整复制到
+               服务器的打包与部署脚本）、checks/、logs/、RUN.bat（本地启动脚本，不入库）
 package.json   根命令转发：在这里执行 npm run dev / build / db:* 即可
 ```
 
-部署到服务器时，只有 `resources/` 里的数据需要反复上传下载；`code/` 由发布包整体替换，`resources/data`、`resources/public/image` 和 `resources/.env.local` 在服务器上是共享目录，不会被新版本覆盖。完整流程见[部署指南](./docs/deployment.md)与[服务器运维](./docs/server-operations.md)。
+部署到服务器时，只把项目目录整体复制一份过去：`code/`、`docs/`、`ops/`、`resources/content/` 与 `resources/public/` 被新版本覆盖，`resources/.env.local`、`resources/data/`、`resources/public/image/` 和 `code/node_modules/` 在服务器上就地保留。服务器上**没有**多版本目录，升级就是「覆盖代码 + 重新构建 + 重启服务」，工具是 `ops/release/upload-project.ps1` 与 `ops/release/deploy-project.sh`。完整流程见[部署指南](./docs/deployment.md)与[服务器运维](./docs/server-operations.md)。
 
 ## 文档
 
