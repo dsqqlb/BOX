@@ -16,6 +16,9 @@
     "db:migrate-dnd-save": "node ../ops/scripts/migrate-dnd-save-to-entries.mjs",
     "smoke:dnd-merge": "node ../ops/scripts/smoke-dnd-merge.mjs",
     "smoke:dnd-sync": "node ../ops/scripts/smoke-dnd-sync.mjs",
+    "smoke:uno-engine": "node ../ops/scripts/smoke-uno-engine.mjs",
+    "smoke:uno": "node ../ops/scripts/smoke-uno.mjs",
+    "smoke:uno-ui": "node ../ops/scripts/smoke-uno-ui.mjs",
     "db:setup": "npm run db:generate && npm run db:migrate && npm run db:import-json && npm run db:migrate-runtime-json && npm run db:migrate-dnd-save"
   },
   "dependencies": {

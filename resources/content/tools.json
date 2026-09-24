@@ -189,5 +189,16 @@
     "icon": "🎰",
     "featured": true,
     "createdAt": "2026-09-18"
+  },
+
+  {
+    "slug": "uno",
+    "title": "UNO 联机牌桌",
+    "description": "6 位房间号在线 UNO：2~4 人 + 机器人陪打，房主可自定义玩法与拓展包，掉线超时由机器人托管、回来即可顶替回座位，仿育碧电子游戏的立牌与动效",
+    "category": "game",
+    "tags": ["uno", "card-game", "multiplayer", "bot", "tabletop"],
+    "icon": "🎴",
+    "featured": true,
+    "createdAt": "2026-09-25"
   }
 ]

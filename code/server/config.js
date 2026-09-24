@@ -85,6 +85,21 @@ const HOLDEM_STARTING_CHIPS = Number.isFinite(configuredHoldemStartingChips)
   : 10000;
 const HOLDEM_MIN_BUY_IN = 100;
 
+// ---- UNO 房间 ----
+// 房间只在进程内存里（与其他房间类工具一致，重启即清空）。三种闲置回收阈值：
+// 等待中一直没人进入、对局中长时间无人操作、以及全员掉线。冒烟测试会把这些值调小来验证回收。
+function clampNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(Math.max(Math.trunc(parsed), min), max) : fallback;
+}
+const UNO_ROOM_TTLS = {
+  waitingMs: clampNumber(process.env.UNO_ROOM_WAITING_TTL_MS, 30 * 60 * 1000, 3000, 24 * 60 * 60 * 1000),
+  playingMs: clampNumber(process.env.UNO_ROOM_PLAYING_TTL_MS, 15 * 60 * 1000, 3000, 24 * 60 * 60 * 1000),
+  emptyMs: clampNumber(process.env.UNO_ROOM_EMPTY_TTL_MS, 5 * 60 * 1000, 3000, 24 * 60 * 60 * 1000),
+  sweepMs: clampNumber(process.env.UNO_ROOM_SWEEP_MS, 15 * 1000, 500, 10 * 60 * 1000),
+};
+const UNO_CATALOG_FILE = path.join(CONTENT_DIR, 'uno', 'base.json');
+
 // ---- 静态站点挂载 ----
 // resources/data/sites/<站点名>/ 一个文件夹就是一个独立静态网页，运行时数据，不进 Git。
 const SITES_DIR = path.join(DATA_DIR, 'sites');
@@ -125,6 +140,7 @@ const TOOL_SLUGS = [
   'lan-chat',
   'medicine-inventory',
   'texas-holdem',
+  'uno',
   'static-sites',
   'edh-life',
   'scratch-cards',
@@ -163,6 +179,8 @@ module.exports = {
   INITIATIVE_SCENE_VIDEO_MAX_UPLOAD_BYTES,
   HOLDEM_STARTING_CHIPS,
   HOLDEM_MIN_BUY_IN,
+  UNO_ROOM_TTLS,
+  UNO_CATALOG_FILE,
   SITES_DIR,
   SITES_HOSTS,
   PRIMARY_HOST,

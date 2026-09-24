@@ -50,6 +50,7 @@ const adminTracking = require('./admin-tracking');
 const { createRoomServer } = require('./rooms');
 const { createChatServer } = require('./chat-server');
 const { createHoldemRoomServer } = require('./holdem-rooms');
+const { createUnoRoomServer } = require('./uno-rooms');
 const { createRequestHandler } = require('./routes');
 
 // ============ 组装 ============
@@ -58,8 +59,9 @@ const auth = createAuth({ projectRoot: config.PROJECT_ROOT, isProduction: !confi
 const roomServer = createRoomServer({ auth });
 const chatServer = createChatServer({ auth, onPresenceChange: (usernames) => adminTracking.syncChatPresence(usernames) });
 const holdemRoomServer = createHoldemRoomServer({ auth });
+const unoRoomServer = createUnoRoomServer({ auth });
 const siteHosting = createSiteHosting({ auth });
-const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, chatServer, holdemRoomServer, config, adminTracking });
+const requestHandler = createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, chatServer, holdemRoomServer, unoRoomServer, config, adminTracking });
 
 // ============ 启动统一服务 ============
 
@@ -115,12 +117,14 @@ async function main() {
     void (async () => {
       let pathname = '/';
       let isHoldemRequest = false;
+      let isUnoRequest = false;
       try {
         const requestUrl = new URL(req.url, 'http://localhost');
         pathname = requestUrl.pathname;
-        // 德州扑克客户端复用先攻追踪器那条 /ws 通道（带 ?holdem=1 标记），
+        // 德州扑克与 UNO 客户端都复用先攻追踪器那条 /ws 通道（分别带 ?holdem=1 / ?uno=1 标记），
         // 这样只需要在代理/隧道里转发 /ws 一个路径。
         isHoldemRequest = requestUrl.searchParams.get('holdem') === '1';
+        isUnoRequest = requestUrl.searchParams.get('uno') === '1';
         pathname = httpUtils.canonicalizePathname(pathname);
       } catch { pathname = null; }
 
@@ -137,14 +141,15 @@ async function main() {
       }
       if (pathname === '/ws') {
         const user = await auth.getUserFromRequest(req);
-        const toolSlug = isHoldemRequest ? 'texas-holdem' : 'initiative-tracker';
+        // ?uno=1 → UNO 牌桌，?holdem=1 → 德州扑克，其余 → 先攻追踪器，三条通道共用 /ws。
+        const toolSlug = isUnoRequest ? 'uno' : (isHoldemRequest ? 'texas-holdem' : 'initiative-tracker');
         if (!httpUtils.isSameOrigin(req) || !user || !auth.hasToolAccess(user, toolSlug)) {
           const status = user ? '403 Forbidden' : '401 Unauthorized';
           socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
           socket.destroy();
           return;
         }
-        const targetServer = isHoldemRequest ? holdemRoomServer : roomServer;
+        const targetServer = isUnoRequest ? unoRoomServer : (isHoldemRequest ? holdemRoomServer : roomServer);
         targetServer.wss.handleUpgrade(req, socket, head, (ws) => { ws.user = user; targetServer.wss.emit('connection', ws, req); });
         return;
       }
@@ -161,6 +166,7 @@ async function main() {
     console.log(lanAddress ? `   局域网访问: http://${lanAddress}:${config.PORT}` : '   局域网访问: 未检测到局域网地址（仅本机可访问）');
     console.log(`   WebSocket:  ws://localhost:${config.PORT}/ws`);
     console.log(`   德州扑克:   ws://localhost:${config.PORT}/ws?holdem=1`);
+    console.log(`   UNO 牌桌:   ws://localhost:${config.PORT}/ws?uno=1`);
     console.log(`   资源目录:   ${config.RESOURCES_DIR}`);
     console.log(`   图片目录:   ${config.IMAGE_DIR}`);
     console.log(`   数据目录:   ${config.DATA_DIR}`);
@@ -182,9 +188,11 @@ async function main() {
     console.log('\n👋 正在关闭服务器...');
     clearInterval(roomServer.cleanupTimer);
     clearInterval(holdemRoomServer.cleanupTimer);
+    clearInterval(unoRoomServer.cleanupTimer);
     roomServer.wss.clients.forEach((client) => client.close());
     chatServer.wss.clients.forEach((client) => client.close());
     holdemRoomServer.wss.clients.forEach((client) => client.close());
+    unoRoomServer.wss.clients.forEach((client) => client.close());
     server.close(() => {
       console.log('✅ 服务器已关闭');
       process.exit(0);

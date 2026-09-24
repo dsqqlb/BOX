@@ -1,0 +1,165 @@
+{
+  "id": "base",
+  "name": "UNO 基础牌组",
+  "version": 1,
+  "description": "108 张牌：四个颜色各 25 张（1 张 0、2 张 1–9、2 张禁止、2 张反转、2 张罚摸两张），外加 4 张变色与 4 张变色罚摸四张。",
+  "colors": [
+    { "id": "red", "name": "红", "hex": "#e63329", "deep": "#8f1d16", "ink": "#fff7f2" },
+    { "id": "yellow", "name": "黄", "hex": "#f5b21a", "deep": "#a8730a", "ink": "#2a1c02" },
+    { "id": "green", "name": "绿", "hex": "#2f9e44", "deep": "#1a6428", "ink": "#f2fff5" },
+    { "id": "blue", "name": "蓝", "hex": "#1c6fd6", "deep": "#11457f", "ink": "#f2f8ff" }
+  ],
+  "wildColor": { "id": "wild", "name": "万能", "hex": "#1f2430", "deep": "#0b0e16", "ink": "#fff7f2" },
+  "categories": [
+    { "id": "basic", "name": "基础牌", "description": "数字牌，整副牌组的主体，也是唯一能靠数字压牌的牌。" },
+    { "id": "action", "name": "功能牌", "description": "带效果的彩色牌，只能在同色或同数字时打出。" },
+    { "id": "wild", "name": "万能牌", "description": "黑色的万能牌，打出时由你指定接下来的颜色。" }
+  ],
+  "kinds": [
+    {
+      "id": "number",
+      "name": "数字牌",
+      "category": "basic",
+      "colorMode": "color",
+      "points": "按面值",
+      "description": "四个颜色各有 1 张 0 和 2 张 1–9。只要颜色相同或数字相同就能压上去，是最常用的牌，也是唯一能靠数字接牌的牌。",
+      "tips": [
+        "手上同色越多，越容易连着出好几张。",
+        "0 没有数字伙伴，只能靠颜色跟牌，别太早打出。",
+        "记牌时先记大数字和同色的余量，比记小数字有用。"
+      ],
+      "art": { "glyph": "{value}", "glyphScale": 1.35, "badge": null },
+      "deck": [
+        { "value": 0, "count": 1 },
+        { "valueFrom": 1, "valueTo": 9, "count": 2 }
+      ]
+    },
+    {
+      "id": "skip",
+      "name": "禁止牌",
+      "category": "action",
+      "colorMode": "color",
+      "points": 20,
+      "description": "打出后，下一位玩家被跳过一轮，直接轮到再下一位。",
+      "tips": [
+        "对手只剩 1 张牌时打出，等于给全桌多争取一轮。",
+        "双人局里它就是「再来一轮」的牌。"
+      ],
+      "art": { "glyph": "⊘", "glyphScale": 1.2, "badge": "禁止" },
+      "effect": [{ "type": "skip", "steps": 1 }],
+      "deck": [{ "count": 2 }]
+    },
+    {
+      "id": "reverse",
+      "name": "反转牌",
+      "category": "action",
+      "colorMode": "color",
+      "points": 20,
+      "description": "改变出牌方向：顺时针变逆时针、逆时针变顺时针，桌面上的箭头会跟着翻转。",
+      "tips": [
+        "双人局里反转牌等价于禁止牌：出牌权立刻回到你手上。",
+        "四人局里能把烫手局面推给另一边的人。"
+      ],
+      "art": { "glyph": "⇄", "glyphScale": 1.2, "badge": "反转" },
+      "effect": [{ "type": "reverse" }],
+      "deck": [{ "count": 2 }]
+    },
+    {
+      "id": "draw2",
+      "name": "罚摸两张",
+      "category": "action",
+      "colorMode": "color",
+      "points": 20,
+      "description": "下一位玩家摸两张牌，并失去这一轮的出牌机会。",
+      "tips": [
+        "开启「罚牌叠加」后，可以再用一张 +2 把这两张转嫁给后面的人。",
+        "手里有 +2 时，先看清下家手牌张数再决定要不要出。"
+      ],
+      "art": { "glyph": "+2", "glyphScale": 1.2, "badge": "罚摸两张" },
+      "effect": [
+        { "type": "draw", "target": "next", "count": 2, "playable": false },
+        { "type": "skip", "steps": 1 }
+      ],
+      "deck": [{ "count": 2 }]
+    },
+    {
+      "id": "wild",
+      "name": "变色牌",
+      "category": "wild",
+      "colorMode": "wild",
+      "points": 50,
+      "description": "任何时候都能出（轮到你时即可），打出后由你指定接下来的颜色。",
+      "tips": [
+        "手上哪个颜色最多，指定它就最容易连着出。",
+        "被卡住时它是唯一的解药，但数量只有 4 张。"
+      ],
+      "art": { "glyph": "◆", "glyphScale": 1.25, "badge": "变色" },
+      "effect": [{ "type": "chooseColor" }],
+      "deck": [{ "count": 4 }]
+    },
+    {
+      "id": "wild4",
+      "name": "变色罚摸四张",
+      "category": "wild",
+      "colorMode": "wild",
+      "points": 50,
+      "description": "指定颜色，并让下一位玩家摸四张牌、失去这一轮出牌机会。",
+      "tips": [
+        "强牌，但作为最后一张打出时容易被举报，留一张普通牌做保险。",
+        "开启「+4 执法」后，只有手上没有当前颜色的牌时才允许打出。"
+      ],
+      "art": { "glyph": "+4", "glyphScale": 1.25, "badge": "变色罚摸四张" },
+      "effect": [
+        { "type": "chooseColor" },
+        { "type": "draw", "target": "next", "count": 4, "playable": false },
+        { "type": "skip", "steps": 1 }
+      ],
+      "deck": [{ "count": 4 }]
+    }
+  ],
+  "houseRules": [
+    {
+      "id": "stackDraw",
+      "type": "boolean",
+      "default": false,
+      "name": "罚牌叠加",
+      "description": "开启后 +2 只能用 +2 接住、+4 只能用 +4 接住，罚牌会一路累加，直到有人接不住一次性摸走全部。"
+    },
+    {
+      "id": "wild4Strict",
+      "type": "boolean",
+      "default": false,
+      "name": "+4 执法",
+      "description": "开启后只有手上没有当前颜色的牌时才能打出变色罚摸四张（官方规则、平时靠自觉执法）。"
+    },
+    {
+      "id": "drawUntilPlayable",
+      "type": "boolean",
+      "default": false,
+      "name": "摸到能出为止",
+      "description": "开启后一次抓牌会抓到手上出现能打的牌为止，而不是只抓一张。"
+    },
+    {
+      "id": "mustPlayDrawn",
+      "type": "boolean",
+      "default": false,
+      "name": "摸到必出",
+      "description": "开启后抓到的牌如果能出，就必须立刻打出去，不能选择过牌。"
+    },
+    {
+      "id": "callUno",
+      "type": "boolean",
+      "default": true,
+      "name": "喊 UNO",
+      "description": "剩最后一张牌时要喊 UNO，否则任何人可以在结算前举报你，被举报成功要罚摸两张。"
+    },
+    {
+      "id": "initialCardEffect",
+      "type": "boolean",
+      "default": true,
+      "name": "首张牌生效",
+      "description": "开启后开局翻开的第一张牌如果是功能牌，效果会直接作用在第一位玩家身上（跳过、反转或先摸两张）。"
+    }
+  ],
+  "turnDefaults": { "seats": 4, "bots": 2, "thinkSeconds": 20 }
+}

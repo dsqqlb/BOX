@@ -212,6 +212,7 @@ npm start
 | CSS 层叠解释器 | `/tools/css-cascade` | 解析并可视化 CSS 规则、特异性与上下文 | [查看](./docs/css-cascade.md) |
 | 万智牌 EDH 记血器 | `/tools/edh-life` | 2~4 人指挥官记血、六种计数器、3D 骰子与硬币、状态随账户实时同步（没有存档） | [查看](./docs/edh-life.md) |
 | 德州扑克 | `/tools/texas-holdem` | 房间号联机对战、可加机器人陪玩、筹码与账户绑定，服务端权威发牌与边池结算 | [查看](./docs/texas-holdem.md) |
+| UNO 联机牌桌 | `/tools/uno` | 6 位房间号联机 UNO：2~4 人 + 机器人、房主自定义玩法与拓展包、掉线托管与席位找回 | [查看](./docs/uno.md) |
 | 刮刮乐小店 | `/tools/scratch-cards` | 商店买票、桌上随手摆、刮开涂层玩四种奖、兑奖机换钱与碎纸机换纸屑 | [查看](./docs/scratch-cards.md) |
 | 静态站点挂载 | `/tools/static-sites` | 上传 HTML/CSS/JS 文件夹或 zip 即上线，通过独立站点域名对外访问 | [查看](./docs/static-sites.md) |
 

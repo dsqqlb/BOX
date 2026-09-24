@@ -24,7 +24,7 @@ const scratchStore = require('./scratch-store');
 // 先攻追踪器遥控器的备选角色池：纯 SQLite 读写，按账户一人一行。
 const initiativePool = require('./initiative-pool');
 
-function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, chatServer, holdemRoomServer, config, adminTracking }) {
+function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, accountAdmin, homePreferences, medicineStore, sceneMedia, holdemStore, siteStore, siteHosting, roomServer, chatServer, holdemRoomServer, unoRoomServer, config, adminTracking }) {
   function isAuthorizedForRequest(req, user, pathname) {
     const toolSlug = httpUtils.toolSlugForPath(pathname) || httpUtils.requiredToolForApi(pathname) || httpUtils.requiredToolForStaticAsset(pathname);
     return !toolSlug || auth.hasToolAccess(user, toolSlug);
@@ -373,6 +373,40 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
     if (pathname === '/api/holdem/rooms') {
       if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
       return httpUtils.sendJson(res, { rooms: holdemRoomServer.lobbyList() });
+    }
+
+    // UNO：规则裁定与对局同步全在 WebSocket 侧（/ws?uno=1），这里先只提供连通性自检，
+    // 用来确认「登录态 → uno 工具权限 → /api/uno/*」这条链路已经打通。
+    if (pathname === '/api/uno/ping') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      return httpUtils.sendJson(res, {
+        ok: true,
+        username: requestUser.username,
+        hasAccess: auth.hasToolAccess(requestUser, 'uno'),
+      });
+    }
+    // UNO 大厅：只暴露公共信息（房间号、人数、房规摘要），不含任何手牌。
+    if (pathname === '/api/uno/rooms') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      return httpUtils.sendJson(res, { rooms: unoRoomServer.lobbyList() });
+    }
+    // UNO 牌库目录：牌型、颜色、分类与房规说明（建房表单与「牌库一览」共用同一份数据）。
+    if (pathname === '/api/uno/catalog') {
+      if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
+      const catalog = unoRoomServer.catalog();
+      return httpUtils.sendJson(res, {
+        id: catalog.id,
+        name: catalog.name,
+        description: catalog.description,
+        colors: catalog.colors || [],
+        wildColor: catalog.wildColor || null,
+        categories: catalog.categories || [],
+        kinds: catalog.kinds || [],
+        houseRules: catalog.houseRules || [],
+        turnDefaults: catalog.turnDefaults || {},
+        thinkOptions: unoRoomServer.THINK_SECONDS,
+        limits: { minSeats: unoRoomServer.MIN_SEATS, maxSeats: unoRoomServer.MAX_SEATS },
+      });
     }
 
     // 刮刮乐：单人玩法，全部接口按账户隔离，写操作要求同源。

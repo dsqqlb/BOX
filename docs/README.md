@@ -25,6 +25,7 @@
 | JSON 星系 | `/tools/json-visualizer` | [json-visualizer.md](./json-visualizer.md) |
 | EDH 指挥官组卡台 | `/tools/edh-builder` | [edh-builder.md](./edh-builder.md) |
 | 德州扑克 | `/tools/texas-holdem` | [texas-holdem.md](./texas-holdem.md) |
+| UNO 联机牌桌 | `/tools/uno` | [uno.md](./uno.md) |
 | 静态站点挂载 | `/tools/static-sites` | [static-sites.md](./static-sites.md) |
 | 塔罗牌占卜 | `/tools/tarot-reading` | [tarot-reading.md](./tarot-reading.md) |
 | 省钱网页 | `/tools/savings-tracker` | [savings-tracker.md](./savings-tracker.md) |

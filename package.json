@@ -18,6 +18,9 @@
     "db:migrate-dnd-save": "npm --prefix code run db:migrate-dnd-save",
     "db:setup": "npm --prefix code run db:setup",
     "smoke:dnd-merge": "npm --prefix code run smoke:dnd-merge",
-    "smoke:dnd-sync": "npm --prefix code run smoke:dnd-sync"
+    "smoke:dnd-sync": "npm --prefix code run smoke:dnd-sync",
+    "smoke:uno-engine": "npm --prefix code run smoke:uno-engine",
+    "smoke:uno": "npm --prefix code run smoke:uno",
+    "smoke:uno-ui": "npm --prefix code run smoke:uno-ui"
   }
 }
