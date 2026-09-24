@@ -27,6 +27,7 @@ export default function CounterPanel({
       panelClassName="edh-panel edh-counter-panel"
       width={540}
       initialRotation={initialRotation}
+      persistKey={`counter-${player.seat}`}
       onBackdrop={onClose}
     >
       <div className="edh-panel-head">

@@ -10,7 +10,8 @@
  *   - 血量归零或中毒满 10 → 整块变灰 + 骷髅头
  *   - 中间一条窄缝隙：公共的设置 / 骰子 / 硬币 / 历史 / 计时（毛玻璃按钮 + 流光）
  *   - 骰子复用先攻主屏的 3D 引擎；硬币是金色「正 / 反」两面，投掷力度拉满
- *   - 数据：localStorage 立即保存 + SQLite 防抖同步（一条记录 = 一局对战，含时长）
+ *   - 数据：localStorage 立即保存 + SQLite 防抖同步（一个账户一条记录 = 当前这张桌子，含计时与掷骰历史）
+ *   - 没有存档系统：不开局、不结束、不读档，状态随时跟着账户走
  *
  * 移动端：禁用一切系统手势（捏合/双击/长按菜单/文本选择/下拉刷新），整页一屏显示不滚动。
  */
@@ -21,7 +22,7 @@ import SeatBlock from '@/components/edh-life/SeatBlock';
 import DiceOverlay, { type ActiveRoll } from '@/components/edh-life/DiceOverlay';
 import AmountPad, { type AmountPadRequest } from '@/components/edh-life/AmountPad';
 import ExpressionPad from '@/components/edh-life/ExpressionPad';
-import HistoryPanel, { ArchivePanel } from '@/components/edh-life/HistoryPanel';
+import HistoryPanel from '@/components/edh-life/HistoryPanel';
 import CounterPanel from '@/components/edh-life/CounterPanel';
 import RotatableModal from '@/components/edh-life/RotatableModal';
 import type { DiceRollRequest } from '@/components/dnd/DiceRoller';
@@ -32,11 +33,11 @@ import {
 import {
   COIN_NOTATION, COIN_ROLL_NOTATION, COUNTER_BY_KEY, DEFAULT_DICE_PRESETS, DEFAULT_STARTING_LIFE,
   MAX_DICE_PRESETS, MAX_PLAYERS, MIN_PLAYERS,
-  applyElimination, createGame, elapsedSeconds, formatDuration, newId, resizeGame, seatRotation,
+  applyElimination, createGame, createPlayer, elapsedSeconds, formatDuration, newId, resizeGame, seatRotation,
   type CounterKey, type GameState, type PlayerState, type RollRecord,
 } from '@/lib/edh-life/types';
 import {
-  GameSync, fetchGame, fetchRunningGame, loadCurrentGameId, loadGameLocal, saveGameLocal,
+  GameSync, fetchRunningGame, loadCurrentGameId, loadGameLocal, saveGameLocal,
   setCurrentGameId, type SyncStatus,
 } from '@/lib/edh-life/storage';
 import { prewarmCoinTextures } from '@/lib/edh-life/coin-textures';
@@ -45,11 +46,15 @@ const DICE_SCALE_KEY = 'edh-life-dice-scale';
 const PRESETS_KEY = 'edh-life-dice-presets';
 const MODAL_FONT_SCALE_KEY = 'edh-life-modal-font-scale';
 const MODAL_PANEL_SCALE_KEY = 'edh-life-modal-panel-scale';
+const ROTATE_SCALE_KEY = 'edh-life-rotate-icon-scale';
 const LIFE_DELTA_VISIBLE_MS = 5000;
 /** 先攻定完之后，「1st」这块牌子的高亮再多留一会儿，然后只留名次数字。 */
 const FIRST_HIGHLIGHT_MS = 2000;
 const DEFAULT_MODAL_FONT_SCALE = 1;
 const DEFAULT_MODAL_PANEL_SCALE = 1;
+const DEFAULT_ROTATE_SCALE = 1;
+const MIN_ROTATE_SCALE = 0.5;
+const MAX_ROTATE_SCALE = 2;
 
 function readNumberSetting(key: string, fallback: number): number {
   try {
@@ -83,15 +88,15 @@ export default function EdhLifePage() {
   const [historySeat, setHistorySeat] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [pendingMatchAction, setPendingMatchAction] = useState<'finish' | 'reset' | null>(null);
-  const [matchNotice, setMatchNotice] = useState('');
+  const [pendingReset, setPendingReset] = useState(false);
+  const [resetNotice, setResetNotice] = useState('');
   const [showDicePicker, setShowDicePicker] = useState(false);
   const [showExpressionPad, setShowExpressionPad] = useState(false);
-  const [showArchive, setShowArchive] = useState(false);
   const [diceError, setDiceError] = useState('');
   const [diceScale, setDiceScale] = useState(1);
   const [modalFontScale, setModalFontScale] = useState(DEFAULT_MODAL_FONT_SCALE);
   const [modalPanelScale, setModalPanelScale] = useState(DEFAULT_MODAL_PANEL_SCALE);
+  const [rotateScale, setRotateScale] = useState(DEFAULT_ROTATE_SCALE);
   const [presets, setPresets] = useState<string[]>(() => [...DEFAULT_DICE_PRESETS]);
 
   const [diceRequest, setDiceRequest] = useState<DiceRollRequest | null>(null);
@@ -114,13 +119,15 @@ export default function EdhLifePage() {
     setDiceScale(readNumberSetting(DICE_SCALE_KEY, 1));
     setModalFontScale(Math.min(1.4, Math.max(0.8, readNumberSetting(MODAL_FONT_SCALE_KEY, DEFAULT_MODAL_FONT_SCALE))));
     setModalPanelScale(Math.min(1.2, Math.max(0.8, readNumberSetting(MODAL_PANEL_SCALE_KEY, DEFAULT_MODAL_PANEL_SCALE))));
+    setRotateScale(Math.min(MAX_ROTATE_SCALE, Math.max(MIN_ROTATE_SCALE, readNumberSetting(ROTATE_SCALE_KEY, DEFAULT_ROTATE_SCALE))));
     setPresets(readPresets());
   }, []);
 
   useEffect(() => {
     document.documentElement.style.setProperty('--edh-modal-font-scale', String(modalFontScale));
     document.documentElement.style.setProperty('--edh-modal-panel-scale', String(modalPanelScale));
-  }, [modalFontScale, modalPanelScale]);
+    document.documentElement.style.setProperty('--edh-modal-rotate-scale', String(rotateScale));
+  }, [modalFontScale, modalPanelScale, rotateScale]);
 
   const updateDiceScale = useCallback((value: number) => {
     setDiceScale(value);
@@ -137,6 +144,12 @@ export default function EdhLifePage() {
     const next = Math.min(1.2, Math.max(0.8, value));
     setModalPanelScale(next);
     writeSetting(MODAL_PANEL_SCALE_KEY, String(next));
+  }, []);
+
+  const updateRotateScale = useCallback((value: number) => {
+    const next = Math.min(MAX_ROTATE_SCALE, Math.max(MIN_ROTATE_SCALE, value));
+    setRotateScale(next);
+    writeSetting(ROTATE_SCALE_KEY, String(next));
   }, []);
 
   const updatePresets = useCallback((next: string[]) => {
@@ -163,7 +176,7 @@ export default function EdhLifePage() {
           saveGameLocal(server);
           setCurrentGameId(server.id);
         }
-        syncRef.current?.setCreated(true);
+        syncRef.current?.setCreated(true, server.id);
         setSyncStatus('saved');
         return;
       }
@@ -458,24 +471,12 @@ export default function EdhLifePage() {
   const onRollComplete = useCallback((result: unknown, rollInfo: ActiveRoll, record: RollRecord) => {
     void result;
     void rollInfo;
-    setGame((current) => {
-      if (!current) return current;
-      const next = { ...current, rolls: [...current.rolls, record].slice(-200) };
-      void (async () => {
-        await syncRef.current?.flush();
-        await syncRef.current?.saveRoll(next, record);
-      })();
-      return next;
-    });
+    // 掷骰历史属于当前状态：改完由 state 走 localStorage 立即保存 + 防抖同步，不再单独写一份记录。
+    setGame((current) => (current ? { ...current, rolls: [...current.rolls, record].slice(-200) } : current));
   }, []);
 
-  /* ── 对局控制 ── */
-  const stopTimer = useCallback((state: GameState, now: number): GameState['timer'] => ({
-    base: state.timer.base + (state.timer.running ? Math.max(0, now - state.timer.startedAtMs) : 0),
-    running: false,
-    startedAtMs: now,
-  }), []);
-
+  /* ── 计时与桌面控制 ──
+     这套记血器没有存档、没有读档：状态随时跟着账户同步，按钮只负责计时和重置桌面。 */
   const toggleTimer = useCallback(() => {
     setGame((current) => {
       if (!current) return current;
@@ -502,95 +503,34 @@ export default function EdhLifePage() {
   }, []);
 
   /**
-   * 存档 = 一局完整对战（开始 → 结束）。
-   * 过程中只记录、不落"存档"；每次开始/结束才写库与本地缓存。
-   * 时长在结束时冻结，写入 stateJson 里的 timer.base 以及 durationSeconds。
+   * 重新开始对局：只把桌面放回开局状态。
+   *   - 每位玩家的血量回到起始值、六个计数器清零、出局状态解除（名字与配色保留）；
+   *   - 回合回到 1、掷骰历史清空；
+   *   - **计时不动**：中间缝隙里的计时是一个独立的小秒表，要停要走在那边点。
+   * 状态仍然写回同一条记录（id 不变），所以不会在数据库里多出任何"存档"。
    */
-  const archiveGame = useCallback((source: GameState): GameState => {
-    const now = Date.now();
-    const alive = source.players.filter((player) => !player.eliminated);
-    const finished: GameState = {
-      ...source,
-      status: 'finished',
-      endedAt: now,
-      winnerSeat: alive.length === 1 ? alive[0].seat : null,
-      timer: stopTimer(source, now),
-    };
-    const withDuration = { ...finished, durationSeconds: Math.floor(finished.timer.base / 1000) };
-    saveGameLocal(withDuration);
-    syncRef.current?.setCreated(true);
-    // 先把封存结果排队并立即触发同步，但界面不等网络返回。
-    syncRef.current?.queue(withDuration);
-    void syncRef.current?.flush();
-    return withDuration;
-  }, [stopTimer]);
-
-  /** 开始对局：没有进行中的对局时才允许，计时开始。 */
-  const startMatch = useCallback(() => {
+  const resetTable = useCallback(() => {
     setGame((current) => {
-      if (!current || current.status === 'running') return current;
-      const now = Date.now();
-      // 已经打过一局就开新的一局；否则把当前这局（刚开局、还没动过）直接开始
-      const base = current.durationSeconds > 0 || current.rolls.length > 0
-        ? createGame(current.players.length, current.startingLife)
-        : current;
-      syncRef.current?.setCreated(false);
-      return { ...base, status: 'running', endedAt: null, winnerSeat: null, timer: { base: base.durationSeconds * 1000, running: true, startedAtMs: now } };
+      if (!current) return current;
+      const players = current.players.map((player) => ({
+        ...createPlayer(player.seat, player.color, current.startingLife),
+        name: player.name,
+        color: player.color,
+      }));
+      return {
+        ...current,
+        round: 1,
+        status: 'running',
+        endedAt: null,
+        winnerSeat: null,
+        rolls: [],
+        players,
+      };
     });
     clearLifeDeltas();
     resetFirstDecision();
-  }, [clearLifeDeltas, resetFirstDecision]);
-
-  /** 结束对局：本机立即封存并停止计时，服务器在后台同步。 */
-  const finishMatch = useCallback(() => {
-    const current = game;
-    if (!current || current.status !== 'running') return false;
-    const archived = archiveGame(current);
-    setGame(archived);
-    setPendingMatchAction(null);
-    setMatchNotice('本局已结束并保存为存档，计时已停止。');
-    clearLifeDeltas();
-    resetFirstDecision();
-    return true;
-  }, [archiveGame, clearLifeDeltas, game, resetFirstDecision]);
-
-  /** 保存并重新开始：先封存进行中的对局，再立即开一局全新的。 */
-  const saveAndReset = useCallback(() => {
-    const current = game;
-    if (!current) return false;
-    const wasRunning = current.status === 'running';
-    if (wasRunning) archiveGame(current);
-    const fresh = createGame(current.players.length, current.startingLife);
-    syncRef.current?.setCreated(false);
-    setGame(fresh);
-    setPendingMatchAction(null);
-    setMatchNotice(wasRunning ? '本局已保存为存档，并已开始一局全新的对局。' : '已开始一局全新的对局。');
-    clearLifeDeltas();
-    resetFirstDecision();
-    return true;
-  }, [archiveGame, clearLifeDeltas, game, resetFirstDecision]);
-
-  /** 读档：把一条已封存的存档接着打（重新开始计时）。 */
-  const loadGame = useCallback(async (id: string, fromServer: boolean) => {
-    let target: GameState | null = null;
-    if (fromServer) target = await fetchGame(id);
-    if (!target) target = loadGameLocal(id);
-    if (!target) return;
-    const resumed: GameState = {
-      ...target,
-      status: 'running',
-      endedAt: null,
-      winnerSeat: null,
-      timer: { base: target.durationSeconds * 1000, running: true, startedAtMs: Date.now() },
-    };
-    saveGameLocal(resumed);
-    setCurrentGameId(resumed.id);
-    syncRef.current?.setCreated(fromServer);
-    setGame(resumed);
-    setShowArchive(false);
-    setShowSettings(false);
-    clearLifeDeltas();
-    resetFirstDecision();
+    setPendingReset(false);
+    setResetNotice('已重新开始：血量、计数器与掷骰历史都归零，计时继续。');
   }, [clearLifeDeltas, resetFirstDecision]);
 
   /* ── 调试接口：无头浏览器验证用 ── */
@@ -603,20 +543,19 @@ export default function EdhLifePage() {
       rollCoin,
       openAmountMenu,
       decideFirst,
-      startMatch,
-      finishMatch,
-      saveAndReset,
-      loadGame,
+      resetTable,
       rerollColors,
       toggleTimer,
       changeRound,
       updateDiceScale,
+      updateRotateScale,
       updatePresets,
       getDiceScale: () => diceScale,
+      getRotateScale: () => rotateScale,
       getPresets: () => presets,
       elapsed: () => (game ? elapsedSeconds(game, Date.now()) : 0),
     };
-  }, [changeCounter, changeLife, changeRound, decideFirst, diceScale, finishMatch, game, loadGame, openAmountMenu, presets, rerollColors, rollCoin, rollExpression, saveAndReset, startMatch, toggleTimer, updateDiceScale, updatePresets]);
+  }, [changeCounter, changeLife, changeRound, decideFirst, diceScale, game, openAmountMenu, presets, resetTable, rerollColors, rotateScale, rollCoin, rollExpression, toggleTimer, updateDiceScale, updatePresets, updateRotateScale]);
 
   const elapsed = game ? elapsedSeconds(game, clock) : 0;
   const seats = useMemo(() => (game ? game.players : []), [game]);
@@ -668,8 +607,8 @@ export default function EdhLifePage() {
             onDecideFirst={decideFirst}
             onOpenHistory={() => { setHistorySeat(null); setShowHistory(true); }}
             onOpenSettings={() => {
-              setPendingMatchAction(null);
-              setMatchNotice('');
+              setResetNotice('');
+              setPendingReset(false);
               setShowSettings(true);
             }}
             onToggleTimer={toggleTimer}
@@ -712,14 +651,6 @@ export default function EdhLifePage() {
         />
       )}
 
-      {showArchive && (
-        <ArchivePanel
-          initialRotation={nearRotation}
-          onLoad={(id, fromServer) => { void loadGame(id, fromServer); }}
-          onClose={() => setShowArchive(false)}
-        />
-      )}
-
       {showHistory && (
         <HistoryPanel
           game={game}
@@ -735,6 +666,7 @@ export default function EdhLifePage() {
           panelClassName="edh-panel edh-dice-panel"
           width={440}
           initialRotation={nearRotation}
+          persistKey="dice"
           onBackdrop={() => { setShowDicePicker(false); setDiceError(''); }}
         >
             <div className="edh-panel-head">
@@ -768,15 +700,16 @@ export default function EdhLifePage() {
       {showSettings && (
         <RotatableModal
           label="设置"
-          panelClassName={`edh-panel edh-settings-panel${game.status === 'running' ? ' is-live' : ''}`}
+          panelClassName="edh-panel edh-settings-panel"
           width={780}
           initialRotation={nearRotation}
+          persistKey="settings"
           scrollable
           onBackdrop={() => setShowSettings(false)}
         >
-            <div className="edh-panel-head" data-match={game.status}>
+            <div className="edh-panel-head">
               <span>设置</span>
-              <span className="edh-panel-sub">{game.status === 'running' ? '对局进行中' : '未开始'}</span>
+              <span className="edh-panel-sub">{game.timer.running ? '计时中' : '计时已暂停'}</span>
               <button type="button" className="edh-icon-btn" onPointerDown={(e) => { e.preventDefault(); setShowSettings(false); }} aria-label="关闭">✕</button>
             </div>
 
@@ -814,7 +747,7 @@ export default function EdhLifePage() {
                 <button type="button" className="edh-settings-chip" onPointerDown={(e) => { e.preventDefault(); toggleTimer(); }}>
                   {game.timer.running ? '暂停计时' : '继续计时'}
                 </button>
-                <span className="edh-settings-hint">本局时长 {formatDuration(elapsed)}</span>
+                <span className="edh-settings-hint">已计时 {formatDuration(elapsed)}</span>
               </div>
               <div className="edh-settings-row">
                 <span className="edh-settings-hint">回合</span>
@@ -854,7 +787,23 @@ export default function EdhLifePage() {
                 />
                 <span className="edh-slider-value" data-modal-panel-scale-value>{Math.round(modalPanelScale * 100)}%</span>
               </div>
-              <div className="edh-settings-hint">字号影响各弹窗文字，面板大小影响弹窗的横向排布。</div>
+              <div className="edh-slider-row">
+                <span className="edh-settings-hint">图标</span>
+                <input
+                  className="edh-slider"
+                  data-rotate-scale
+                  type="range"
+                  min="0.5"
+                  max="2"
+                  step="0.05"
+                  value={rotateScale}
+                  onChange={(e) => updateRotateScale(Number(e.target.value))}
+                />
+                <span className="edh-slider-value" data-rotate-scale-value>{Math.round(rotateScale * 100)}%</span>
+              </div>
+              <div className="edh-settings-hint">
+                「图标」调的是各弹窗右上角那个旋转按钮的大小，锚点固定在右上角（放大只往左下长）；字号影响弹窗文字，面板大小影响弹窗的横向排布。
+              </div>
             </div>
 
             <div className="edh-settings-section">
@@ -912,90 +861,43 @@ export default function EdhLifePage() {
             <div className="edh-settings-section">
               <div className="edh-settings-label">对局</div>
               <div className="edh-settings-row">
-                {game.status === 'running' ? (
-                  <button
-                    type="button"
-                    className="edh-settings-chip is-danger is-wide"
-                    data-finish-match
-                    disabled={pendingMatchAction !== null}
-                    onPointerDown={(e) => { e.preventDefault(); setMatchNotice(''); setPendingMatchAction('finish'); }}
-                  >结束对局</button>
-                ) : (
-                  <button
-                    type="button"
-                    className="edh-settings-chip is-primary is-wide"
-                    data-start-match
-                    disabled={pendingMatchAction !== null}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      setMatchNotice('');
-                      setPendingMatchAction(null);
-                      startMatch();
-                    }}
-                  >开始对局</button>
-                )}
                 <button
                   type="button"
-                  className={`edh-settings-chip is-wide${game.status === 'running' ? ' is-warning' : ''}`}
-                  data-save-reset
-                  disabled={pendingMatchAction !== null}
-                  onPointerDown={(e) => { e.preventDefault(); setMatchNotice(''); setPendingMatchAction('reset'); }}
-                >{game.status === 'running' ? '保存并重新开始' : '重新开始新对局'}</button>
+                  className="edh-settings-chip is-wide"
+                  data-reset-table
+                  disabled={pendingReset}
+                  onPointerDown={(e) => { e.preventDefault(); setResetNotice(''); setPendingReset(true); }}
+                >重新开始对局</button>
               </div>
 
-              {pendingMatchAction && (
-                <div className="edh-match-confirm" role="group" aria-label="确认对局操作">
+              {pendingReset && (
+                <div className="edh-match-confirm" role="group" aria-label="确认重新开始">
                   <div className="edh-match-confirm-text">
-                    {pendingMatchAction === 'finish'
-                      ? '确定结束本局？当前血量、计数器和时长会封存为存档，计时停止。'
-                      : game.status === 'running'
-                        ? '确定保存并重新开始？当前对局会封存，随后血量、计数器和时间全部归零。'
-                        : '确定重新开始？已结束的对局不会重复保存，新对局会立即开始记录。'}
+                    确定重新开始？所有玩家的血量与状态回到开局、掷骰历史清空；计时照常走，也不会产生任何存档。
                   </div>
                   <div className="edh-match-confirm-actions">
                     <button
                       type="button"
                       className="edh-settings-chip"
-                      data-match-action-cancel
-                      onPointerDown={(e) => { e.preventDefault(); setPendingMatchAction(null); }}
+                      data-reset-cancel
+                      onPointerDown={(e) => { e.preventDefault(); setPendingReset(false); }}
                     >取消</button>
                     <button
                       type="button"
-                      className={`edh-settings-chip${pendingMatchAction === 'finish' ? ' is-danger' : ' is-warning'}`}
-                      data-match-action-confirm
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        if (pendingMatchAction === 'finish') finishMatch();
-                        else saveAndReset();
-                      }}
-                    >{pendingMatchAction === 'finish' ? '确认结束' : '确认重新开始'}</button>
+                      className="edh-settings-chip is-warning"
+                      data-reset-confirm
+                      onPointerDown={(e) => { e.preventDefault(); resetTable(); }}
+                    >确认重新开始</button>
                   </div>
                 </div>
               )}
 
-              {matchNotice && <div className="edh-panel-note">{matchNotice}</div>}
+              {resetNotice && <div className="edh-panel-note">{resetNotice}</div>}
 
               <div className="edh-settings-hint">
-                {game.status === 'running'
-                  ? '对局进行中（面板外圈有红色流光）。「结束对局」只封存并停止计时，不会自动开新局。'
-                  : '当前没有进行中的对局，计时已暂停。「开始对局」会重新计时，或先「读档」接续一条旧存档。'}
-                <br />「保存并重新开始」= 封存当前这局 + 血量与计数器立即归零并开始新局。
+                血量、状态、计时与掷骰历史随账户实时同步；一个账户只有这一份当前状态，没有存档列表。
               </div>
             </div>
-
-            <div className="edh-settings-section">
-              <div className="edh-settings-label">存档</div>
-              <div className="edh-settings-row">
-                <button
-                  type="button"
-                  className="edh-settings-chip is-wide"
-                  data-open-archive
-                  onPointerDown={(e) => { e.preventDefault(); setShowArchive(true); }}
-                >查看 / 删除存档</button>
-              </div>
-              <div className="edh-settings-hint">一次开始到一次结束算一条存档，过程中只记录；可以读档继续或删除。</div>
-            </div>
-
             </div>
             </div>
 

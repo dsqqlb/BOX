@@ -99,6 +99,7 @@ export default function ExpressionPad({
       panelClassName="edh-panel edh-expression-panel"
       width={390}
       initialRotation={initialRotation}
+      persistKey="expression"
       onBackdrop={onClose}
     >
         <div className="edh-panel-head">

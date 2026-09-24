@@ -117,6 +117,7 @@ export default function AmountPad({ request, player, onCounterChange, onClose }:
       panelClassName={`edh-panel edh-amount-panel${withCounters ? ' is-wide' : ''}`}
       width={withCounters ? 860 : 390}
       initialRotation={request.initialRotation ?? 0}
+      persistKey={`amount-${request.seat ?? 'table'}`}
       layer={request.layer ?? 'base'}
       onBackdrop={onClose}
     >

@@ -173,7 +173,7 @@
   {
     "slug": "edh-life",
     "title": "万智牌 EDH 记血器",
-    "description": "2~4 人指挥官记血：2×2 中心对称面对面可读，点击 ±1 按住 2 秒 ±5，六种常用计数器，3D 骰子与硬币，对局与时长存 SQLite",
+    "description": "2~4 人指挥官记血：2×2 中心对称面对面可读，点击 ±1 按住 2 秒 ±5，六种常用计数器，3D 骰子与硬币，状态随账户实时同步（没有存档）",
     "category": "game",
     "tags": ["mtg", "edh", "commander", "life-counter", "dice", "table"],
     "icon": "🩸",

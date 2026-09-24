@@ -4,14 +4,14 @@
  * 两层：
  *   1. localStorage —— 立即生效的唯一运行时数据源。记血是"点一下就有结果"的操作，
  *      不能等网络；刷新页面也必须不丢。
- *   2. SQLite（/api/edh-life/*）—— 后台防抖同步，一条记录 = 一局对战，
- *      带时长与掷骰历史，供以后查看/恢复/统计。
+ *   2. SQLite（/api/edh-life/*）—— 后台防抖同步当前状态：一个账户只有一条记录，
+ *      内容就是"当前这张桌子"（血量、计数器、计时、掷骰历史），没有存档列表。
  *
  * 服务器不可用时（未登录、断网、接口报错）只降级为"仅本机保存"，
  * 绝不因为同步失败而丢掉本地这局。
  */
 
-import type { GameState, PlayerState, RollRecord } from './types';
+import type { GameState, PlayerState } from './types';
 import { COUNTER_KEYS, createGame, elapsedSeconds, newId } from './types';
 
 const STORAGE_KEY = 'edh-life-games';
@@ -97,15 +97,7 @@ export function loadGameLocal(id: string): GameState | null {
   return games[id] || null;
 }
 
-export function listGamesLocal(): GameState[] {
-  return Object.values(readGames()).sort((a, b) => b.startedAt - a.startedAt);
-}
 
-export function deleteGameLocal(id: string): void {
-  const games = readGames();
-  delete games[id];
-  writeGames(games);
-}
 
 /* ============================================================
    客户端状态 ↔ 服务器载荷
@@ -152,7 +144,7 @@ export function fromServerGame(serverGame: {
 }): GameState {
   if (serverGame.state && Array.isArray(serverGame.state.players) && serverGame.state.players.length) {
     // 快照里的 id/时间可能与服务器行不一致，以服务器行为准补齐。
-    // 另外：离开页面会暂停计时，所以恢复时一律按"暂停"状态回来（由「开始对局」继续）。
+    // 另外：离开页面会暂停计时，所以恢复时一律按"暂停"状态回来（由中间缝隙的计时按钮继续）。
     return {
       ...serverGame.state,
       id: serverGame.id,
@@ -217,23 +209,6 @@ interface ServerGameResponse {
   game: Parameters<typeof fromServerGame>[0] | null;
 }
 
-/** 历史列表用的摘要（服务器返回的形状 + 本机来源标记）。 */
-export interface GameSummary {
-  id: string;
-  title: string;
-  playerCount: number;
-  startingLife: number;
-  round: number;
-  status: string;
-  winnerSeat: number | null;
-  startedAt: string;
-  endedAt: string | null;
-  durationSeconds: number;
-  updatedAt: string;
-  players: ServerPlayerPayload[];
-  /** true 表示这条来自服务器（读档会先去服务器取详情） */
-  fromServer?: boolean;
-}
 
 export async function fetchRunningGame(): Promise<GameState | null> {
   const data = await request<ServerGameResponse>('/api/edh-life/games/running');
@@ -245,45 +220,26 @@ export async function fetchRunningGame(): Promise<GameState | null> {
   }
 }
 
-/** 历史列表（服务器）。服务器不可用时返回 null，由调用方决定怎么提示。 */
-export async function fetchGames(options: { onlyFinished?: boolean } = {}): Promise<GameSummary[] | null> {
-  const data = await request<{ games?: GameSummary[] }>('/api/edh-life/games');
-  if (!data || !Array.isArray(data.games)) return null;
-  const list = data.games.map((entry) => ({ ...entry, fromServer: true }));
-  // 存档 = 已经结束的对局；正在进行的对局单独用于"继续上一局"
-  return options.onlyFinished ? list.filter((entry) => entry.status === 'finished') : list;
-}
 
-/** 删除一局（本机 + 服务器）。服务器删不掉也至少把本机那份清掉。 */
-export async function deleteGame(id: string): Promise<boolean> {
-  deleteGameLocal(id);
-  if (loadCurrentGameId() === id) setCurrentGameId(null);
-  const data = await request<{ success?: boolean }>(`/api/edh-life/games/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  return Boolean(data?.success);
-}
 
-/** 单局详情（含完整快照），用于读档。 */
-export async function fetchGame(id: string): Promise<GameState | null> {
-  const data = await request<ServerGameResponse>(`/api/edh-life/games/${encodeURIComponent(id)}`);
-  if (!data?.game) return null;
-  try {
-    return fromServerGame(data.game);
-  } catch {
-    return null;
-  }
-}
 
-export async function createGameOnServer(state: GameState): Promise<boolean> {
+/** 建这条当前状态记录。返回服务器上的记录 id（之后一直用它，不再建第二条）。 */
+export async function createGameOnServer(state: GameState): Promise<string | null> {
   const data = await request<ServerGameResponse>('/api/edh-life/games', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(gamePayload(state, true)),
   });
-  return Boolean(data?.game);
+  return data?.game?.id ?? null;
 }
 
-export async function updateGameOnServer(state: GameState): Promise<boolean> {
-  const data = await request<ServerGameResponse>(`/api/edh-life/games/${encodeURIComponent(state.id)}`, {
+/**
+ * 把状态写回服务器上的那条记录。
+ * ⚠️ 必须用服务器返回的 id：本机状态的 id（game_xxx）和数据库里的 id 不是同一个，
+ * 用错 id 会 404，然后一路退化成反复 POST，一个账户就会堆出多条记录。
+ */
+export async function updateGameOnServer(serverId: string, state: GameState): Promise<boolean> {
+  const data = await request<ServerGameResponse>(`/api/edh-life/games/${encodeURIComponent(serverId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(gamePayload(state, false)),
@@ -291,21 +247,6 @@ export async function updateGameOnServer(state: GameState): Promise<boolean> {
   return Boolean(data?.game);
 }
 
-export async function pushRoll(state: GameState, roll: RollRecord): Promise<boolean> {
-  const data = await request<{ roll: unknown }>(`/api/edh-life/games/${encodeURIComponent(state.id)}/rolls`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      at: new Date(roll.at).toISOString(),
-      source: roll.source,
-      notation: roll.notation,
-      total: roll.total,
-      seat: roll.seat,
-      detail: { values: roll.values, coinFace: roll.coinFace ?? null },
-    }),
-  });
-  return Boolean(data?.roll);
-}
 
 function gamePayload(state: GameState, isCreate: boolean): Record<string, unknown> {
   const payload: Record<string, unknown> = {
@@ -335,6 +276,8 @@ export class GameSync {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pending: GameState | null = null;
   private createdOnServer = false;
+  /** 服务器上的记录 id：本机状态 id 与它不是同一个，写回时必须用这个。 */
+  private serverId: string | null = null;
   private inFlight = false;
   private lastError = false;
 
@@ -343,12 +286,15 @@ export class GameSync {
     private readonly debounceMs = 700,
   ) {}
 
-  markCreated(): void {
+  /** 页面加载时已经从服务器拿到记录：记下它的 id，后续都写回同一条。 */
+  markCreated(serverId?: string): void {
     this.createdOnServer = true;
+    if (serverId) this.serverId = serverId;
   }
 
-  setCreated(value: boolean): void {
+  setCreated(value: boolean, serverId?: string): void {
     this.createdOnServer = value;
+    this.serverId = value ? (serverId ?? this.serverId) : null;
   }
 
   get isCreated(): boolean {
@@ -373,10 +319,15 @@ export class GameSync {
     this.inFlight = true;
     this.onStatus('saving');
     try {
-      let ok = this.createdOnServer ? await updateGameOnServer(state) : await createGameOnServer(state);
-      if (!ok && this.createdOnServer) {
-        // 记录可能被删掉了：重建而不是静默丢失
-        ok = await createGameOnServer(state);
+      let ok = false;
+      if (this.createdOnServer && this.serverId) ok = await updateGameOnServer(this.serverId, state);
+      if (!ok) {
+        // 第一次写，或那条记录已经不在了：POST 建/更新（服务器保证一个账户只有一条）。
+        const createdId = await createGameOnServer(state);
+        if (createdId) {
+          this.serverId = createdId;
+          ok = true;
+        }
       }
       if (ok) {
         this.createdOnServer = true;
@@ -396,12 +347,6 @@ export class GameSync {
     }
   }
 
-  /** 掷骰要立刻落库（历史面板依赖它），所以不等防抖。 */
-  async saveRoll(state: GameState, roll: RollRecord): Promise<void> {
-    if (!this.createdOnServer) await this.flush();
-    const ok = await pushRoll(state, roll);
-    if (!ok) this.onStatus('offline');
-  }
 }
 
 export function makeRollId(): string {

@@ -16,6 +16,11 @@ interface RotatableModalProps {
   panelClassName?: string;
   width?: number;
   initialRotation?: number;
+  /**
+   * 记住这个弹窗上次退出时的方向：同一个 key 的弹窗下次打开会恢复上次转到的角度。
+   * 不传则每次都按 initialRotation 打开。
+   */
+  persistKey?: string;
   layer?: 'base' | 'archive' | 'confirm';
   role?: 'dialog' | 'alertdialog';
   /** 内容多的弹窗（如设置页）按真实尺寸渲染，超出部分交给面板内部滚动。 */
@@ -27,9 +32,25 @@ interface RotatableModalProps {
 const COMPACT_MEDIA_QUERY = '(max-width: 720px), (max-height: 620px)';
 /** 与 .edh-rotatable-card 的 transform transition 时长保持一致。 */
 const ROTATION_MS = 300;
+/** 方向记忆的 localStorage 前缀。 */
+const ROTATION_STORAGE_PREFIX = 'edh-life-modal-rotation:';
 
 function normalizeRotation(value: number): number {
   return ((Math.round(value / 90) * 90) % 360 + 360) % 360;
+}
+
+function readStoredRotation(key: string): number | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(ROTATION_STORAGE_PREFIX + key);
+    const parsed = raw === null ? NaN : Number(raw);
+    return Number.isFinite(parsed) ? normalizeRotation(parsed) : null;
+  } catch { return null; }
+}
+
+function writeStoredRotation(key: string, value: number): void {
+  if (typeof window === 'undefined') return;
+  try { window.localStorage.setItem(ROTATION_STORAGE_PREFIX + key, String(normalizeRotation(value))); } catch { /* 忽略 */ }
 }
 
 /**
@@ -43,13 +64,19 @@ export default function RotatableModal({
   panelClassName = 'edh-panel',
   width = 420,
   initialRotation = 0,
+  persistKey,
   layer = 'base',
   role = 'dialog',
   scrollable = false,
   onBackdrop,
 }: RotatableModalProps) {
   // 角度只累加，不在 360° 归零；归零那一帧会让卡片正过来后又抽一下。
-  const [rotation, setRotation] = useState(() => normalizeRotation(initialRotation));
+  // 有 persistKey 时优先用上次退出时的方向，找不到才退回 initialRotation（通常是座位朝向）。
+  const storedRotationRef = useRef<number | null | undefined>(undefined);
+  if (storedRotationRef.current === undefined) {
+    storedRotationRef.current = persistKey ? readStoredRotation(persistKey) : null;
+  }
+  const [rotation, setRotation] = useState(() => normalizeRotation(storedRotationRef.current ?? initialRotation));
   const [scale, setScale] = useState(1);
   const [rotating, setRotating] = useState(false);
   const [isCompact, setIsCompact] = useState(false);
@@ -60,6 +87,8 @@ export default function RotatableModal({
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
+    // 已经从本机读到过方向的弹窗不再跟随 initialRotation，否则座位默认朝向会覆盖用户自己的选择。
+    if (storedRotationRef.current !== null && storedRotationRef.current !== undefined) return;
     setRotation(normalizeRotation(initialRotation));
   }, [initialRotation]);
 
@@ -147,7 +176,11 @@ export default function RotatableModal({
 
   const rotateByHalfTurn = () => {
     setRotating(true);
-    setRotation((current) => current + 180);
+    setRotation((current) => {
+      const next = current + 180;
+      if (persistKey) writeStoredRotation(persistKey, next);
+      return next;
+    });
     if (rotateTimerRef.current !== null) clearTimeout(rotateTimerRef.current);
     // 兜底：transitionend 在极端情况下可能不到（例如标签页被挂起），
     // 那样会永远不再拟合尺寸，所以这里再补一个定时器。

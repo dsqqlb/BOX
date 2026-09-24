@@ -3,11 +3,10 @@
 /**
  * EDH 指挥官记血器的 SQLite 读写。
  *
- * 一局对战 = 一条 EdhLifeGame 记录（含时长与完整快照 stateJson），
- * 座位（EdhLifePlayer）与掷骰（EdhLifeRoll）各自成行：
- *   - 座位行便于按颜色/血量做统计与历史列表展示；
- *   - 掷骰行让「历史掷骰」面板可以只查最近 N 条，不必解析整包快照；
- *   - stateJson 保留完整状态（含计时器、回合、胜负），刷新后可原样恢复。
+ * 一个账户 = 一条 EdhLifeGame 记录，内容就是「当前这张桌子」的完整快照 stateJson：
+ *   - 没有存档、没有读档：状态随时被客户端防抖 PATCH 回来，刷新/换设备后原样恢复；
+ *   - 座位（EdhLifePlayer）另外成行，便于按颜色/血量做统计；
+ *   - EdhLifeRoll 是历史遗留表，新版本不再写入（掷骰历史改为存在快照里）。
  *
  * 所有查询都以 owner.username 为边界，账户之间互相看不见。
  */
@@ -17,7 +16,6 @@ const { prisma } = require('./db');
 const MAX_PLAYERS = 4;
 const MAX_TITLE_LENGTH = 60;
 const MAX_NAME_LENGTH = 24;
-const MAX_ROLLS_PER_GAME = 500;
 const COUNTER_KEYS = ['poison', 'energy', 'treasure', 'clue', 'food', 'experience'];
 
 class EdhLifeError extends Error {
@@ -90,18 +88,6 @@ function toDetail(game) {
   return { ...toSummary(game), state: parseJson(game.stateJson, null) };
 }
 
-function toRoll(row) {
-  return {
-    id: row.id,
-    at: row.at.toISOString(),
-    source: row.source,
-    notation: row.notation,
-    total: row.total,
-    seat: row.seat,
-    detail: parseJson(row.detailJson, null),
-  };
-}
-
 /** 客户端可能提交任意结构，这里收敛成可安全落库的形状。 */
 function sanitizePlayers(raw) {
   if (!Array.isArray(raw)) return [];
@@ -141,18 +127,9 @@ function sanitizeState(raw) {
   }
 }
 
-async function listGames(username, limit = 50) {
-  const games = await prisma.edhLifeGame.findMany({
-    where: { owner: { username } },
-    include: { players: { orderBy: { seat: 'asc' } } },
-    orderBy: { startedAt: 'desc' },
-    take: clampInt(limit, 1, 200, 50),
-  });
-  return games.map(toSummary);
-}
 
-/** 未结束的最新一局：页面加载时用它恢复上次中断的对局。 */
-async function getRunningGame(username) {
+/** 当前状态：页面加载时恢复这张桌子（一个账户只有这一条记录）。 */
+async function getCurrentGame(username) {
   const game = await prisma.edhLifeGame.findFirst({
     where: { owner: { username }, status: 'running' },
     include: { players: { orderBy: { seat: 'asc' } } },
@@ -161,15 +138,18 @@ async function getRunningGame(username) {
   return game ? toDetail(game) : null;
 }
 
-async function getGame(username, id) {
-  const game = await prisma.edhLifeGame.findFirst({
-    where: { id, owner: { username } },
-    include: { players: { orderBy: { seat: 'asc' } } },
-  });
-  return game ? toDetail(game) : null;
-}
 
 async function createGame(username, payload) {
+  // 一个账户只允许一条「当前状态」记录：已经有记录时直接改那条。
+  // 客户端第一次同步时本机 id 与数据库 id 不同，容易出现"PATCH 404 → 再 POST"，
+  // 这里兜住它，避免一个账户堆出多条记录（也就等于没有存档系统了）。
+  const existing = await prisma.edhLifeGame.findFirst({
+    where: { owner: { username } },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true },
+  });
+  if (existing) return updateGame(username, existing.id, payload);
+
   const players = sanitizePlayers(payload?.players);
   if (!players.length) throw new EdhLifeError(400, '至少需要一个座位。');
   if (players.length > MAX_PLAYERS) throw new EdhLifeError(400, `最多 ${MAX_PLAYERS} 个座位。`);
@@ -239,63 +219,13 @@ async function updateGame(username, id, payload) {
   return toDetail(updated);
 }
 
-async function deleteGame(username, id) {
-  const result = await prisma.edhLifeGame.deleteMany({ where: { id, owner: { username } } });
-  return result.count > 0;
-}
 
-async function listRolls(username, gameId, limit = 50) {
-  const game = await prisma.edhLifeGame.findFirst({ where: { id: gameId, owner: { username } }, select: { id: true } });
-  if (!game) return null;
-  const rolls = await prisma.edhLifeRoll.findMany({
-    where: { gameId },
-    orderBy: { at: 'desc' },
-    take: clampInt(limit, 1, MAX_ROLLS_PER_GAME, 50),
-  });
-  return rolls.map(toRoll);
-}
 
-async function addRoll(username, gameId, payload) {
-  const game = await prisma.edhLifeGame.findFirst({ where: { id: gameId, owner: { username } }, select: { id: true } });
-  if (!game) return null;
-  const source = payload?.source === 'coin' ? 'coin' : 'dice';
-  const notation = asString(payload?.notation, 80, '');
-  if (!notation) throw new EdhLifeError(400, '缺少骰式。');
-  const at = payload?.at ? new Date(payload.at) : new Date();
-
-  const created = await prisma.edhLifeRoll.create({
-    data: {
-      gameId,
-      at: Number.isNaN(at.getTime()) ? new Date() : at,
-      source,
-      notation,
-      total: clampInt(payload?.total, -99999, 99999, 0),
-      seat: payload?.seat === null || payload?.seat === undefined ? null : clampInt(payload.seat, 0, MAX_PLAYERS - 1, null),
-      detailJson: JSON.stringify(payload?.detail ?? null).slice(0, 64 * 1024),
-    },
-  });
-
-  // 只保留最近 N 条，避免一局长跑把库撑大。
-  const extra = await prisma.edhLifeRoll.findMany({
-    where: { gameId },
-    orderBy: { at: 'desc' },
-    skip: MAX_ROLLS_PER_GAME,
-    select: { id: true },
-  });
-  if (extra.length) await prisma.edhLifeRoll.deleteMany({ where: { id: { in: extra.map((row) => row.id) } } });
-
-  return toRoll(created);
-}
 
 module.exports = {
   EdhLifeError,
   MAX_PLAYERS,
-  listGames,
-  getRunningGame,
-  getGame,
+  getCurrentGame,
   createGame,
   updateGame,
-  deleteGame,
-  listRolls,
-  addRoll,
 };

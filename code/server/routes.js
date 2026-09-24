@@ -215,66 +215,36 @@ function createRequestHandler({ auth, userData, edhDecks, carcassonneSaves, acco
       }
     }
 
-    // EDH 指挥官记血器：一局对战一条记录（含时长与完整快照），座位与掷骰各自成行。
-    // 全部接口按账户隔离，写操作要求同源请求。
+    // EDH 指挥官记血器：一个账户一条「当前状态」记录（含完整快照 stateJson 与座位行）。
+    // 没有存档列表/读档/删除接口；全部按账户隔离，写操作要求同源请求。
     if (pathname === '/api/edh-life/games' || pathname.startsWith('/api/edh-life/games/')) {
       const rest = pathname.slice('/api/edh-life/games'.length).replace(/^\/+/, '');
       const segments = rest ? rest.split('/') : [];
       try {
-        // 未结束的最新一局：页面加载时恢复上次中断的对局。
-        // 必须排在 :id 之前，否则 "running" 会被当成一局对战的 id。
+        // 未结束的最新一条 = 这个账户的「当前状态」。必须排在 :id 之前，
+        // 否则 "running" 会被当成对局 id。
         if (segments.length === 1 && segments[0] === 'running') {
           if (req.method !== 'GET') return httpUtils.sendAuthError(res, 405, '只支持 GET。');
-          return httpUtils.sendJson(res, { game: await edhLife.getRunningGame(requestUser.username) });
+          return httpUtils.sendJson(res, { game: await edhLife.getCurrentGame(requestUser.username) });
         }
 
         if (!segments.length) {
-          if (req.method === 'GET') return httpUtils.sendJson(res, { games: await edhLife.listGames(requestUser.username) });
-          if (req.method === 'POST') {
-            if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
-            const body = await httpUtils.readBody(req);
-            if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
-            return httpUtils.sendJson(res, { game: await edhLife.createGame(requestUser.username, body) }, 201);
-          }
-          return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+          // 只在第一次使用时建一条记录；此后所有改动都 PATCH 同一条，不会再出现第二条。
+          if (req.method !== 'POST') return httpUtils.sendAuthError(res, 405, '只支持 POST。');
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+          return httpUtils.sendJson(res, { game: await edhLife.createGame(requestUser.username, body) }, 201);
         }
 
         if (segments.length === 1) {
           const gameId = segments[0];
-          if (req.method === 'GET') {
-            const game = await edhLife.getGame(requestUser.username, gameId);
-            return game ? httpUtils.sendJson(res, { game }) : httpUtils.sendAuthError(res, 404, '对局不存在。');
-          }
-          if (req.method === 'PATCH') {
-            if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
-            const body = await httpUtils.readBody(req);
-            if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
-            const game = await edhLife.updateGame(requestUser.username, gameId, body);
-            return game ? httpUtils.sendJson(res, { game }) : httpUtils.sendAuthError(res, 404, '对局不存在。');
-          }
-          if (req.method === 'DELETE') {
-            if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
-            if (!(await edhLife.deleteGame(requestUser.username, gameId))) return httpUtils.sendAuthError(res, 404, '对局不存在。');
-            return httpUtils.sendJson(res, { success: true });
-          }
-          return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
-        }
-
-        // 掷骰历史：写一条 / 读最近 N 条
-        if (segments.length === 2 && segments[1] === 'rolls') {
-          const gameId = segments[0];
-          if (req.method === 'GET') {
-            const rolls = await edhLife.listRolls(requestUser.username, gameId);
-            return rolls ? httpUtils.sendJson(res, { rolls }) : httpUtils.sendAuthError(res, 404, '对局不存在。');
-          }
-          if (req.method === 'POST') {
-            if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
-            const body = await httpUtils.readBody(req);
-            if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
-            const roll = await edhLife.addRoll(requestUser.username, gameId, body);
-            return roll ? httpUtils.sendJson(res, { roll }, 201) : httpUtils.sendAuthError(res, 404, '对局不存在。');
-          }
-          return httpUtils.sendAuthError(res, 405, '不支持的请求方法。');
+          if (req.method !== 'PATCH') return httpUtils.sendAuthError(res, 405, '只支持 PATCH。');
+          if (!httpUtils.isSameOrigin(req)) return httpUtils.sendAuthError(res, 403, '请求来源无效。');
+          const body = await httpUtils.readBody(req);
+          if (!body || typeof body !== 'object') return httpUtils.sendAuthError(res, 400, '请求体无效。');
+          const game = await edhLife.updateGame(requestUser.username, gameId, body);
+          return game ? httpUtils.sendJson(res, { game }) : httpUtils.sendAuthError(res, 404, '状态不存在。');
         }
 
         return httpUtils.sendAuthError(res, 404, '接口不存在。');
